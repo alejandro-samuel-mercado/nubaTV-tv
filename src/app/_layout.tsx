@@ -1,8 +1,12 @@
 import React, { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { GlobalProvider, useGlobal } from '../contexts/GlobalContext';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, LogBox } from 'react-native';
 import '../../global.css';
+
+LogBox.ignoreLogs([
+  'The fetching process for the media resource was aborted',
+]);
 
 function RootLayoutNav() {
   const { token, loading } = useGlobal();
@@ -34,8 +38,8 @@ function RootLayoutNav() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(auth)" />
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#080808' } }}>
+      <Stack.Screen name="(auth)/login" />
       <Stack.Screen name="(tv)" />
     </Stack>
   );

@@ -1,84 +1,265 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
-import { Slot, useRouter, usePathname } from 'expo-router';
-import { Home, Compass, Heart, LogOut, User as UserIcon } from 'lucide-react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Platform, Image } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Stack, usePathname, useRouter } from 'expo-router';
 import { useGlobal } from '../../contexts/GlobalContext';
+import { scale } from '../../lib/scale';
+import { C } from '../../lib/tvColors';
+import { Home, Compass, Heart, User, Search } from 'lucide-react-native';
 
+// ── Nav Items ────────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { name: 'index', label: 'Inicio', icon: Home, path: '/(tv)' },
-  { name: 'explore', label: 'Explorar', icon: Compass, path: '/(tv)/explore' },
-  { name: 'favorites', label: 'Favoritos', icon: Heart, path: '/(tv)/favorites' },
-  { name: 'profile', label: 'Perfil', icon: UserIcon, path: '/(tv)/profile' },
+  { key: 'home',      label: 'Inicio',    icon: Home,    route: '/(tv)' },
+  { key: 'explore',   label: 'Explorar', icon: Search, route: '/(tv)/explore' },
+  { key: 'favorites', label: 'Favoritos', icon: Heart,   route: '/(tv)/favorites' },
 ];
 
-export default function TvLayout() {
+// ── NavButton ────────────────────────────────────────────────────────────────
+function NavButton({
+  item,
+  isActive,
+}: {
+  item: (typeof NAV_ITEMS)[0];
+  isActive: boolean;
+}) {
   const router = useRouter();
-  const pathname = usePathname();
-  const { logout } = useGlobal();
-  const [isSidebarFocused, setIsSidebarFocused] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const Icon = item.icon;
+
+  const active = isActive || focused;
 
   return (
-    <View className="flex-1 bg-[#02050a] flex-row">
-      {/* Sidebar Navigation */}
-      <View 
-        className={`h-full bg-black/60 border-r border-white/5 py-10 transition-all ${isSidebarFocused ? 'w-64 px-6' : 'w-24 px-0 items-center'} `}
-      >
-        <View className="mb-12 items-center">
-          <Text className="text-2xl font-black text-white">
-            {isSidebarFocused ? (
-              <>Nuba<Text className="text-cyan-500">TV</Text></>
-            ) : (
-              <Text className="text-cyan-500">N</Text>
-            )}
-          </Text>
-        </View>
+    <Pressable
+      focusable
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onPress={() => router.push(item.route as any)}
+      style={[
+        s.navBtn,
+        active && s.navBtnActive,
+        focused && s.navBtnFocused,
+      ]}
+    >
+      <Icon
+        size={scale(20)}
+        color={focused ? '#000' : isActive ? C.accentLight : C.textSecondary}
+        strokeWidth={isActive || focused ? 2.5 : 1.8}
+      />
+      <Text style={[
+        s.navBtnLabel,
+        isActive && s.navBtnLabelActive,
+        focused && s.navBtnLabelFocused,
+      ]}>
+        {item.label}
+      </Text>
+    </Pressable>
+  );
+}
 
-        <View className="flex-1 space-y-4">
-          {NAV_ITEMS.map((item) => {
-            const isActive = pathname === item.path;
-            const Icon = item.icon;
-            
-            return (
-              <TouchableOpacity
-                key={item.name}
-                onPress={() => router.replace(item.path as any)}
-                onFocus={() => setIsSidebarFocused(true)}
-                onBlur={() => setIsSidebarFocused(false)}
-                className={`py-4 rounded-2xl flex-row items-center justify-center focus:bg-cyan-500/20 focus:border-cyan-500 focus:border-2 ${isActive ? 'bg-white/10' : ''}`}
-                style={isSidebarFocused ? { paddingHorizontal: 16, justifyContent: 'flex-start' } : {}}
-              >
-                <Icon color={isActive ? '#22d3ee' : 'rgba(255,255,255,0.4)'} size={28} />
-                {isSidebarFocused && (
-                  <Text className={`ml-4 font-bold text-lg ${isActive ? 'text-white' : 'text-white/40'}`}>
-                    {item.label}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+// ── Layout ───────────────────────────────────────────────────────────────────
+export default function TVLayout() {
+  const { loading, user } = useGlobal();
+  const pathname = usePathname();
+  const router = useRouter();
+  const isPlayerScreen = pathname.includes('/player');
 
-        <TouchableOpacity
-          onPress={logout}
-          onFocus={() => setIsSidebarFocused(true)}
-          onBlur={() => setIsSidebarFocused(false)}
-          className="py-4 rounded-2xl flex-row items-center justify-center focus:bg-red-500/20 focus:border-red-500 focus:border-2"
-          style={isSidebarFocused ? { paddingHorizontal: 16, justifyContent: 'flex-start' } : {}}
-        >
-          <LogOut color="rgba(255,255,255,0.4)" size={28} />
-          {isSidebarFocused && (
-            <Text className="ml-4 font-bold text-lg text-white/40">Salir</Text>
-          )}
-        </TouchableOpacity>
+  if (loading) {
+    return (
+      <View style={[s.root, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={C.accent} />
       </View>
+    );
+  }
 
-      {/* Main Content Area */}
-      <View className="flex-1 overflow-hidden relative">
-        {/* Subtle Background Glow */}
-        <View className="absolute -top-1/4 -right-1/4 w-1/2 h-1/2 bg-cyan-500/10 rounded-full blur-[100px] pointer-events-none" />
-        
-        <Slot />
+  const getIsActive = (item: (typeof NAV_ITEMS)[0]) =>
+    pathname === item.route || pathname === item.route + '/';
+
+  return (
+    <View style={s.root}>
+      {/* ── Background Glow (Web Style) ── */}
+
+      {/* ── Top Navigation Bar ── */}
+      {!isPlayerScreen && (
+        <View style={s.topBarContainer}>
+          <View style={s.topBar}>
+            {/* Brand */}
+            <Text style={s.brand}>
+              Nuba<Text style={s.brandAccent}>TV</Text>
+            </Text>
+
+            {/* Nav Items */}
+            <View style={s.navItems}>
+              {NAV_ITEMS.map(item => (
+                <NavButton
+                  key={item.key}
+                  item={item}
+                  isActive={getIsActive(item)}
+                />
+              ))}
+            </View>
+
+            {/* User Profile */}
+            <Pressable
+              focusable
+              onPress={() => router.push('/(tv)/profile')}
+              style={({ focused }) => [
+                s.userBadge,
+                focused && s.userBadgeFocused
+              ]}
+            >
+              {({ focused }) => (
+                <>
+                  <View style={[s.userAvatar, focused && s.userAvatarFocused]}>
+                    <User size={scale(16)} color={focused ? '#000' : '#fff'} strokeWidth={2.5} />
+                  </View>
+                  <Text style={[s.userName, focused && s.userNameFocused]}>
+                    {loading ? 'Cargando...' : (user?.username || 'Invitado')}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {/* ── Screen Content ── */}
+      <View style={isPlayerScreen ? { flex: 1 } : s.content}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: '#080808' },
+            animation: 'none',
+          }}
+        >
+          <Stack.Screen name="index" />
+          <Stack.Screen name="explore" />
+          <Stack.Screen name="favorites" />
+          <Stack.Screen name="profile" />
+        </Stack>
       </View>
     </View>
   );
 }
+
+// ── Styles ───────────────────────────────────────────────────────────────────
+const BAR_HEIGHT = scale(72);
+
+const s = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: C.bgBase,
+  },
+
+  // ── Top Bar ──
+  topBarContainer: {
+    paddingTop: scale(24),
+    paddingHorizontal: scale(48),
+    paddingBottom: scale(16),
+    backgroundColor: C.bgBase,
+    zIndex: 100,
+  },
+  topBar: {
+    height: scale(64),
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: scale(28),
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: scale(32),
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+
+  brand: {
+    fontSize: scale(26),
+    fontWeight: '900',
+    color: C.textPrimary,
+    letterSpacing: -0.5,
+    marginRight: scale(56),
+  },
+  brandAccent: {
+    color: C.accent,
+  },
+
+  navItems: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+  },
+
+  navBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+    paddingVertical: scale(8),
+    paddingHorizontal: scale(20),
+    borderRadius: scale(20),
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  navBtnActive: {
+    backgroundColor: 'rgba(217, 119, 6, 0.12)',
+    borderColor: C.accentBorder,
+  },
+  navBtnFocused: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+
+  navBtnLabel: {
+    fontSize: scale(15),
+    fontWeight: '700',
+    color: C.textSecondary,
+    letterSpacing: 0.2,
+  },
+  navBtnLabelActive: {
+    color: C.accentLight,
+  },
+  navBtnLabelFocused: {
+    color: '#000',
+  },
+
+  userBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingVertical: scale(6),
+    paddingHorizontal: scale(16),
+    paddingLeft: scale(8),
+    borderRadius: scale(24),
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  userBadgeFocused: {
+    backgroundColor: C.accentLight,
+    borderColor: C.accentLight,
+    transform: [{ scale: 1.05 }],
+  },
+  userAvatar: {
+    width: scale(28),
+    height: scale(28),
+    borderRadius: scale(14),
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userAvatarFocused: {
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  userName: {
+    fontSize: scale(14),
+    fontWeight: '700',
+    color: C.textPrimary,
+    letterSpacing: 0.5,
+  },
+  userNameFocused: {
+    color: '#000',
+  },
+
+  // ── Content below top bar ──
+  content: {
+    flex: 1,
+    marginTop: 0,
+  },
+});

@@ -1,6 +1,32 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
+
+const safeSetItem = async (key: string, value: string) => {
+  if (Platform.OS === 'web') {
+    localStorage.setItem(key, value);
+  } else {
+    await SecureStore.setItemAsync(key, value);
+  }
+};
+
+const safeGetItem = async (key: string) => {
+  if (Platform.OS === 'web') {
+    return localStorage.getItem(key);
+  } else {
+    return await SecureStore.getItemAsync(key);
+  }
+};
+
+const safeRemoveItem = async (key: string) => {
+  if (Platform.OS === 'web') {
+    localStorage.removeItem(key);
+  } else {
+    await SecureStore.deleteItemAsync(key);
+  }
+};
+
 
 // Set to your API URL
 export const API_URL = 'https://nubatv-api.unixxtech.online/api';
@@ -86,7 +112,7 @@ export function GlobalProvider({ children }: { children: ReactNode }) {
 
   const refreshAuth = async () => {
     try {
-      const storedToken = await SecureStore.getItemAsync('token');
+      const storedToken = await safeGetItem('token');
       if (storedToken) {
         setToken(storedToken);
         const res = await axios.get(`${API_URL}/auth/me`, {
@@ -99,7 +125,7 @@ export function GlobalProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.log('Error verifying session:', error);
-      await SecureStore.deleteItemAsync('token');
+      await safeRemoveItem('token');
       setToken(null);
       setUser(null);
     } finally {
@@ -135,7 +161,7 @@ export function GlobalProvider({ children }: { children: ReactNode }) {
 
   // Load favorites
   useEffect(() => {
-    SecureStore.getItemAsync('favorites').then(res => {
+    safeGetItem('favorites').then(res => {
       if (res) setFavorites(JSON.parse(res));
     });
   }, []);
@@ -145,11 +171,11 @@ export function GlobalProvider({ children }: { children: ReactNode }) {
       ? favorites.filter(fId => fId !== id) 
       : [...favorites, id];
     setFavorites(updated);
-    SecureStore.setItemAsync('favorites', JSON.stringify(updated));
+    safeSetItem('favorites', JSON.stringify(updated));
   };
 
   const logout = async () => {
-    await SecureStore.deleteItemAsync('token');
+    await safeRemoveItem('token');
     setToken(null);
     setUser(null);
   };

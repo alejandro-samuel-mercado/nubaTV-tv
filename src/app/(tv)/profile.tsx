@@ -1,63 +1,239 @@
-import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useGlobal } from '../../contexts/GlobalContext';
-import { LogOut, User as UserIcon, Calendar, Smartphone } from 'lucide-react-native';
+import { LogOut, User as UserIcon, Calendar, Smartphone, ShieldCheck } from 'lucide-react-native';
+import { scale } from '../../lib/scale';
+import { C } from '../../lib/tvColors';
+import ScreenBackground from '../../components/tv/ScreenBackground';
 
-export default function ProfileTvScreen() {
-  const { user, logout } = useGlobal();
-
-  const isExpired = user?.expiresAt && new Date(user.expiresAt) < new Date();
-
+function InfoRow({ icon, label, value, warn = false }: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  warn?: boolean;
+}) {
   return (
-    <View className="flex-1 bg-transparent p-12">
-      <View className="flex-row items-center mb-12 gap-4">
-        <UserIcon color="#22d3ee" size={48} />
-        <Text className="text-5xl font-black text-white">Mi Perfil</Text>
-      </View>
-
-      <View className="flex-1 max-w-[800px]">
-        <View className="bg-white/5 p-10 rounded-3xl border border-white/10 flex-row items-center mb-8">
-          <View className="w-32 h-32 bg-cyan-500/20 rounded-full items-center justify-center border border-cyan-500/50 mr-8">
-            <UserIcon color="#22d3ee" size={64} />
-          </View>
-          <View>
-            <Text className="text-white text-4xl font-black mb-2">{user?.username}</Text>
-            <View className="bg-cyan-500/20 px-4 py-2 rounded-full self-start">
-              <Text className="text-cyan-300 font-bold text-sm uppercase tracking-widest">{user?.role === 'admin' ? 'Administrador' : 'Usuario Pro'}</Text>
-            </View>
-          </View>
-        </View>
-
-        <View className="space-y-6 mb-12">
-          <View className="flex-row items-center gap-6 bg-black/40 p-6 rounded-2xl border border-white/5">
-            <Calendar color="rgba(255,255,255,0.4)" size={32} />
-            <View>
-              <Text className="text-white/40 text-sm font-bold uppercase mb-1">Vencimiento del Plan</Text>
-              <Text className={`font-bold text-2xl ${isExpired ? 'text-red-400' : 'text-white'}`}>
-                {user?.expiresAt ? new Date(user.expiresAt).toLocaleDateString() : 'Nunca'}
-              </Text>
-            </View>
-          </View>
-
-          <View className="flex-row items-center gap-6 bg-black/40 p-6 rounded-2xl border border-white/5">
-            <Smartphone color="rgba(255,255,255,0.4)" size={32} />
-            <View>
-              <Text className="text-white/40 text-sm font-bold uppercase mb-1">Dispositivos Permitidos</Text>
-              <Text className="text-white font-bold text-2xl">
-                {user?.maxDevices || 1} pantallas simultáneas
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <TouchableOpacity 
-          onPress={logout}
-          className="bg-red-500/10 border border-red-500/30 p-6 rounded-3xl flex-row items-center justify-center gap-4 focus:bg-red-500/30 focus:border-red-400 focus:border-4"
-        >
-          <LogOut color="#f87171" size={32} />
-          <Text className="text-red-400 font-black text-2xl uppercase tracking-widest">Cerrar Sesión</Text>
-        </TouchableOpacity>
+    <View style={s.infoRow}>
+      {icon}
+      <View style={s.infoText}>
+        <Text style={s.infoLabel}>{label}</Text>
+        <Text style={[s.infoValue, warn && s.infoValueWarn]}>{value}</Text>
       </View>
     </View>
   );
 }
+
+export default function ProfileTvScreen() {
+  const { user, logout } = useGlobal();
+  const [logoutFocused, setLogoutFocused] = useState(false);
+
+  const isExpired = user?.expiresAt && new Date(user.expiresAt) < new Date();
+  const expiry = user?.expiresAt
+    ? new Date(user.expiresAt).toLocaleDateString('es-ES', {
+        day: '2-digit', month: 'long', year: 'numeric',
+      })
+    : 'Sin vencimiento';
+
+  return (
+    <View style={s.root}>
+      <ScreenBackground />
+      {/* Header */}
+      <View style={s.header}>
+        <UserIcon size={scale(30)} color={C.accent} strokeWidth={2} />
+        <Text style={s.title}>Mi Perfil</Text>
+      </View>
+
+      <View style={s.body}>
+        {/* Avatar card */}
+        <View style={s.avatarCard}>
+          <View style={s.avatar}>
+            <Text style={s.avatarLetter}>
+              {user?.username?.charAt(0)?.toUpperCase() || 'U'}
+            </Text>
+          </View>
+          <View>
+            <Text style={s.username}>{user?.username}</Text>
+            <View style={s.roleBadge}>
+              <ShieldCheck size={scale(14)} color={C.accent} strokeWidth={2} />
+              <Text style={s.roleText}>
+                {user?.role === 'admin' ? 'Administrador' : 'Usuario Pro'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Info rows */}
+        <View style={s.infoRows}>
+          <InfoRow
+            icon={<Calendar size={scale(22)} color={C.textSecondary} strokeWidth={1.8} />}
+            label="Vencimiento del plan"
+            value={expiry}
+            warn={!!isExpired}
+          />
+          <InfoRow
+            icon={<Smartphone size={scale(22)} color={C.textSecondary} strokeWidth={1.8} />}
+            label="Dispositivos simultáneos"
+            value={`${user?.maxDevices ?? 1} pantallas`}
+          />
+        </View>
+
+        {/* Logout */}
+        <Pressable
+          focusable
+          onFocus={() => setLogoutFocused(true)}
+          onBlur={() => setLogoutFocused(false)}
+          onPress={logout}
+          style={[s.logoutBtn, logoutFocused && s.logoutBtnFocused]}
+        >
+          <LogOut
+            size={scale(20)}
+            color={logoutFocused ? '#fff' : '#f87171'}
+            strokeWidth={2}
+          />
+          <Text style={[s.logoutLabel, logoutFocused && s.logoutLabelFocused]}>
+            Cerrar Sesión
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#080808',
+    paddingHorizontal: scale(48),
+    paddingTop: scale(40),
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(14),
+    marginBottom: scale(40),
+  },
+  title: {
+    fontSize: scale(38),
+    fontWeight: '900',
+    color: C.textPrimary,
+    letterSpacing: -0.5,
+  },
+
+  body: {
+    maxWidth: scale(700),
+    gap: scale(20),
+  },
+
+  // ── Avatar card ──
+  avatarCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(24),
+    backgroundColor: C.bgPanel,
+    borderWidth: 1,
+    borderColor: C.borderSubtle,
+    borderRadius: scale(18),
+    padding: scale(28),
+  },
+  avatar: {
+    width: scale(80),
+    height: scale(80),
+    borderRadius: scale(40),
+    backgroundColor: C.accentGlow,
+    borderWidth: 2,
+    borderColor: C.accentBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarLetter: {
+    fontSize: scale(34),
+    fontWeight: '900',
+    color: C.accentLight,
+  },
+  username: {
+    fontSize: scale(28),
+    fontWeight: '900',
+    color: C.textPrimary,
+    marginBottom: scale(8),
+    letterSpacing: -0.3,
+  },
+  roleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(6),
+    backgroundColor: C.accentGlow,
+    borderWidth: 1,
+    borderColor: C.accentBorder,
+    paddingVertical: scale(4),
+    paddingHorizontal: scale(12),
+    borderRadius: scale(20),
+    alignSelf: 'flex-start',
+  },
+  roleText: {
+    fontSize: scale(13),
+    fontWeight: '700',
+    color: C.accentLight,
+    letterSpacing: 0.5,
+  },
+
+  // ── Info rows ──
+  infoRows: {
+    gap: scale(12),
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(18),
+    backgroundColor: C.bgPanel,
+    borderWidth: 1,
+    borderColor: C.borderSubtle,
+    borderRadius: scale(14),
+    padding: scale(20),
+  },
+  infoText: {
+    gap: scale(4),
+  },
+  infoLabel: {
+    fontSize: scale(13),
+    fontWeight: '600',
+    color: C.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  infoValue: {
+    fontSize: scale(20),
+    fontWeight: '800',
+    color: C.textPrimary,
+  },
+  infoValueWarn: {
+    color: '#f87171',
+  },
+
+  // ── Logout ──
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(12),
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    borderWidth: 2,
+    borderColor: 'rgba(239, 68, 68, 0.25)',
+    borderRadius: scale(14),
+    padding: scale(18),
+    paddingHorizontal: scale(28),
+    alignSelf: 'flex-start',
+    marginTop: scale(8),
+  },
+  logoutBtnFocused: {
+    backgroundColor: '#ef4444',
+    borderColor: '#ef4444',
+  },
+  logoutLabel: {
+    fontSize: scale(18),
+    fontWeight: '800',
+    color: '#f87171',
+    letterSpacing: 0.5,
+  },
+  logoutLabelFocused: {
+    color: '#fff',
+  },
+});
