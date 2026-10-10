@@ -43,6 +43,7 @@ export interface Channel {
   isActive: boolean;
   category?: { name: string };
   playlist?: { name: string };
+  groupTitle?: string;
 }
 
 export interface User {

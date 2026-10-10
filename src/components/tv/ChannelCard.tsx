@@ -115,7 +115,7 @@ const s = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.15)',
   },
   logoContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill as any,
     padding: scale(16),
     justifyContent: 'center',
     alignItems: 'center',
@@ -154,7 +154,7 @@ const s = StyleSheet.create({
     letterSpacing: 0.5,
   },
   playOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill as any,
     justifyContent: 'center',
     alignItems: 'center',
     paddingBottom: scale(24), // Offset above text

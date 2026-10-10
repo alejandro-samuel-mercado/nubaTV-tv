@@ -98,13 +98,13 @@ export default function ExploreTvScreen() {
                 if (item.id === 'search') setExplorerValue(null);
                 else setExplorerValue(col2Values[0]); // Reset value to first item of new type
               }}
-              style={({ focused }) => [
+              style={({ focused }: any) => [
                 s.menuBtn,
                 isActive && s.menuBtnActive,
                 focused && s.menuBtnFocused
               ]}
             >
-              {({ focused }) => (
+              {({ focused }: any) => (
                 <>
                   <View style={s.menuBtnLeft}>
                     <Icon size={scale(20)} color={isActive ? C.accentLight : C.textSecondary} />
@@ -135,13 +135,13 @@ export default function ExploreTvScreen() {
                 <Pressable
                   focusable
                   onFocus={() => setExplorerValue(item)}
-                  style={({ focused }) => [
+                  style={({ focused }: any) => [
                     s.valBtn,
                     isActive && s.valBtnActive,
                     focused && s.valBtnFocused
                   ]}
                 >
-                  {({ focused }) => (
+                  {({ focused }: any) => (
                     <Text style={[s.valBtnText, isActive && s.valBtnTextActive, focused && s.valBtnTextFocused]}>
                       {item}
                     </Text>

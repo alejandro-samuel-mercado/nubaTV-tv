@@ -102,12 +102,12 @@ export default function TVLayout() {
             <Pressable
               focusable
               onPress={() => router.push('/(tv)/profile')}
-              style={({ focused }) => [
+              style={({ focused }: any) => [
                 s.userBadge,
                 focused && s.userBadgeFocused
               ]}
             >
-              {({ focused }) => (
+              {({ focused }: any) => (
                 <>
                   <View style={[s.userAvatar, focused && s.userAvatarFocused]}>
                     <User size={scale(16)} color={focused ? '#000' : '#fff'} strokeWidth={2.5} />

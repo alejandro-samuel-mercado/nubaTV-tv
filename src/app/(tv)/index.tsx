@@ -130,7 +130,7 @@ export default function HomeTvScreen() {
     router.push('/player');
   }, []);
 
-  const focusTimeoutRef = useRef<NodeJS.Timeout>();
+  const focusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleChannelFocus = useCallback((ch: Channel) => {
     if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
     focusTimeoutRef.current = setTimeout(() => {
@@ -158,7 +158,7 @@ export default function HomeTvScreen() {
         <Pressable 
           focusable
           onPress={handleHeroPlay}
-          style={({focused}) => [s.heroPlayerBox, focused && s.heroPlayerBoxFocused]}
+          style={({focused}: any) => [s.heroPlayerBox, focused && s.heroPlayerBoxFocused]}
         >
           {featuredChannel ? (
             <>
@@ -231,7 +231,7 @@ export default function HomeTvScreen() {
                     onPress={() => {
                       setHeroChannel(ch);
                     }}
-                    style={({focused}) => [s.relatedItem, focused && s.relatedItemFocused]}
+                    style={({focused}: any) => [s.relatedItem, focused && s.relatedItemFocused]}
                   >
                     <View style={s.relatedIconBox}>
                       {ch.logo ? (
@@ -300,7 +300,6 @@ const s = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 20,
     elevation: 15,
-    borderColor: 'transparent',
   },
   heroPlayerBoxFocused: {
     borderColor: C.accent,

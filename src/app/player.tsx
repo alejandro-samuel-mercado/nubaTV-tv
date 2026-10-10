@@ -260,7 +260,7 @@ export default function PlayerScreen() {
           />
           <View style={s.panelHeader}>
             <Text style={s.panelTitle}>CANALES</Text>
-            <Pressable focusable onPress={() => setShowPanel(false)} style={({focused}) => [s.panelClose, focused && s.panelCloseFocused]}>
+            <Pressable focusable onPress={() => setShowPanel(false)} style={({focused}: any) => [s.panelClose, focused && s.panelCloseFocused]}>
               <X size={scale(24)} color="#fff" />
             </Pressable>
           </View>
@@ -297,7 +297,7 @@ export default function PlayerScreen() {
                     setActiveChannel(ch);
                     setShowPanel(false);
                   }}
-                  style={({focused}) => [
+                  style={({focused}: any) => [
                     s.panelItem,
                     isActive && s.panelItemActive,
                     focused && s.panelItemFocused
@@ -337,7 +337,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill as any,
     alignItems: 'center',
     justifyContent: 'center',
   },
