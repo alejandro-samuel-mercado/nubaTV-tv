@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, Dimensions, ScrollView,
-  Image, Pressable, FlatList, ActivityIndicator,
+  Image, Pressable, FlatList, ActivityIndicator, Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useGlobal, Channel, API_URL } from '../../contexts/GlobalContext';
@@ -102,8 +102,10 @@ export default function HomeTvScreen() {
   }, []);
 
   const categories = useMemo(() => {
+    const countries = new Set(channels.map(c => c.country).filter(Boolean));
     const grouped = channels.reduce((acc, ch) => {
       const cat = ch.category?.name || 'General';
+      if (countries.has(cat)) return acc;
       if (!acc[cat]) acc[cat] = [];
       acc[cat].push(ch);
       return acc;
@@ -164,7 +166,7 @@ export default function HomeTvScreen() {
             <>
               <HeroVideo
                 key={featuredChannel.id}
-                uri={`${API_URL}/proxy?url=${encodeURIComponent(featuredChannel.url)}`}
+                uri={Platform.OS === 'web' ? `${API_URL}/proxy?url=${encodeURIComponent(featuredChannel.url)}` : featuredChannel.url}
                 onError={handleHeroError}
                 onCanPlay={handleHeroReady}
               />

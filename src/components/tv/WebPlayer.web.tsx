@@ -32,6 +32,17 @@ export default function WebPlayer({ uri, onError }: Props) {
 
       // Chrome/Firefox: HLS.js
       try {
+        const isVOD = uri.toLowerCase().includes('.mp4') || uri.toLowerCase().includes('.mkv') || uri.toLowerCase().includes('/series/') || uri.toLowerCase().includes('/movie/');
+        
+        if (isVOD) {
+          video.src = uri;
+          video.onerror = () => onError?.('Error al cargar la señal de red.');
+          video.play().catch(err => {
+            if (err.name !== 'AbortError') onError?.(String(err));
+          });
+          return;
+        }
+
         const Hls = (await import('hls.js')).default;
         if (Hls.isSupported()) {
           hls = new Hls({ enableWorker: true, lowLatencyMode: true });

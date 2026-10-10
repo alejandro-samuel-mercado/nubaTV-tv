@@ -160,7 +160,9 @@ export default function PlayerScreen() {
     );
   }
 
-  const proxyUrl = `${API_URL}/proxy?url=${encodeURIComponent(activeChannel.url)}`;
+  const proxyUrl = Platform.OS === 'web' 
+    ? `${API_URL}/proxy?url=${encodeURIComponent(activeChannel.url)}` 
+    : activeChannel.url;
   const isError = status && !status.isLoaded && 'error' in status;
   const isBuffering = !status?.isLoaded || (status?.isLoaded && status.isBuffering);
 
