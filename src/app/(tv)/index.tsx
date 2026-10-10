@@ -102,8 +102,13 @@ export default function HomeTvScreen() {
   }, []);
 
   const categories = useMemo(() => {
-    const countries = new Set(channels.map(c => c.country).filter(Boolean));
-    const grouped = channels.reduce((acc, ch) => {
+    const defaultPlaylists = Array.from(new Set(channels.filter(c => c.playlist?.isDefault).map(c => c.playlist?.name).filter(Boolean))) as string[];
+    const filteredChannels = defaultPlaylists.length > 0 
+      ? channels.filter(c => defaultPlaylists.includes(c.playlist?.name as string)) 
+      : channels;
+
+    const countries = new Set(filteredChannels.map(c => c.country).filter(Boolean));
+    const grouped = filteredChannels.reduce((acc, ch) => {
       const cat = ch.category?.name || 'General';
       if (countries.has(cat)) return acc;
       if (!acc[cat]) acc[cat] = [];

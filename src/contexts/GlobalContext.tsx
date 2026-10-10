@@ -42,7 +42,7 @@ export interface Channel {
   playlistId: string | null;
   isActive: boolean;
   category?: { name: string };
-  playlist?: { name: string };
+  playlist?: { name: string; isDefault?: boolean };
   groupTitle?: string;
 }
 
