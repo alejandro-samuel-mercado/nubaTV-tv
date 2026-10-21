@@ -1,265 +1,343 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Platform, Image } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Stack, usePathname, useRouter } from 'expo-router';
-import { useGlobal } from '../../contexts/GlobalContext';
-import { scale } from '../../lib/scale';
-import { C } from '../../lib/tvColors';
-import { Home, Compass, Heart, User, Search } from 'lucide-react-native';
+import { Stack, usePathname, useRouter } from "expo-router";
+import {
+  Clapperboard,
+  Compass,
+  Film,
+  Heart,
+  Home,
+  Settings,
+  Tv,
+} from "lucide-react-native";
+import { useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Animated,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { useGlobal } from "../../contexts/GlobalContext";
+import { scale } from "../../lib/scale";
+import { C } from "../../lib/tvColors";
 
-// ── Nav Items ────────────────────────────────────────────────────────────────
+const SIDEBAR_W = scale(64);
+const SIDEBAR_EXPANDED_W = scale(220);
+
 const NAV_ITEMS = [
-  { key: 'home',      label: 'Inicio',    icon: Home,    route: '/(tv)' },
-  { key: 'explore',   label: 'Explorar', icon: Search, route: '/(tv)/explore' },
-  { key: 'favorites', label: 'Favoritos', icon: Heart,   route: '/(tv)/favorites' },
+  { key: "home", label: "Inicio", icon: Home, route: "/(tv)" },
+  { key: "channels", label: "Canales TV", icon: Tv, route: "/(tv)/channels" },
+  { key: "movies", label: "Películas", icon: Film, route: "/(tv)/movies" },
+  { key: "series", label: "Series", icon: Clapperboard, route: "/(tv)/series" },
+  { key: "explore", label: "Explorar", icon: Compass, route: "/(tv)/explore" },
+  {
+    key: "favorites",
+    label: "Favoritos",
+    icon: Heart,
+    route: "/(tv)/favorites",
+  },
+  {
+    key: "settings",
+    label: "Ajustes",
+    icon: Settings,
+    route: "/(tv)/settings",
+  },
 ];
 
-// ── NavButton ────────────────────────────────────────────────────────────────
-function NavButton({
+function SidebarButton({
   item,
   isActive,
+  isExpanded,
+  onItemFocus,
+  onItemBlur,
 }: {
   item: (typeof NAV_ITEMS)[0];
   isActive: boolean;
+  isExpanded: boolean;
+  onItemFocus?: (key: string) => void;
+  onItemBlur?: (key: string) => void;
 }) {
   const router = useRouter();
   const [focused, setFocused] = useState(false);
   const Icon = item.icon;
 
-  const active = isActive || focused;
+  const handleFocus = () => {
+    setFocused(true);
+    onItemFocus?.(item.key);
+  };
+
+  const handleBlur = () => {
+    setFocused(false);
+    onItemBlur?.(item.key);
+  };
 
   return (
     <Pressable
       focusable
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
+      accessibilityRole="button"
+      accessibilityLabel={item.label}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
       onPress={() => router.push(item.route as any)}
       style={[
         s.navBtn,
-        active && s.navBtnActive,
+        isExpanded && s.navBtnExpanded,
+        isActive && !focused && s.navBtnActive,
         focused && s.navBtnFocused,
       ]}
     >
-      <Icon
-        size={scale(20)}
-        color={focused ? '#000' : isActive ? C.accentLight : C.textSecondary}
-        strokeWidth={isActive || focused ? 2.5 : 1.8}
-      />
-      <Text style={[
-        s.navBtnLabel,
-        isActive && s.navBtnLabelActive,
-        focused && s.navBtnLabelFocused,
-      ]}>
-        {item.label}
-      </Text>
+      <View style={[s.navBtnInner, isExpanded && s.navBtnInnerExpanded]}>
+        {/* Contenedor fijo del ícono → evita blur por re-layout */}
+        <View style={s.iconBox}>
+          <Icon
+            size={scale(22)}
+            color={
+              focused ? "#000" : isActive ? C.accent : "rgba(255,255,255,0.85)"
+            }
+            strokeWidth={focused || isActive ? 2.4 : 2}
+          />
+        </View>
+
+        {isExpanded && (
+          <Text
+            numberOfLines={1}
+            style={[
+              s.navLabel,
+              isActive && !focused && s.navLabelActive,
+              focused && s.navLabelFocused,
+            ]}
+          >
+            {item.label}
+          </Text>
+        )}
+      </View>
     </Pressable>
   );
 }
 
-// ── Layout ───────────────────────────────────────────────────────────────────
 export default function TVLayout() {
-  const { loading, user } = useGlobal();
+  const { loading } = useGlobal();
   const pathname = usePathname();
-  const router = useRouter();
-  const isPlayerScreen = pathname.includes('/player');
+  const isPlayerScreen = pathname.includes("/player");
+  const [focusedSidebarKey, setFocusedSidebarKey] = useState<string | null>(
+    null,
+  );
+  const sidebarWidth = useRef(new Animated.Value(SIDEBAR_W)).current;
+  const sidebarBg = useRef(new Animated.Value(0)).current;
+
+  const isSidebarExpanded = focusedSidebarKey !== null;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(sidebarWidth, {
+        toValue: isSidebarExpanded ? SIDEBAR_EXPANDED_W : SIDEBAR_W,
+        duration: 200,
+        useNativeDriver: false,
+      }),
+      Animated.timing(sidebarBg, {
+        toValue: isSidebarExpanded ? 1 : 0,
+        duration: 200,
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [isSidebarExpanded, sidebarWidth, sidebarBg]);
+
+  const bgColor = sidebarBg.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["rgba(8, 8, 8, 0.03)", "rgba(8, 8, 8, 0.84)"],
+  });
 
   if (loading) {
     return (
-      <View style={[s.root, { justifyContent: 'center', alignItems: 'center' }]}>
+      <View style={s.loadingRoot}>
         <ActivityIndicator size="large" color={C.accent} />
       </View>
     );
   }
 
   const getIsActive = (item: (typeof NAV_ITEMS)[0]) =>
-    pathname === item.route || pathname === item.route + '/';
+    pathname === item.route || pathname === `${item.route}/`;
 
   return (
     <View style={s.root}>
-      {/* ── Background Glow (Web Style) ── */}
-
-      {/* ── Top Navigation Bar ── */}
-      {!isPlayerScreen && (
-        <View style={s.topBarContainer}>
-          <View style={s.topBar}>
-            {/* Brand */}
-            <Text style={s.brand}>
-              Nuba<Text style={s.brandAccent}>TV</Text>
-            </Text>
-
-            {/* Nav Items */}
-            <View style={s.navItems}>
-              {NAV_ITEMS.map(item => (
-                <NavButton
-                  key={item.key}
-                  item={item}
-                  isActive={getIsActive(item)}
-                />
-              ))}
-            </View>
-
-            {/* User Profile */}
-            <Pressable
-              focusable
-              onPress={() => router.push('/(tv)/profile')}
-              style={({ focused }: any) => [
-                s.userBadge,
-                focused && s.userBadgeFocused
-              ]}
-            >
-              {({ focused }: any) => (
-                <>
-                  <View style={[s.userAvatar, focused && s.userAvatarFocused]}>
-                    <User size={scale(16)} color={focused ? '#000' : '#fff'} strokeWidth={2.5} />
-                  </View>
-                  <Text style={[s.userName, focused && s.userNameFocused]}>
-                    {loading ? 'Cargando...' : (user?.username || 'Invitado')}
-                  </Text>
-                </>
-              )}
-            </Pressable>
-          </View>
-        </View>
-      )}
-
-      {/* ── Screen Content ── */}
-      <View style={isPlayerScreen ? { flex: 1 } : s.content}>
+      <View style={s.stackLayer}>
         <Stack
           screenOptions={{
             headerShown: false,
-            contentStyle: { backgroundColor: '#080808' },
-            animation: 'none',
+            contentStyle: { backgroundColor: "transparent" },
+            animation: "none",
           }}
         >
           <Stack.Screen name="index" />
+          <Stack.Screen name="channels" />
+          <Stack.Screen name="movies" />
+          <Stack.Screen name="series" />
           <Stack.Screen name="explore" />
           <Stack.Screen name="favorites" />
+          <Stack.Screen name="settings" />
           <Stack.Screen name="profile" />
         </Stack>
       </View>
+
+      {!isPlayerScreen && (
+        <Animated.View
+          style={[
+            s.sidebar,
+            {
+              width: sidebarWidth,
+              backgroundColor: bgColor,
+            },
+          ]}
+        >
+          {/* Borde derecho sutil cuando está expandida */}
+          <Animated.View
+            style={[
+              s.sidebarBorder,
+              {
+                opacity: sidebarBg,
+              },
+            ]}
+          />
+
+          <View style={s.brandArea}>
+            <Text style={s.brandLetter}>N</Text>
+          </View>
+
+          <View style={s.navList}>
+            {NAV_ITEMS.map((item) => (
+              <SidebarButton
+                key={item.key}
+                item={item}
+                isActive={getIsActive(item)}
+                isExpanded={isSidebarExpanded}
+                onItemFocus={(key) => setFocusedSidebarKey(key)}
+                onItemBlur={(key) =>
+                  setFocusedSidebarKey((current) =>
+                    current === key ? null : current,
+                  )
+                }
+              />
+            ))}
+          </View>
+        </Animated.View>
+      )}
     </View>
   );
 }
 
-// ── Styles ───────────────────────────────────────────────────────────────────
-const BAR_HEIGHT = scale(72);
-
 const s = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: C.bgBase,
+    position: "relative",
+    backgroundColor: "#080808",
   },
-
-  // ── Top Bar ──
-  topBarContainer: {
-    paddingTop: scale(24),
-    paddingHorizontal: scale(48),
-    paddingBottom: scale(16),
-    backgroundColor: C.bgBase,
-    zIndex: 100,
-  },
-  topBar: {
-    height: scale(64),
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: scale(28),
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: scale(32),
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-  },
-
-  brand: {
-    fontSize: scale(26),
-    fontWeight: '900',
-    color: C.textPrimary,
-    letterSpacing: -0.5,
-    marginRight: scale(56),
-  },
-  brandAccent: {
-    color: C.accent,
-  },
-
-  navItems: {
+  loadingRoot: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(8),
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#080808",
+  },
+  stackLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
+    backgroundColor: "transparent",
+  },
+
+  sidebar: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 200,
+    elevation: 20,
+    alignItems: "stretch",
+    paddingTop: scale(48),
+    paddingBottom: scale(24),
+    // sin overflow hidden → evita recortes raros del ícono
+  },
+  sidebarBorder: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    right: 0,
+    width: 1,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+
+  brandArea: {
+    width: scale(40),
+    height: scale(40),
+    borderRadius: scale(10),
+    backgroundColor: C.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "center",
+    marginBottom: scale(20),
+  },
+  brandLetter: {
+    fontSize: scale(20),
+    fontWeight: "900",
+    color: "#000",
+    letterSpacing: -0.5,
+  },
+
+  navList: {
+    flex: 1,
+    justifyContent: "center",
+    gap: scale(6),
+    paddingHorizontal: scale(10),
   },
 
   navBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(8),
-    paddingVertical: scale(8),
-    paddingHorizontal: scale(20),
-    borderRadius: scale(20),
-    borderWidth: 1,
-    borderColor: 'transparent',
+    height: scale(48),
+    borderRadius: scale(12),
+    borderWidth: 1.5,
+    borderColor: "transparent",
+    backgroundColor: "transparent",
+    justifyContent: "center",
   },
+  navBtnExpanded: {
+    // solo cambia alineación del contenido interno
+  },
+  navBtnInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "100%",
+  },
+  navBtnInnerExpanded: {
+    justifyContent: "flex-start",
+    paddingLeft: scale(4),
+  },
+
+  // Caja fija del ícono → tamaño estable, sin blur
+  iconBox: {
+    width: scale(44),
+    height: scale(44),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  navLabel: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: scale(14),
+    fontWeight: "700",
+    marginLeft: scale(4),
+    flexShrink: 1,
+  },
+  navLabelActive: {
+    color: C.accent,
+  },
+  navLabelFocused: {
+    color: "#000",
+  },
+
   navBtnActive: {
-    backgroundColor: 'rgba(217, 119, 6, 0.12)',
-    borderColor: C.accentBorder,
+    backgroundColor: "rgba(255,183,3,0.18)",
+    borderColor: C.accentBorder ?? "rgba(255,183,3,0.45)",
   },
   navBtnFocused: {
     backgroundColor: C.accent,
     borderColor: C.accent,
-  },
-
-  navBtnLabel: {
-    fontSize: scale(15),
-    fontWeight: '700',
-    color: C.textSecondary,
-    letterSpacing: 0.2,
-  },
-  navBtnLabelActive: {
-    color: C.accentLight,
-  },
-  navBtnLabelFocused: {
-    color: '#000',
-  },
-
-  userBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(10),
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingVertical: scale(6),
-    paddingHorizontal: scale(16),
-    paddingLeft: scale(8),
-    borderRadius: scale(24),
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  userBadgeFocused: {
-    backgroundColor: C.accentLight,
-    borderColor: C.accentLight,
-    transform: [{ scale: 1.05 }],
-  },
-  userAvatar: {
-    width: scale(28),
-    height: scale(28),
-    borderRadius: scale(14),
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  userAvatarFocused: {
-    backgroundColor: 'rgba(0,0,0,0.2)',
-  },
-  userName: {
-    fontSize: scale(14),
-    fontWeight: '700',
-    color: C.textPrimary,
-    letterSpacing: 0.5,
-  },
-  userNameFocused: {
-    color: '#000',
-  },
-
-  // ── Content below top bar ──
-  content: {
-    flex: 1,
-    marginTop: 0,
   },
 });

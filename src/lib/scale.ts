@@ -1,14 +1,14 @@
-import { Dimensions } from 'react-native';
+import { Dimensions } from "react-native";
 
-const { width, height } = Dimensions.get('window');
+const { width, height } = Dimensions.get("window");
 
-// TV design base was 1920x1080, but using 1440 provides a better, slightly larger scale
-const DESIGN_WIDTH = 1440;
+// Diseño orientado a TV: escalamos más agresivamente para que el UI no se vea pequeño.
+const DESIGN_WIDTH = 1280;
+const DESIGN_HEIGHT = 720;
 
-/**
- * Scale a size based on the actual window width compared to the 1920px design.
- * This ensures UI elements look identical on TVs regardless of their density setting.
- */
 export const scale = (size: number): number => {
-  return Math.round((width / DESIGN_WIDTH) * size);
+  const factorX = width / DESIGN_WIDTH;
+  const factorY = height / DESIGN_HEIGHT;
+  const factor = Math.max(factorX, factorY, 1);
+  return Math.round(size * factor * 1.12);
 };

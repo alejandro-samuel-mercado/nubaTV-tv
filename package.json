@@ -3,6 +3,8 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@expo-google-fonts/bangers": "^0.4.1",
+    "@expo-google-fonts/creepster": "^0.4.0",
     "@expo/ui": "~57.0.9",
     "@shopify/flash-list": "^2.3.2",
     "axios": "^1.19.0",
@@ -10,7 +12,7 @@
     "expo-av": "^16.0.8",
     "expo-constants": "~57.0.9",
     "expo-device": "~57.0.1",
-    "expo-font": "~57.0.1",
+    "expo-font": "~57.0.4",
     "expo-glass-effect": "~57.0.1",
     "expo-image": "~57.0.2",
     "expo-linear-gradient": "^57.0.1",

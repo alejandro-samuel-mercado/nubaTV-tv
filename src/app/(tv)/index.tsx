@@ -1,516 +1,695 @@
-import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { Bangers_400Regular, useFonts } from "@expo-google-fonts/bangers";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { ChevronRight, Star } from "lucide-react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  View, Text, StyleSheet, Dimensions, ScrollView,
-  Image, Pressable, FlatList, ActivityIndicator, Platform,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useGlobal, Channel, API_URL } from '../../contexts/GlobalContext';
-import { useRouter } from 'expo-router';
-import { Maximize2, Tv, Play } from 'lucide-react-native';
-import { scale } from '../../lib/scale';
-import { C, rowColor } from '../../lib/tvColors';
-import HeroVideo from '../../components/tv/HeroVideo';
-import ChannelCard from '../../components/tv/ChannelCard';
-import ScreenBackground from '../../components/tv/ScreenBackground';
+  ActivityIndicator,
+  Dimensions,
+  FlatList,
+  Image,
+  ImageBackground,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { useGlobal } from "../../contexts/GlobalContext";
+import { scale } from "../../lib/scale";
+import { C } from "../../lib/tvColors";
+import {
+  getContentList,
+  getHomepage,
+  NexoContentItem,
+} from "../../services/nexoplay";
 
-const { width: SW } = Dimensions.get('window');
-const MAX_CATEGORY_ROWS = 5;
-const CHANNELS_PER_ROW = 15;
+const { height: SH } = Dimensions.get("window");
 
-// ── Category Row ────────────────────────────────────────────────────────────
-function CategoryRow({
+const TYPE_LABEL: Record<string, string> = {
+  MOVIE: "Película",
+  SERIES: "Serie",
+  DOCUMENTARY: "Documental",
+  ANIME: "Anime",
+};
+
+const formatDuration = (mins?: number) => {
+  if (!mins) return "";
+  if (mins < 60) return `${mins}m`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+};
+
+function TrendingRow({
+  items,
+  onSelect,
+}: {
+  items: NexoContentItem[];
+  onSelect: (item: NexoContentItem) => void;
+}) {
+  const [focusedIdx, setFocusedIdx] = useState(0);
+  const listRef = useRef<FlatList>(null);
+
+  const handleFocus = (idx: number, item: NexoContentItem) => {
+    setFocusedIdx(idx);
+    onSelect(item);
+  };
+
+  return (
+    <FlatList
+      ref={listRef}
+      data={items}
+      keyExtractor={(i) => i.id}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={s.trendingList}
+      renderItem={({ item, index }) => {
+        const isFocused = index === focusedIdx;
+        const poster = item.posterUrl || item.backdropUrl;
+        return (
+          <Pressable
+            focusable
+            onFocus={() => handleFocus(index, item)}
+            onPress={() => onSelect(item)}
+            style={[
+              s.trendCard,
+              isFocused ? s.trendCardFocused : s.trendCardNormal,
+            ]}
+          >
+            {isFocused ? (
+              <ImageBackground
+                source={{ uri: item.backdropUrl || item.posterUrl || "" }}
+                style={s.trendBanner}
+                resizeMode="cover"
+              >
+                <LinearGradient
+                  colors={["transparent", "rgba(0,0,0,0.85)"]}
+                  style={s.trendBannerGrad}
+                >
+                  <Text style={s.trendBannerTitle} numberOfLines={2}>
+                    {item.title.toUpperCase()}
+                  </Text>
+                  {item.tagline ? (
+                    <Text style={s.trendBannerSub} numberOfLines={1}>
+                      {item.tagline}
+                    </Text>
+                  ) : null}
+                </LinearGradient>
+              </ImageBackground>
+            ) : (
+              <Image
+                source={{ uri: poster || "" }}
+                style={s.trendPoster}
+                resizeMode="cover"
+              />
+            )}
+          </Pressable>
+        );
+      }}
+    />
+  );
+}
+
+function ContentRow({
   title,
-  channels,
-  onChannelPress,
-  onChannelFocus,
+  items,
+  onPress,
+  accentColor,
 }: {
   title: string;
-  channels: Channel[];
-  onChannelPress: (c: Channel) => void;
-  onChannelFocus: (c: Channel) => void;
+  items: NexoContentItem[];
+  onPress: (item: NexoContentItem) => void;
+  accentColor?: string;
 }) {
-  const color = rowColor(title);
-  
+  if (!items.length) return null;
+  const accent = accentColor || C.accent;
+
   return (
-    <View style={s.row}>
+    <View style={s.contentRow}>
       <View style={s.rowHeader}>
-        <View style={[s.rowAccent, { backgroundColor: color, shadowColor: color }]} />
-        <View>
-          <Text style={s.rowTitle}>{title}</Text>
-          <Text style={s.rowSubtitle}>{channels.length} canales</Text>
-        </View>
+        <View style={[s.rowAccent, { backgroundColor: accent }]} />
+        <Text style={s.rowTitle}>{title}</Text>
+        <ChevronRight
+          size={scale(16)}
+          color={accent}
+          style={{ marginLeft: scale(8) }}
+        />
       </View>
       <FlatList
-        data={channels.slice(0, CHANNELS_PER_ROW)}
-        keyExtractor={c => c.id}
+        data={items}
+        keyExtractor={(i) => i.id}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowList}
         renderItem={({ item }) => (
-          <View style={s.cardWrap}>
-            <ChannelCard
-              channel={item}
-              onPress={() => onChannelPress(item)}
-              onFocus={() => onChannelFocus(item)}
+          <Pressable
+            focusable
+            onPress={() => onPress(item)}
+            style={({ focused }: any) => [
+              s.posterCard,
+              focused && s.posterCardFocused,
+            ]}
+          >
+            <Image
+              source={{ uri: item.posterUrl || item.backdropUrl || "" }}
+              style={s.posterImg}
+              resizeMode="cover"
             />
-          </View>
+            {item.rating ? (
+              <View style={s.posterRating}>
+                <Star size={scale(9)} color={C.accent} fill={C.accent} />
+                <Text style={s.posterRatingText}>{item.rating.toFixed(1)}</Text>
+              </View>
+            ) : null}
+            <LinearGradient
+              colors={["transparent", "rgba(0,0,0,0.7)"]}
+              style={s.posterGrad}
+            >
+              <Text style={s.posterTitle} numberOfLines={2}>
+                {item.title}
+              </Text>
+            </LinearGradient>
+          </Pressable>
         )}
       />
     </View>
   );
 }
 
-// ── Home Screen ─────────────────────────────────────────────────────────────
-export default function HomeTvScreen() {
-  const { channels, activeChannel, setActiveChannel } = useGlobal();
-  const router = useRouter();
+function ChannelRow({ onPress }: { onPress: (ch: any) => void }) {
+  const { channels } = useGlobal();
+  const topChannels = channels.slice(0, 20);
+  if (!topChannels.length) return null;
 
-  // ── Hero channel: random + auto-fallback on error ──────────────────────────
-  const [heroChannel, setHeroChannel] = useState<Channel | null>(null);
-  const [heroReady, setHeroReady] = useState(false);
-  const [heroError, setHeroError] = useState(false);
-
-  const pickRandomChannel = useCallback(
-    (pool: Channel[]): Channel | null => {
-      if (pool.length === 0) return null;
-      const livePool = pool.filter(
-        c => !c.url.includes('.mkv') && !c.url.includes('.mp4') && !c.url.includes('/movie/') && !c.url.includes('/series/')
-      );
-      const activePool = livePool.length > 0 ? livePool : pool;
-      return activePool[Math.floor(Math.random() * activePool.length)];
-    },
-    [],
+  return (
+    <View style={s.contentRow}>
+      <View style={s.rowHeader}>
+        <View style={[s.rowAccent, { backgroundColor: C.live }]} />
+        <Text style={s.rowTitle}>Canales en Vivo</Text>
+        <View style={s.liveDot} />
+        <Text style={[s.rowTitle, { color: C.live, marginLeft: scale(6) }]}>
+          EN VIVO
+        </Text>
+      </View>
+      <FlatList
+        data={topChannels}
+        keyExtractor={(c) => c.id}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={s.rowList}
+        renderItem={({ item: ch }) => (
+          <Pressable
+            focusable
+            onPress={() => onPress(ch)}
+            style={({ focused }: any) => [
+              s.channelCard,
+              focused && s.channelCardFocused,
+            ]}
+          >
+            {ch.logo ? (
+              <Image
+                source={{ uri: ch.logo }}
+                style={s.channelLogo}
+                resizeMode="contain"
+              />
+            ) : (
+              <View style={s.channelLogoFallback}>
+                <Text style={s.channelLogoText}>
+                  {ch.name.slice(0, 2).toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <Text style={s.channelName} numberOfLines={2}>
+              {ch.name}
+            </Text>
+          </Pressable>
+        )}
+      />
+    </View>
   );
+}
+
+export default function HomeTvScreen() {
+  const router = useRouter();
+  const [fontsLoaded] = useFonts({ Bangers: Bangers_400Regular });
+
+  const [loading, setLoading] = useState(true);
+  const [heroItems, setHeroItems] = useState<NexoContentItem[]>([]);
+  const [heroIdx, setHeroIdx] = useState(0);
+  const [trending, setTrending] = useState<NexoContentItem[]>([]);
+  const [recent, setRecent] = useState<NexoContentItem[]>([]);
+  const [movies, setMovies] = useState<NexoContentItem[]>([]);
+  const [series, setSeries] = useState<NexoContentItem[]>([]);
+
+  const heroItem = heroItems[heroIdx] || null;
 
   useEffect(() => {
-    if (channels.length > 0 && !heroChannel) {
-      setHeroReady(false);
-      setHeroChannel(pickRandomChannel(channels));
-    }
-  }, [channels]);
-
-  const handleHeroError = useCallback(() => {
-    // Si falla, simplemente mostramos error, pero NO cambiamos el canal
-    // para no volver locos a los "Canales Similares"
-    setHeroError(true);
-    setHeroReady(false);
+    let cancelled = false;
+    (async () => {
+      try {
+        const [hp, mv, sr] = await Promise.all([
+          getHomepage(),
+          getContentList({ type: "MOVIE", limit: 20, sort: "recent" }),
+          getContentList({ type: "SERIES", limit: 20, sort: "recent" }),
+        ]);
+        if (cancelled) return;
+        setHeroItems(
+          hp.heroItems.length ? hp.heroItems : hp.trending.slice(0, 5),
+        );
+        setTrending(hp.trending.slice(0, 12));
+        setRecent(hp.recent.slice(0, 16));
+        setMovies(mv.slice(0, 16));
+        setSeries(sr.slice(0, 16));
+      } catch (e) {
+        console.warn("Home load error:", e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const handleHeroReady = useCallback(() => {
-    setHeroError(false);
-    setHeroReady(true);
-  }, []);
+  useEffect(() => {
+    if (heroItems.length < 2) return;
+    const t = setInterval(
+      () => setHeroIdx((i) => (i + 1) % heroItems.length),
+      8000,
+    );
+    return () => clearInterval(t);
+  }, [heroItems.length]);
 
-  const categories = useMemo(() => {
-    const defaultPlaylists = Array.from(new Set(channels.filter(c => c.playlist?.isDefault).map(c => c.playlist?.name).filter(Boolean))) as string[];
-    const filteredChannels = defaultPlaylists.length > 0 
-      ? channels.filter(c => defaultPlaylists.includes(c.playlist?.name as string)) 
-      : channels;
+  const handleContentPress = useCallback(
+    (item: NexoContentItem) => {
+      router.push({ pathname: "/player", params: { slug: item.slug } } as any);
+    },
+    [router],
+  );
 
-    const countries = new Set(filteredChannels.map(c => c.country).filter(Boolean));
-    const grouped = filteredChannels.reduce((acc, ch) => {
-      const cat = ch.category?.name || 'General';
-      if (countries.has(cat)) return acc;
-      if (!acc[cat]) acc[cat] = [];
-      acc[cat].push(ch);
-      return acc;
-    }, {} as Record<string, Channel[]>);
+  const handleChannelPress = useCallback(
+    (ch: any) => {
+      router.push({
+        pathname: "/player",
+        params: { channelId: ch.id, channelUrl: ch.url },
+      } as any);
+    },
+    [router],
+  );
 
-    return Object.entries(grouped)
-      .sort((a, b) => b[1].length - a[1].length)
-      .slice(0, MAX_CATEGORY_ROWS)
-      .map(([name, items]) => ({ name, items }));
-  }, [channels]);
-
-  const featuredChannel = heroChannel ?? channels[0] ?? null;
-
-  const relatedChannels = useMemo(() => {
-    if (!featuredChannel) return [];
-    const cat = featuredChannel.category?.name || 'General';
-    const group = categories.find(c => c.name === cat);
-    if (!group) return [];
-    return group.items.filter(c => c.id !== featuredChannel.id).slice(0, 4);
-  }, [featuredChannel, categories]);
-
-  const handlePlay = useCallback((channel: Channel) => {
-    setActiveChannel(channel);
-    router.push('/player');
-  }, []);
-
-  const focusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleChannelFocus = useCallback((ch: Channel) => {
-    if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
-    focusTimeoutRef.current = setTimeout(() => {
-      setHeroChannel(ch);
-    }, 300);
-  }, []);
-
-  const handleHeroPlay = () => {
-    if (featuredChannel) handlePlay(featuredChannel);
-  };
-
-  const [watchBtnFocused, setWatchBtnFocused] = useState(false);
+  if (loading || !fontsLoaded) {
+    return (
+      <View style={s.loadWrap}>
+        <ActivityIndicator size="large" color={C.accent} />
+        <Text style={s.loadText}>Cargando...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={s.root}>
-      <ScreenBackground />
+      {/* Fondo fijo: no se desplaza con el contenido. */}
+      <View style={s.backgroundLayer} pointerEvents="none">
+        {heroItem?.backdropUrl ? (
+          <Image
+            source={{ uri: heroItem.backdropUrl }}
+            style={s.backgroundImage}
+            resizeMode="cover"
+          />
+        ) : heroItem?.posterUrl ? (
+          <Image
+            source={{ uri: heroItem.posterUrl }}
+            style={s.backgroundImage}
+            resizeMode="cover"
+          />
+        ) : null}
+
+        {/* Bruma gris localizada en el borde izquierdo. */}
+        <LinearGradient
+          colors={[
+            "rgba(31, 33, 34, 0.59)",
+            "rgba(48, 50, 53, 0.57)",
+            "rgba(8, 8, 8, 0.06)",
+          ]}
+          locations={[0, 0.42, 1]}
+          style={s.backgroundLeftFog}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+        />
+
+        {/* Bruma inferior, combinada con una transición oscura suave. */}
+        <LinearGradient
+          colors={[
+            "rgba(22, 23, 24, 0.02)",
+            "rgba(13, 13, 14, 0.3)",
+            "rgba(8,8,8,0.52)",
+          ]}
+          locations={[0, 0.48, 1]}
+          style={s.backgroundBottomFog}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+        />
+      </View>
+
       <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={s.scrollContent}
+        style={s.sectionsScroll}
+        contentContainerStyle={s.sectionsContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── HERO SIDE-BY-SIDE (Web Style) ─────────────────────────────────── */}
-      <View style={s.heroContainer}>
-        {/* Left: Player */}
-        <Pressable 
-          focusable
-          onPress={handleHeroPlay}
-          style={({focused}: any) => [s.heroPlayerBox, focused && s.heroPlayerBoxFocused]}
-        >
-          {featuredChannel ? (
-            <>
-              <HeroVideo
-                key={featuredChannel.id}
-                uri={Platform.OS === 'web' ? `${API_URL}/proxy?url=${encodeURIComponent(featuredChannel.url)}` : featuredChannel.url}
-                onError={handleHeroError}
-                onCanPlay={handleHeroReady}
-              />
-              {!heroReady && (
-                <View style={[StyleSheet.absoluteFill, s.heroLoadingOverlay]}>
-                  {heroError ? (
-                    <Text style={[s.heroLoadingText, { color: C.textSecondary }]}>
-                      Transmisión no disponible.
-                    </Text>
-                  ) : (
-                    <>
-                      <ActivityIndicator size="large" color={C.accent} />
-                      <Text style={s.heroLoadingText}>Buscando señal en vivo...</Text>
-                    </>
-                  )}
+        <View style={s.heroContainer}>
+          {heroItem && (
+            <View style={s.heroInfo} pointerEvents="none">
+              <Text style={s.heroTitle}>{heroItem.title}</Text>
+              <View style={s.heroMeta}>
+                <Text style={s.heroMetaText}>
+                  {TYPE_LABEL[heroItem.type] || heroItem.type}
+                </Text>
+                {heroItem.genres?.[0] && (
+                  <Text style={s.heroMetaText}>
+                    {" "}
+                    • {heroItem.genres[0].name}
+                  </Text>
+                )}
+                {heroItem.duration ? (
+                  <Text style={s.heroMetaText}>
+                    {" "}
+                    • {formatDuration(heroItem.duration)}
+                  </Text>
+                ) : null}
+                {heroItem.releaseYear ? (
+                  <Text style={s.heroMetaText}> • {heroItem.releaseYear}</Text>
+                ) : null}
+              </View>
+
+              <View style={s.heroBadges}>
+                <View style={s.badge}>
+                  <Text style={s.badgeText}>
+                    {heroItem.contentRating
+                      ? `${heroItem.contentRating} | ESTRENADA`
+                      : "ESTRENADA"}
+                  </Text>
                 </View>
-              )}
-            </>
-          ) : (
-            <View style={s.heroLoadingOverlay}>
-              <ActivityIndicator size="large" color={C.textSecondary} />
+                {heroItem.rating ? (
+                  <View style={[s.badge, s.badgeImdb]}>
+                    <Text style={[s.badgeText, s.badgeImdbText]}>
+                      IMDb {heroItem.rating.toFixed(1)}
+                    </Text>
+                  </View>
+                ) : null}
+                {heroItem.language ? (
+                  <View style={s.badge}>
+                    <Text style={s.badgeText}>
+                      {heroItem.language.toUpperCase()}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {heroItem.description ? (
+                <Text style={s.heroDesc} numberOfLines={3}>
+                  {heroItem.description}
+                </Text>
+              ) : null}
             </View>
           )}
-        </Pressable>
-
-        {/* Right: Info Panel */}
-        <View style={s.heroInfoBox}>
-          {featuredChannel && (
-            <>
-              {/* Badge & Category */}
-              <View style={s.heroInfoTop}>
-                <View style={s.liveBadge}>
-                  <View style={s.liveBadgeDot} />
-                  <Text style={s.liveBadgeText}>EN VIVO</Text>
-                </View>
-                <Text style={s.heroCat}>{featuredChannel.category?.name || 'GENERAL'}</Text>
-              </View>
-
-              {/* Logo */}
-              {featuredChannel.logo && (
-                <Image
-                  source={{ uri: featuredChannel.logo }}
-                  style={s.heroLogo}
-                  resizeMode="contain"
-                />
-              )}
-
-              {/* Title & Meta */}
-              <View>
-                <Text style={s.heroName} numberOfLines={2}>{featuredChannel.name}</Text>
-                <Text style={s.heroMeta}>{featuredChannel.country || 'Internacional'}</Text>
-              </View>
-
-              {/* Divider */}
-              <View style={s.divider} />
-
-              {/* Related Channels */}
-              <View style={s.relatedSection}>
-                <Text style={s.relatedTitle}>CANALES SIMILARES</Text>
-                {relatedChannels.map(ch => (
-                  <Pressable 
-                    key={ch.id} 
-                    focusable 
-                    onPress={() => {
-                      setHeroChannel(ch);
-                    }}
-                    style={({focused}: any) => [s.relatedItem, focused && s.relatedItemFocused]}
-                  >
-                    <View style={s.relatedIconBox}>
-                      {ch.logo ? (
-                        <Image source={{ uri: ch.logo }} style={s.relatedLogo} resizeMode="contain" />
-                      ) : (
-                        <Tv size={scale(12)} color={C.textSecondary} />
-                      )}
-                    </View>
-                    <View style={s.relatedTextWrap}>
-                      <Text style={s.relatedName} numberOfLines={1}>{ch.name}</Text>
-                      {ch.country && <Text style={s.relatedMeta} numberOfLines={1}>{ch.country}</Text>}
-                    </View>
-                  </Pressable>
-                ))}
-              </View>
-
-            </>
-          )}
         </View>
-      </View>
 
-      {/* ── CATEGORY ROWS ────────────────────────────────────── */}
-      <View style={s.rows}>
-        {categories.map((cat) => (
-          <CategoryRow
-            key={cat.name}
-            title={cat.name}
-            channels={cat.items}
-            onChannelPress={handlePlay}
-            onChannelFocus={handleChannelFocus}
-          />
-        ))}
-      </View>
+        {trending.length > 0 && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Tendencia</Text>
+            <TrendingRow
+              items={trending}
+              onSelect={(item) => {
+                const idx = heroItems.findIndex((h) => h.id === item.id);
+                if (idx >= 0) setHeroIdx(idx);
+              }}
+            />
+          </View>
+        )}
+
+        <ChannelRow onPress={handleChannelPress} />
+        <ContentRow
+          title="Películas recién agregadas"
+          items={movies}
+          onPress={handleContentPress}
+          accentColor={C.accentOrange}
+        />
+        <ContentRow
+          title="Series recién agregadas"
+          items={series}
+          onPress={handleContentPress}
+          accentColor={C.accentFire}
+        />
+        <ContentRow
+          title="Agregados recientemente"
+          items={recent}
+          onPress={handleContentPress}
+        />
+        <View style={{ height: scale(60) }} />
       </ScrollView>
     </View>
   );
 }
 
+const HERO_H = Math.min(SH * 0.64, scale(520));
+const CARD_W = scale(130);
+const CARD_H = scale(180);
+const TREND_FOCUSED_W = scale(260);
+const TREND_FOCUSED_H = scale(160);
+const CHANNEL_CARD_W = scale(110);
+
 const s = StyleSheet.create({
-  root: {
+  root: { flex: 1, backgroundColor: "#080808", position: "relative" },
+  loadWrap: {
     flex: 1,
-    backgroundColor: '#080808',
+    alignItems: "center",
+    justifyContent: "center",
+    gap: scale(12),
+    backgroundColor: "#080808",
   },
-  scrollContent: {
-    paddingBottom: scale(100),
-  },
+  loadText: { color: C.textSecondary, fontSize: scale(14) },
 
-  // ── Hero ──
+  backgroundLayer: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 0,
+    overflow: "hidden",
+  },
+  backgroundImage: {
+    ...StyleSheet.absoluteFill,
+    width: "100%",
+    height: "100%",
+  },
+  backgroundLeftFog: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: "40%",
+  },
+  backgroundBottomFog: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: scale(250),
+  },
   heroContainer: {
-    flexDirection: 'row',
-    gap: scale(20),
-    paddingHorizontal: scale(48),
-    paddingTop: scale(24),
-    paddingBottom: scale(40),
+    height: HERO_H,
+    width: "100%",
+    position: "relative",
+    backgroundColor: "transparent",
   },
-  heroPlayerBox: {
-    flex: 1,
-    aspectRatio: 16/9,
-    backgroundColor: C.bgPanel,
-    borderRadius: scale(20),
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: C.borderSubtle,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 15,
+  heroInfo: {
+    position: "absolute",
+    top: scale(110),
+    left: scale(28),
+    right: "30%",
+    zIndex: 2,
   },
-  heroPlayerBoxFocused: {
-    borderColor: C.accent,
-    borderWidth: 3,
-    transform: [{ scale: 1.01 }],
-    shadowOpacity: 0.8,
-    shadowColor: C.accent,
+  heroTitle: {
+    fontFamily: "Bangers",
+    fontSize: scale(36),
+    color: C.accent,
+    letterSpacing: 0.3,
+    marginBottom: scale(35),
+    textShadowColor: "rgba(0,0,0,0.55)",
+    textShadowOffset: { width: 1, height: 2 },
+    textShadowRadius: 4,
   },
-  heroLoadingOverlay: {
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-    gap: scale(16),
-  },
-  heroLoadingText: {
-    color: C.textSecondary,
-    fontSize: scale(16),
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-
-  heroInfoBox: {
-    width: scale(340),
-    backgroundColor: C.bgPanel,
-    borderRadius: scale(20),
-    borderWidth: 1,
-    borderColor: C.borderSubtle,
-    padding: scale(24),
-    justifyContent: 'center',
-  },
-  heroInfoTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(10),
-    marginBottom: scale(16),
-  },
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  heroMeta: { flexDirection: "row", flexWrap: "wrap", marginBottom: scale(10) },
+  heroMetaText: { fontSize: scale(13), color: "rgba(255,255,255,0.78)" },
+  heroBadges: {
+    flexDirection: "row",
     gap: scale(6),
-    backgroundColor: 'rgba(239,68,68,0.85)',
+    marginBottom: scale(10),
+    flexWrap: "wrap",
+  },
+  badge: {
+    backgroundColor: "rgba(80,80,80,0.7)",
     paddingHorizontal: scale(8),
-    paddingVertical: scale(4),
-    borderRadius: scale(8),
-  },
-  liveBadgeDot: {
-    width: scale(6),
-    height: scale(6),
-    borderRadius: scale(3),
-    backgroundColor: '#fff',
-  },
-  liveBadgeText: {
-    color: '#fff',
-    fontSize: scale(10),
-    fontWeight: '900',
-    letterSpacing: 1.5,
-  },
-  heroCat: {
-    color: C.textSecondary,
-    fontSize: scale(10),
-    fontWeight: '700',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-  },
-  heroLogo: {
-    height: scale(48),
-    width: scale(120),
-    marginBottom: scale(16),
-  },
-  heroName: {
-    fontSize: scale(28),
-    fontWeight: '900',
-    color: C.textPrimary,
-    lineHeight: scale(32),
-  },
-  heroMeta: {
-    fontSize: scale(12),
-    color: C.textSecondary,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginTop: scale(4),
-  },
-  divider: {
-    height: 1,
-    backgroundColor: C.borderSubtle,
-    marginVertical: scale(20),
-  },
-  relatedSection: {
-    flex: 1,
-    gap: scale(12),
-  },
-  relatedTitle: {
-    fontSize: scale(10),
-    fontWeight: '800',
-    color: C.textSecondary,
-    letterSpacing: 1.5,
-  },
-  relatedItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(12),
-    padding: scale(6),
-    borderRadius: scale(8),
+    paddingVertical: scale(3),
+    borderRadius: scale(4),
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: "rgba(255,255,255,0.2)",
   },
-  relatedItemFocused: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderColor: 'rgba(255,255,255,0.3)',
-    transform: [{ scale: 1.02 }],
-  },
-  relatedIconBox: {
-    width: scale(36),
-    height: scale(36),
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: scale(8),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  relatedLogo: {
-    width: scale(24),
-    height: scale(24),
-  },
-  relatedTextWrap: {
-    flex: 1,
-  },
-  relatedName: {
-    fontSize: scale(12),
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.8)',
-  },
-  relatedMeta: {
-    fontSize: scale(9),
-    color: 'rgba(255,255,255,0.4)',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  watchBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: scale(10),
-    backgroundColor: 'transparent',
-    borderWidth: 2,
-    borderColor: C.borderSubtle,
-    paddingVertical: scale(12),
-    borderRadius: scale(12),
-    marginTop: scale(24),
-  },
-  watchBtnFocused: {
-    backgroundColor: C.accentLight,
-    borderColor: C.accentLight,
-    transform: [{ scale: 1.02 }],
-  },
-  watchBtnText: {
-    fontSize: scale(12),
-    fontWeight: '800',
-    color: '#fff',
-    letterSpacing: 1,
+  badgeText: { fontSize: scale(13), color: "#fff", fontWeight: "700" },
+  badgeImdb: { backgroundColor: "#f5c518" },
+  badgeImdbText: { color: "#000" },
+  heroDesc: {
+    fontSize: scale(13),
+    color: "rgba(255,255,255,0.75)",
+    lineHeight: scale(18),
   },
 
-  // ── Rows ──
-  rows: {
-    gap: scale(32),
+  sectionsScroll: {
+    flex: 1,
+    backgroundColor: "transparent",
+    marginTop: 0,
+    zIndex: 1,
   },
-  row: {
-    marginBottom: scale(8),
+  sectionsContent: {
+    paddingTop: scale(8),
+    paddingBottom: scale(40),
+    paddingLeft: scale(64),
+  },
+  section: { marginTop: -20, marginBottom: scale(4) },
+  sectionTitle: {
+    fontSize: scale(18),
+    fontWeight: "800",
+    color: C.textPrimary,
+    marginLeft: scale(24),
+    marginBottom: scale(12),
+    marginTop: 0,
   },
   rowHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(12),
-    paddingHorizontal: scale(48),
-    marginBottom: scale(16),
+    flexDirection: "row",
+    alignItems: "center",
+    marginLeft: scale(24),
+    marginBottom: scale(10),
+    marginTop: scale(20),
   },
   rowAccent: {
     width: scale(4),
-    height: scale(32),
+    height: scale(18),
     borderRadius: scale(2),
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 6,
-    elevation: 5,
+    marginRight: scale(10),
   },
-  rowTitle: {
-    fontSize: scale(22),
-    fontWeight: '900',
-    color: 'rgba(255,255,255,0.9)',
-    letterSpacing: -0.5,
+  rowTitle: { fontSize: scale(16), fontWeight: "800", color: C.textPrimary },
+  liveDot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: scale(4),
+    backgroundColor: C.live,
+    marginLeft: scale(12),
   },
-  rowSubtitle: {
-    fontSize: scale(12),
-    color: 'rgba(255,255,255,0.25)',
-    fontWeight: '600',
+  rowList: { paddingLeft: scale(24), paddingRight: scale(16), gap: scale(12) },
+  trendingList: {
+    paddingLeft: scale(24),
+    paddingRight: scale(16),
+    gap: scale(12),
   },
-  rowList: {
-    paddingHorizontal: scale(48),
-    paddingBottom: scale(24),
-    paddingTop: scale(8),
+  trendCard: { borderRadius: scale(12), overflow: "hidden" },
+  trendCardNormal: { width: CARD_W, height: CARD_H },
+  trendCardFocused: {
+    width: TREND_FOCUSED_W,
+    height: TREND_FOCUSED_H,
+    borderWidth: 2,
+    borderColor: C.accent,
+    shadowColor: "transparent",
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  cardWrap: {
-    width: scale(180),
-    marginRight: scale(16),
+  trendPoster: { width: "100%", height: "100%" },
+  trendBanner: { width: "100%", height: "100%" },
+  trendBannerGrad: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: "flex-end",
+    padding: scale(10),
   },
+  trendBannerTitle: {
+    fontSize: scale(14),
+    fontWeight: "900",
+    color: C.accent,
+    textShadowColor: "rgba(0,0,0,0.9)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  trendBannerSub: {
+    fontSize: scale(10),
+    color: "rgba(255,255,255,0.7)",
+    marginTop: scale(2),
+  },
+  posterCard: {
+    width: CARD_W,
+    height: CARD_H,
+    borderRadius: scale(10),
+    overflow: "hidden",
+    backgroundColor: C.bgCard,
+  },
+  posterCardFocused: {
+    borderWidth: 2,
+    borderColor: C.accent,
+    transform: [{ scale: 1.01 }],
+    shadowColor: "transparent",
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  posterImg: { ...StyleSheet.absoluteFill },
+  posterGrad: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: scale(8),
+  },
+  posterTitle: { fontSize: scale(11), fontWeight: "700", color: "#fff" },
+  posterRating: {
+    position: "absolute",
+    top: scale(6),
+    right: scale(6),
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(3),
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingHorizontal: scale(5),
+    paddingVertical: scale(2),
+    borderRadius: scale(4),
+  },
+  posterRatingText: { fontSize: scale(9), fontWeight: "800", color: C.accent },
+  channelCard: {
+    width: CHANNEL_CARD_W,
+    height: scale(80),
+    borderRadius: scale(10),
+    backgroundColor: C.bgCard,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: scale(8),
+    borderWidth: 1,
+    borderColor: C.borderSubtle,
+  },
+  channelCardFocused: {
+    borderColor: C.accent,
+    backgroundColor: C.bgCardHover,
+    transform: [{ scale: 1.02 }],
+    shadowColor: "transparent",
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  channelLogo: { width: scale(50), height: scale(36), marginBottom: scale(4) },
+  channelLogoFallback: {
+    width: scale(42),
+    height: scale(42),
+    borderRadius: scale(8),
+    backgroundColor: "rgba(255,183,3,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: scale(4),
+  },
+  channelLogoText: { fontSize: scale(14), fontWeight: "900", color: C.accent },
+  channelName: {
+    fontSize: scale(10),
+    fontWeight: "700",
+    color: C.textSecondary,
+    textAlign: "center",
+  },
+  contentRow: { marginBottom: scale(4) },
 });

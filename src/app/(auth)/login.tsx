@@ -1,32 +1,91 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
-import { useGlobal, API_URL } from '../../contexts/GlobalContext';
-import axios from 'axios';
-import * as SecureStore from 'expo-secure-store';
-import { Lock, User as UserIcon } from 'lucide-react-native';
+import axios from "axios";
+import { Lock, User as UserIcon } from "lucide-react-native";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { API_URL, useGlobal } from "../../contexts/GlobalContext";
+import { setItemAsync } from "../../utils/storage";
 
 export default function LoginScreen() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const { refreshAuth } = useGlobal();
+  const [error, setError] = useState("");
+  const { setToken, setUser } = useGlobal();
 
   const handleLogin = async () => {
     if (!username || !password) {
-      setError('Por favor completa todos los campos.');
+      setError("Por favor completa todos los campos.");
       return;
     }
 
     setLoading(true);
-    setError('');
+    setError("");
 
     try {
-      const res = await axios.post(`${API_URL}/auth/login`, { username, password });
-      await SecureStore.setItemAsync('token', res.data.token);
-      await refreshAuth();
+      const loginUrl = `${API_URL}/auth/login`;
+      console.log("[TV LOGIN] intentando login", { loginUrl, username });
+
+      const res = await axios.post(loginUrl, {
+        username,
+        password,
+      });
+
+      console.log("[TV LOGIN] respuesta OK", {
+        status: res.status,
+        hasToken: !!res.data?.token,
+        data: res.data,
+      });
+
+      if (res.data.token) {
+        await setItemAsync("token", res.data.token);
+        setToken(res.data.token);
+        setUser(res.data.user ?? null);
+      } else {
+        setError("La API no devolvió un token válido.");
+      }
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Error de conexión. Verifica tus credenciales.');
+      console.log("[TV LOGIN] error de request", {
+        code: err.code,
+        message: err.message,
+        status: err.response?.status,
+        data: err.response?.data,
+        url: `${API_URL}/auth/login`,
+      });
+
+      const status = err.response?.status;
+      const apiError = err.response?.data?.error;
+
+      if (status === 404) {
+        setError(
+          "El backend no responde o la ruta de login no existe. Revisa la URL de la API.",
+        );
+        return;
+      }
+
+      if (status === 401) {
+        setError(apiError || "Usuario o contraseña incorrectos.");
+        return;
+      }
+
+      if (status === 403) {
+        setError(apiError || "Tu cuenta está inactiva o expirada.");
+        return;
+      }
+
+      if (err.code === "ERR_NETWORK" || !err.response) {
+        setError(
+          "No se pudo conectar con el servidor. Verifica tu conexión o la URL de la API.",
+        );
+        return;
+      }
+
+      setError(apiError || "Error de conexión. Verifica tus credenciales.");
     } finally {
       setLoading(false);
     }
@@ -40,8 +99,12 @@ export default function LoginScreen() {
       </View>
 
       <View className="w-[500px] p-12 bg-white/5 rounded-3xl border border-white/10 items-center">
-        <Text className="text-5xl font-black text-white mb-2 tracking-tighter">Nuba<Text className="text-cyan-500">TV</Text></Text>
-        <Text className="text-white/40 mb-10 text-lg">Inicia sesión en tu Smart TV</Text>
+        <Text className="text-5xl font-black text-white mb-2 tracking-tighter">
+          Nuba<Text className="text-cyan-500">TV</Text>
+        </Text>
+        <Text className="text-white/40 mb-10 text-lg">
+          Inicia sesión en tu Smart TV
+        </Text>
 
         {error ? (
           <View className="bg-red-500/20 border border-red-500/50 p-4 rounded-xl mb-6 w-full">
@@ -87,7 +150,9 @@ export default function LoginScreen() {
             {loading ? (
               <ActivityIndicator color="black" />
             ) : (
-              <Text className="text-black font-black text-2xl uppercase tracking-widest">Entrar</Text>
+              <Text className="text-black font-black text-2xl uppercase tracking-widest">
+                Entrar
+              </Text>
             )}
           </TouchableOpacity>
         </View>
