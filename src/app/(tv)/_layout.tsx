@@ -1,35 +1,70 @@
 import { Stack, usePathname, useRouter } from "expo-router";
+
 import {
-  Clapperboard,
-  Compass,
-  Film,
-  Heart,
-  Home,
-  Settings,
-  Tv,
+      Clapperboard,
+      Compass,
+      Film,
+      Heart,
+      Home,
+      Settings,
+      Tv,
 } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+
+import { forwardRef, useEffect, useRef, useState } from "react";
+
 import {
-  ActivityIndicator,
-  Animated,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
+      ActivityIndicator,
+      Animated,
+      findNodeHandle,
+      Platform,
+      Pressable,
+      StyleSheet,
+      Text,
+      View,
 } from "react-native";
+
 import { useGlobal } from "../../contexts/GlobalContext";
+import { setGlobalSidebarNodeHandle } from "../../hooks/useNavThrottle";
+
 import { scale } from "../../lib/scale";
 import { C } from "../../lib/tvColors";
+
+const TVFocusGuide: any =
+  (require("react-native") as any).TVFocusGuideView ?? View;
+
+// usePathname() devuelve la ruta sin el grupo "(tv)".
+const routeToPath = (route: string) =>
+  route.replace("/(tv)", "") || "/";
 
 const SIDEBAR_W = scale(64);
 const SIDEBAR_EXPANDED_W = scale(220);
 
 const NAV_ITEMS = [
   { key: "home", label: "Inicio", icon: Home, route: "/(tv)" },
-  { key: "channels", label: "Canales TV", icon: Tv, route: "/(tv)/channels" },
-  { key: "movies", label: "Películas", icon: Film, route: "/(tv)/movies" },
-  { key: "series", label: "Series", icon: Clapperboard, route: "/(tv)/series" },
-  { key: "explore", label: "Explorar", icon: Compass, route: "/(tv)/explore" },
+  {
+    key: "channels",
+    label: "Canales TV",
+    icon: Tv,
+    route: "/(tv)/channels",
+  },
+  {
+    key: "movies",
+    label: "Películas",
+    icon: Film,
+    route: "/(tv)/movies",
+  },
+  {
+    key: "series",
+    label: "Series",
+    icon: Clapperboard,
+    route: "/(tv)/series",
+  },
+  {
+    key: "explore",
+    label: "Explorar",
+    icon: Compass,
+    route: "/(tv)/explore",
+  },
   {
     key: "favorites",
     label: "Favoritos",
@@ -44,19 +79,19 @@ const NAV_ITEMS = [
   },
 ];
 
-function SidebarButton({
-  item,
-  isActive,
-  isExpanded,
-  onItemFocus,
-  onItemBlur,
-}: {
-  item: (typeof NAV_ITEMS)[0];
-  isActive: boolean;
-  isExpanded: boolean;
-  onItemFocus?: (key: string) => void;
-  onItemBlur?: (key: string) => void;
-}) {
+const SidebarButton = forwardRef<
+  any,
+  {
+    item: (typeof NAV_ITEMS)[0];
+    isActive: boolean;
+    isExpanded: boolean;
+    onItemFocus?: (key: string) => void;
+    onItemBlur?: (key: string) => void;
+  }
+>(function SidebarButton(
+  { item, isActive, isExpanded, onItemFocus, onItemBlur },
+  ref,
+) {
   const router = useRouter();
   const [focused, setFocused] = useState(false);
   const Icon = item.icon;
@@ -73,12 +108,16 @@ function SidebarButton({
 
   return (
     <Pressable
+      ref={ref}
       focusable
       accessibilityRole="button"
       accessibilityLabel={item.label}
       onFocus={handleFocus}
       onBlur={handleBlur}
-      onPress={() => router.push(item.route as any)}
+      // replace: no apila pantallas y el botón Atrás no recorre el menú.
+      onPress={() => {
+        if (!isActive) router.replace(item.route as any);
+      }}
       style={[
         s.navBtn,
         isExpanded && s.navBtnExpanded,
@@ -86,13 +125,22 @@ function SidebarButton({
         focused && s.navBtnFocused,
       ]}
     >
-      <View style={[s.navBtnInner, isExpanded && s.navBtnInnerExpanded]}>
-        {/* Contenedor fijo del ícono → evita blur por re-layout */}
+      <View
+        style={[
+          s.navBtnInner,
+          isExpanded && s.navBtnInnerExpanded,
+        ]}
+      >
+        {/* Contenedor fijo del ícono para evitar cambios de posición. */}
         <View style={s.iconBox}>
           <Icon
             size={scale(22)}
             color={
-              focused ? "#000" : isActive ? C.accent : "rgba(255,255,255,0.85)"
+              focused
+                ? "#000"
+                : isActive
+                  ? C.accent
+                  : "rgba(255,255,255,0.85)"
             }
             strokeWidth={focused || isActive ? 2.4 : 2}
           />
@@ -111,26 +159,75 @@ function SidebarButton({
           </Text>
         )}
       </View>
+
+      {/* Borde independiente del fondo y del contenido del botón. */}
+      {(focused || isActive) && (
+        <View
+          pointerEvents="none"
+          style={[
+            s.selectionOutline,
+            {
+              borderColor: focused
+                ? C.accent
+                : C.accentBorder ??
+                  "rgba(255,183,3,0.45)",
+            },
+          ]}
+        />
+      )}
     </Pressable>
   );
-}
+});
 
 export default function TVLayout() {
   const { loading } = useGlobal();
   const pathname = usePathname();
   const isPlayerScreen = pathname.includes("/player");
-  const [focusedSidebarKey, setFocusedSidebarKey] = useState<string | null>(
-    null,
-  );
-  const sidebarWidth = useRef(new Animated.Value(SIDEBAR_W)).current;
+
+  const [focusedSidebarKey, setFocusedSidebarKey] =
+    useState<string | null>(null);
+
+  const sidebarWidth = useRef(
+    new Animated.Value(SIDEBAR_W),
+  ).current;
+
   const sidebarBg = useRef(new Animated.Value(0)).current;
+
+  const navRefs = useRef<Record<string, any>>({});
 
   const isSidebarExpanded = focusedSidebarKey !== null;
 
+  // Registra el nodo del ítem activo para recuperar el foco
+  // al volver desde el contenido hacia la barra lateral.
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+
+    const active = NAV_ITEMS.find((item) => {
+      const path = routeToPath(item.route);
+      return pathname === path || pathname === `${path}/`;
+    });
+
+    const timeout = setTimeout(() => {
+      try {
+        const ref =
+          navRefs.current[active?.key ?? NAV_ITEMS[0].key];
+
+        setGlobalSidebarNodeHandle(
+          ref ? findNodeHandle(ref) : null,
+        );
+      } catch {}
+    }, 350);
+
+    return () => clearTimeout(timeout);
+  }, [pathname]);
+
+  // Se conservan las animaciones originales de ancho y fondo.
   useEffect(() => {
     Animated.parallel([
       Animated.timing(sidebarWidth, {
-        toValue: isSidebarExpanded ? SIDEBAR_EXPANDED_W : SIDEBAR_W,
+        toValue: isSidebarExpanded
+          ? SIDEBAR_EXPANDED_W
+          : SIDEBAR_W,
         duration: 200,
         useNativeDriver: false,
       }),
@@ -144,7 +241,10 @@ export default function TVLayout() {
 
   const bgColor = sidebarBg.interpolate({
     inputRange: [0, 1],
-    outputRange: ["rgba(8, 8, 8, 0.03)", "rgba(8, 8, 8, 0.84)"],
+    outputRange: [
+      "rgba(8, 8, 8, 0.03)",
+      "rgba(8, 8, 8, 0.84)",
+    ],
   });
 
   if (loading) {
@@ -155,8 +255,10 @@ export default function TVLayout() {
     );
   }
 
-  const getIsActive = (item: (typeof NAV_ITEMS)[0]) =>
-    pathname === item.route || pathname === `${item.route}/`;
+  const getIsActive = (item: (typeof NAV_ITEMS)[0]) => {
+    const path = routeToPath(item.route);
+    return pathname === path || pathname === `${path}/`;
+  };
 
   return (
     <View style={s.root}>
@@ -189,7 +291,7 @@ export default function TVLayout() {
             },
           ]}
         >
-          {/* Borde derecho sutil cuando está expandida */}
+          {/* Borde derecho sutil cuando la barra está expandida. */}
           <Animated.View
             style={[
               s.sidebarBorder,
@@ -203,14 +305,19 @@ export default function TVLayout() {
             <Text style={s.brandLetter}>N</Text>
           </View>
 
-          <View style={s.navList}>
+          <TVFocusGuide style={s.navList}>
             {NAV_ITEMS.map((item) => (
               <SidebarButton
                 key={item.key}
+                ref={(node: any) => {
+                  navRefs.current[item.key] = node;
+                }}
                 item={item}
                 isActive={getIsActive(item)}
                 isExpanded={isSidebarExpanded}
-                onItemFocus={(key) => setFocusedSidebarKey(key)}
+                onItemFocus={(key) =>
+                  setFocusedSidebarKey(key)
+                }
                 onItemBlur={(key) =>
                   setFocusedSidebarKey((current) =>
                     current === key ? null : current,
@@ -218,7 +325,7 @@ export default function TVLayout() {
                 }
               />
             ))}
-          </View>
+          </TVFocusGuide>
         </Animated.View>
       )}
     </View>
@@ -231,12 +338,14 @@ const s = StyleSheet.create({
     position: "relative",
     backgroundColor: "#080808",
   },
+
   loadingRoot: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#080808",
   },
+
   stackLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 0,
@@ -253,8 +362,9 @@ const s = StyleSheet.create({
     alignItems: "stretch",
     paddingTop: scale(48),
     paddingBottom: scale(24),
-    // sin overflow hidden → evita recortes raros del ícono
+    // Se conserva el comportamiento original del contenedor.
   },
+
   sidebarBorder: {
     position: "absolute",
     top: 0,
@@ -274,6 +384,7 @@ const s = StyleSheet.create({
     alignSelf: "center",
     marginBottom: scale(20),
   },
+
   brandLetter: {
     fontSize: scale(20),
     fontWeight: "900",
@@ -291,26 +402,33 @@ const s = StyleSheet.create({
   navBtn: {
     height: scale(48),
     borderRadius: scale(12),
-    borderWidth: 1.5,
+
+    // El borde ya no lo dibuja el propio botón.
+    borderWidth: 0,
     borderColor: "transparent",
+
     backgroundColor: "transparent",
     justifyContent: "center",
+    position: "relative",
   },
+
   navBtnExpanded: {
-    // solo cambia alineación del contenido interno
+    // Se conserva el estilo original.
   },
+
   navBtnInner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     height: "100%",
   },
+
   navBtnInnerExpanded: {
     justifyContent: "flex-start",
     paddingLeft: scale(4),
   },
 
-  // Caja fija del ícono → tamaño estable, sin blur
+  // Caja fija del ícono.
   iconBox: {
     width: scale(44),
     height: scale(44),
@@ -325,19 +443,27 @@ const s = StyleSheet.create({
     marginLeft: scale(4),
     flexShrink: 1,
   },
+
   navLabelActive: {
     color: C.accent,
   },
+
   navLabelFocused: {
     color: "#000",
   },
 
   navBtnActive: {
     backgroundColor: "rgba(255,183,3,0.18)",
-    borderColor: C.accentBorder ?? "rgba(255,183,3,0.45)",
   },
+
   navBtnFocused: {
     backgroundColor: C.accent,
-    borderColor: C.accent,
+  },
+
+  // El contorno se dibuja por separado, por encima del botón.
+  selectionOutline: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 1,
+    borderRadius: scale(12),
   },
 });

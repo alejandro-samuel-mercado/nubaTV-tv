@@ -1,11 +1,13 @@
 import axios from "axios";
 import {
-  createContext,
-  ReactNode,
-  useContext,
-  useEffect,
-  useState,
+    createContext,
+    ReactNode,
+    useContext,
+    useEffect,
+    useMemo,
+    useState,
 } from "react";
+import { Platform } from "react-native";
 import { deleteItemAsync, getItemAsync, setItemAsync } from "../utils/storage";
 
 const safeSetItem = async (key: string, value: string) => {
@@ -126,6 +128,30 @@ export function GlobalProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  useEffect(() => {
+    if (!token) return;
+
+    const registerTvDevice = async () => {
+      try {
+        await axios.post(
+          `${API_URL}/tv/register`,
+          {
+            name: "NUBA-TV",
+            platform: Platform.OS,
+            ip: "local-network",
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+      } catch (error) {
+        console.log("TV registration failed:", error);
+      }
+    };
+
+    registerTvDevice();
+  }, [token]);
+
   const fetchChannels = async () => {
     if (!token) return;
     try {
@@ -166,11 +192,13 @@ export function GlobalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toggleFavorite = (id: string) => {
-    const updated = favorites.includes(id)
-      ? favorites.filter((fId) => fId !== id)
-      : [...favorites, id];
-    setFavorites(updated);
-    safeSetItem("favorites", JSON.stringify(updated));
+    setFavorites((prev) => {
+      const updated = prev.includes(id)
+        ? prev.filter((fId) => fId !== id)
+        : [...prev, id];
+      safeSetItem("favorites", JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const logout = async () => {
@@ -179,30 +207,41 @@ export function GlobalProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const value = useMemo(
+    () => ({
+      user,
+      setUser,
+      token,
+      setToken,
+      logout,
+      refreshAuth,
+      channels,
+      setChannels,
+      activeChannel,
+      setActiveChannel,
+      playlists,
+      selectedPlaylist,
+      setSelectedPlaylist,
+      favorites,
+      toggleFavorite,
+      loading,
+      fetchChannels,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      user,
+      token,
+      channels,
+      activeChannel,
+      playlists,
+      selectedPlaylist,
+      favorites,
+      loading,
+    ],
+  );
+
   return (
-    <GlobalContext.Provider
-      value={{
-        user,
-        setUser,
-        token,
-        setToken,
-        logout,
-        refreshAuth,
-        channels,
-        setChannels,
-        activeChannel,
-        setActiveChannel,
-        playlists,
-        selectedPlaylist,
-        setSelectedPlaylist,
-        favorites,
-        toggleFavorite,
-        loading,
-        fetchChannels,
-      }}
-    >
-      {children}
-    </GlobalContext.Provider>
+    <GlobalContext.Provider value={value}>{children}</GlobalContext.Provider>
   );
 }
 

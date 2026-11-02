@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Image } from 'react-native';
+import React, { memo, useState } from 'react';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Play, Heart, Tv } from 'lucide-react-native';
 import { Channel } from '../../contexts/GlobalContext';
 import { scale } from '../../lib/scale';
 import { C, rowColor } from '../../lib/tvColors';
+import RemoteImage from './RemoteImage';
+
+const TVPressable = Pressable as any;
 
 interface Props {
   channel: Channel;
@@ -13,9 +16,11 @@ interface Props {
   onPress: () => void;
   onFocus?: () => void;
   onToggleFav?: () => void;
+  nextFocusLeft?: number;
+  hasTVPreferredFocus?: boolean;
 }
 
-export default function ChannelCard({ channel, isActive, isFav, onPress, onFocus, onToggleFav }: Props) {
+function ChannelCard({ channel, isActive, isFav, onPress, onFocus, onToggleFav, nextFocusLeft, hasTVPreferredFocus }: Props) {
   const [focused, setFocused] = useState(false);
 
   // Compute category color
@@ -23,24 +28,26 @@ export default function ChannelCard({ channel, isActive, isFav, onPress, onFocus
   const color = rowColor(catName);
 
   return (
-    <Pressable
+    <TVPressable
       focusable
+      nextFocusLeft={nextFocusLeft}
+      hasTVPreferredFocus={hasTVPreferredFocus}
       onFocus={() => { setFocused(true); onFocus?.(); }}
       onBlur={() => setFocused(false)}
       onPress={onPress}
       style={[
         s.root,
         isActive && s.rootActive,
-        focused && { borderColor: color, transform: [{ scale: 1.05 }], zIndex: 50, elevation: 10 }
+        focused && { backgroundColor: 'rgba(255,255,255,0.1)', zIndex: 50 }
       ]}
     >
       {/* Background / Logo */}
       <View style={s.logoContainer}>
         {channel.logo ? (
-          <Image
-            source={{ uri: channel.logo }}
-            style={[s.logo, focused && { opacity: 0.9, transform: [{ scale: 1.05 }] }]}
-            resizeMode="contain"
+          <RemoteImage
+            uri={channel.logo}
+            style={s.logo as any}
+            contentFit="contain"
           />
         ) : (
           <View style={[s.fallbackIcon, { backgroundColor: `${color}16`, borderColor: `${color}22` }]}>
@@ -95,9 +102,22 @@ export default function ChannelCard({ channel, isActive, isFav, onPress, onFocus
           <Heart size={scale(12)} fill={isFav ? '#ff4d6d' : 'none'} color={isFav ? '#ff4d6d' : 'rgba(255,255,255,0.6)'} />
         </Pressable>
       )}
-    </Pressable>
+    </TVPressable>
   );
 }
+
+// Los callbacks se ignoran en la comparación: las cards no se re-renderizan al
+// cambiar el estado de la lista (clave para listas largas en TV).
+export default memo(
+  ChannelCard,
+  (a, b) =>
+    a.channel === b.channel &&
+    a.isActive === b.isActive &&
+    a.isFav === b.isFav &&
+    a.nextFocusLeft === b.nextFocusLeft &&
+    a.hasTVPreferredFocus === b.hasTVPreferredFocus &&
+    !!a.onToggleFav === !!b.onToggleFav,
+);
 
 const s = StyleSheet.create({
   root: {
@@ -105,9 +125,8 @@ const s = StyleSheet.create({
     aspectRatio: 3/4,
     backgroundColor: C.bgCard,
     borderRadius: scale(16),
-    borderWidth: scale(2),
-    borderColor: C.borderSubtle,
-    overflow: 'hidden',
+
+    overflow: 'visible',   // must be visible so focus border isn't clipped
     position: 'relative',
   },
   rootActive: {

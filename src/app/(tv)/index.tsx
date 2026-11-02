@@ -1,27 +1,29 @@
 import { Bangers_400Regular, useFonts } from "@expo-google-fonts/bangers";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { ChevronRight, Star } from "lucide-react-native";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronRight, Info, Play } from "lucide-react-native";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  Dimensions,
-  FlatList,
-  Image,
-  ImageBackground,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+      ActivityIndicator,
+      Dimensions,
+      FlatList,
+      ScrollView,
+      StyleSheet,
+      Text,
+      View,
 } from "react-native";
+import BackdropBackground from "../../components/tv/BackdropBackground";
+import Focusable from "../../components/tv/Focusable";
+import PosterCard from "../../components/tv/PosterCard";
+import RemoteImage, { prefetchImages } from "../../components/tv/RemoteImage";
 import { useGlobal } from "../../contexts/GlobalContext";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { useSidebarHandle } from "../../hooks/useNavThrottle";
 import { scale } from "../../lib/scale";
 import { C } from "../../lib/tvColors";
 import {
-  getContentList,
-  getHomepage,
-  NexoContentItem,
+      getContentList,
+      getHomepage,
+      NexoContentItem,
 } from "../../services/nexoplay";
 
 const { height: SH } = Dimensions.get("window");
@@ -39,87 +41,96 @@ const formatDuration = (mins?: number) => {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 };
 
-function TrendingRow({
+const HERO_H = Math.min(SH * 0.5, scale(400));
+const CARD_W = scale(130);
+const CARD_H = scale(180);
+const CARD_GAP = scale(12);
+const TREND_FOCUSED_W = scale(260);
+const TREND_FOCUSED_H = scale(160);
+const CHANNEL_CARD_W = scale(110);
+
+const keyById = (i: { id: string }) => i.id;
+
+// ── Tendencia: la card enfocada se expande y cambia el hero ─────────────────
+const TrendingRow = memo(function TrendingRow({
   items,
   onSelect,
 }: {
   items: NexoContentItem[];
   onSelect: (item: NexoContentItem) => void;
 }) {
-  const [focusedIdx, setFocusedIdx] = useState(0);
-  const listRef = useRef<FlatList>(null);
-
-  const handleFocus = (idx: number, item: NexoContentItem) => {
-    setFocusedIdx(idx);
-    onSelect(item);
-  };
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const sidebarHandle = useSidebarHandle();
 
   return (
     <FlatList
-      ref={listRef}
       data={items}
-      keyExtractor={(i) => i.id}
+      keyExtractor={keyById}
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={s.trendingList}
+      initialNumToRender={8}
+      windowSize={5}
+      extraData={focusedId}
       renderItem={({ item, index }) => {
-        const isFocused = index === focusedIdx;
-        const poster = item.posterUrl || item.backdropUrl;
+        const isFocused = item.id === focusedId;
         return (
-          <Pressable
-            focusable
-            onFocus={() => handleFocus(index, item)}
+          <Focusable
+            onFocus={() => {
+              setFocusedId(item.id);
+              onSelect(item);
+            }}
+            onBlur={() => setFocusedId((cur) => (cur === item.id ? null : cur))}
             onPress={() => onSelect(item)}
+            nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
             style={[
               s.trendCard,
               isFocused ? s.trendCardFocused : s.trendCardNormal,
             ]}
           >
+            <RemoteImage
+              uri={
+                isFocused
+                  ? item.backdropUrl || item.posterUrl
+                  : item.posterUrl || item.backdropUrl
+              }
+              style={StyleSheet.absoluteFill as any}
+              transition={150}
+            />
             {isFocused ? (
-              <ImageBackground
-                source={{ uri: item.backdropUrl || item.posterUrl || "" }}
-                style={s.trendBanner}
-                resizeMode="cover"
-              >
-                <LinearGradient
-                  colors={["transparent", "rgba(0,0,0,0.85)"]}
-                  style={s.trendBannerGrad}
-                >
-                  <Text style={s.trendBannerTitle} numberOfLines={2}>
-                    {item.title.toUpperCase()}
+              <View style={s.trendBannerGrad}>
+                <Text style={s.trendBannerTitle} numberOfLines={2}>
+                  {item.title.toUpperCase()}
+                </Text>
+                {item.tagline ? (
+                  <Text style={s.trendBannerSub} numberOfLines={1}>
+                    {item.tagline}
                   </Text>
-                  {item.tagline ? (
-                    <Text style={s.trendBannerSub} numberOfLines={1}>
-                      {item.tagline}
-                    </Text>
-                  ) : null}
-                </LinearGradient>
-              </ImageBackground>
-            ) : (
-              <Image
-                source={{ uri: poster || "" }}
-                style={s.trendPoster}
-                resizeMode="cover"
-              />
-            )}
-          </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+          </Focusable>
         );
       }}
     />
   );
-}
+});
 
-function ContentRow({
+// ── Fila de contenido: cada card abre los DETALLES ──────────────────────────
+const ContentRow = memo(function ContentRow({
   title,
   items,
   onPress,
   accentColor,
+  preferFocus,
 }: {
   title: string;
   items: NexoContentItem[];
   onPress: (item: NexoContentItem) => void;
   accentColor?: string;
+  preferFocus?: boolean;
 }) {
+  const sidebarHandle = useSidebarHandle();
   if (!items.length) return null;
   const accent = accentColor || C.accent;
 
@@ -136,48 +147,36 @@ function ContentRow({
       </View>
       <FlatList
         data={items}
-        keyExtractor={(i) => i.id}
+        keyExtractor={keyById}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowList}
-        renderItem={({ item }) => (
-          <Pressable
-            focusable
-            onPress={() => onPress(item)}
-            style={({ focused }: any) => [
-              s.posterCard,
-              focused && s.posterCardFocused,
-            ]}
-          >
-            <Image
-              source={{ uri: item.posterUrl || item.backdropUrl || "" }}
-              style={s.posterImg}
-              resizeMode="cover"
-            />
-            {item.rating ? (
-              <View style={s.posterRating}>
-                <Star size={scale(9)} color={C.accent} fill={C.accent} />
-                <Text style={s.posterRatingText}>{item.rating.toFixed(1)}</Text>
-              </View>
-            ) : null}
-            <LinearGradient
-              colors={["transparent", "rgba(0,0,0,0.7)"]}
-              style={s.posterGrad}
-            >
-              <Text style={s.posterTitle} numberOfLines={2}>
-                {item.title}
-              </Text>
-            </LinearGradient>
-          </Pressable>
+        initialNumToRender={8}
+        maxToRenderPerBatch={6}
+        windowSize={5}
+        renderItem={({ item, index }) => (
+          <PosterCard
+            item={item}
+            width={CARD_W}
+            height={CARD_H}
+            onPressItem={onPress}
+            nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
+            hasTVPreferredFocus={preferFocus && index === 0}
+          />
         )}
       />
     </View>
   );
-}
+});
 
-function ChannelRow({ onPress }: { onPress: (ch: any) => void }) {
+const ChannelRow = memo(function ChannelRow({
+  onPress,
+}: {
+  onPress: (ch: any) => void;
+}) {
   const { channels } = useGlobal();
-  const topChannels = channels.slice(0, 20);
+  const sidebarHandle = useSidebarHandle();
+  const topChannels = useMemo(() => channels.slice(0, 20), [channels]);
   if (!topChannels.length) return null;
 
   return (
@@ -192,24 +191,24 @@ function ChannelRow({ onPress }: { onPress: (ch: any) => void }) {
       </View>
       <FlatList
         data={topChannels}
-        keyExtractor={(c) => c.id}
+        keyExtractor={keyById}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowList}
-        renderItem={({ item: ch }) => (
-          <Pressable
-            focusable
+        initialNumToRender={8}
+        windowSize={5}
+        renderItem={({ item: ch, index }) => (
+          <Focusable
             onPress={() => onPress(ch)}
-            style={({ focused }: any) => [
-              s.channelCard,
-              focused && s.channelCardFocused,
-            ]}
+            nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
+            style={s.channelCard}
+            focusedStyle={s.channelCardFocused}
           >
             {ch.logo ? (
-              <Image
-                source={{ uri: ch.logo }}
-                style={s.channelLogo}
-                resizeMode="contain"
+              <RemoteImage
+                uri={ch.logo}
+                style={s.channelLogo as any}
+                contentFit="contain"
               />
             ) : (
               <View style={s.channelLogoFallback}>
@@ -221,12 +220,90 @@ function ChannelRow({ onPress }: { onPress: (ch: any) => void }) {
             <Text style={s.channelName} numberOfLines={2}>
               {ch.name}
             </Text>
-          </Pressable>
+          </Focusable>
         )}
       />
     </View>
   );
-}
+});
+
+// ── Info del hero (sin "ESTRENADA" ni IMDb) + botón Reproducir ──────────────
+const HeroInfo = memo(function HeroInfo({
+  item,
+  onPlay,
+  onDetails,
+}: {
+  item: NexoContentItem;
+  onPlay: (item: NexoContentItem) => void;
+  onDetails: (item: NexoContentItem) => void;
+}) {
+  const sidebarHandle = useSidebarHandle();
+  return (
+    <View style={s.heroInfo} pointerEvents="box-none">
+      <Text style={s.heroTitle} numberOfLines={2}>
+        {item.title}
+      </Text>
+      <View style={s.heroMeta}>
+        <Text style={s.heroMetaText}>{TYPE_LABEL[item.type] || item.type}</Text>
+        {item.genres?.[0] && (
+          <Text style={s.heroMetaText}> • {item.genres[0].name}</Text>
+        )}
+        {item.duration ? (
+          <Text style={s.heroMetaText}> • {formatDuration(item.duration)}</Text>
+        ) : null}
+        {item.releaseYear ? (
+          <Text style={s.heroMetaText}> • {item.releaseYear}</Text>
+        ) : null}
+      </View>
+
+      <View style={s.heroBadges}>
+        {item.contentRating ? (
+          <View style={s.badge}>
+            <Text style={s.badgeText}>{item.contentRating}</Text>
+          </View>
+        ) : null}
+        {item.language ? (
+          <View style={s.badge}>
+            <Text style={s.badgeText}>{item.language.toUpperCase()}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {item.description ? (
+        <Text style={s.heroDesc} numberOfLines={3}>
+          {item.description}
+        </Text>
+      ) : null}
+
+      <View style={s.heroButtons}>
+        <Focusable
+          hasTVPreferredFocus
+          onPress={() => onPlay(item)}
+          nextFocusLeft={sidebarHandle ?? undefined}
+          style={s.btnPlay}
+          focusedStyle={s.btnPlayFocused}
+        >
+          <Play size={scale(16)} color="#000" fill="#000" />
+          <Text style={s.btnPlayText}>Reproducir</Text>
+        </Focusable>
+        <Focusable
+          onPress={() => onDetails(item)}
+          style={s.btnInfo}
+          focusedStyle={s.btnInfoFocused}
+        >
+          {({ focused }) => (
+            <>
+              <Info size={scale(16)} color={focused ? "#000" : "#fff"} />
+              <Text style={[s.btnInfoText, focused && { color: "#000" }]}>
+                Más info
+              </Text>
+            </>
+          )}
+        </Focusable>
+      </View>
+    </View>
+  );
+});
 
 export default function HomeTvScreen() {
   const router = useRouter();
@@ -235,12 +312,15 @@ export default function HomeTvScreen() {
   const [loading, setLoading] = useState(true);
   const [heroItems, setHeroItems] = useState<NexoContentItem[]>([]);
   const [heroIdx, setHeroIdx] = useState(0);
+  const [override, setOverride] = useState<NexoContentItem | null>(null);
   const [trending, setTrending] = useState<NexoContentItem[]>([]);
   const [recent, setRecent] = useState<NexoContentItem[]>([]);
   const [movies, setMovies] = useState<NexoContentItem[]>([]);
   const [series, setSeries] = useState<NexoContentItem[]>([]);
 
-  const heroItem = heroItems[heroIdx] || null;
+  // El hero sólo cambia cuando el foco se detiene → sin lag al recorrer cards.
+  const heroRaw = override ?? heroItems[heroIdx] ?? null;
+  const heroItem = useDebouncedValue(heroRaw, 250);
 
   useEffect(() => {
     let cancelled = false;
@@ -252,13 +332,19 @@ export default function HomeTvScreen() {
           getContentList({ type: "SERIES", limit: 20, sort: "recent" }),
         ]);
         if (cancelled) return;
-        setHeroItems(
-          hp.heroItems.length ? hp.heroItems : hp.trending.slice(0, 5),
-        );
+        const heroes = hp.heroItems.length
+          ? hp.heroItems
+          : hp.trending.slice(0, 5);
+        setHeroItems(heroes);
         setTrending(hp.trending.slice(0, 12));
         setRecent(hp.recent.slice(0, 16));
         setMovies(mv.slice(0, 16));
         setSeries(sr.slice(0, 16));
+        // Precarga fondos para que el cambio de banner sea instantáneo.
+        prefetchImages([
+          ...heroes.map((h) => h.backdropUrl || h.posterUrl),
+          ...hp.trending.slice(0, 8).map((h) => h.backdropUrl),
+        ]);
       } catch (e) {
         console.warn("Home load error:", e);
       } finally {
@@ -272,14 +358,22 @@ export default function HomeTvScreen() {
 
   useEffect(() => {
     if (heroItems.length < 2) return;
-    const t = setInterval(
-      () => setHeroIdx((i) => (i + 1) % heroItems.length),
-      8000,
-    );
+    const t = setInterval(() => {
+      setOverride(null);
+      setHeroIdx((i) => (i + 1) % heroItems.length);
+    }, 9000);
     return () => clearInterval(t);
   }, [heroItems.length]);
 
+  // Cards → DETALLES
   const handleContentPress = useCallback(
+    (item: NexoContentItem) => {
+      router.push({ pathname: "/detail", params: { slug: item.slug } } as any);
+    },
+    [router],
+  );
+
+  const handlePlay = useCallback(
     (item: NexoContentItem) => {
       router.push({ pathname: "/player", params: { slug: item.slug } } as any);
     },
@@ -296,6 +390,11 @@ export default function HomeTvScreen() {
     [router],
   );
 
+  const handleTrendSelect = useCallback(
+    (item: NexoContentItem) => setOverride(item),
+    [],
+  );
+
   if (loading || !fontsLoaded) {
     return (
       <View style={s.loadWrap}>
@@ -307,48 +406,10 @@ export default function HomeTvScreen() {
 
   return (
     <View style={s.root}>
-      {/* Fondo fijo: no se desplaza con el contenido. */}
-      <View style={s.backgroundLayer} pointerEvents="none">
-        {heroItem?.backdropUrl ? (
-          <Image
-            source={{ uri: heroItem.backdropUrl }}
-            style={s.backgroundImage}
-            resizeMode="cover"
-          />
-        ) : heroItem?.posterUrl ? (
-          <Image
-            source={{ uri: heroItem.posterUrl }}
-            style={s.backgroundImage}
-            resizeMode="cover"
-          />
-        ) : null}
-
-        {/* Bruma gris localizada en el borde izquierdo. */}
-        <LinearGradient
-          colors={[
-            "rgba(31, 33, 34, 0.59)",
-            "rgba(48, 50, 53, 0.57)",
-            "rgba(8, 8, 8, 0.06)",
-          ]}
-          locations={[0, 0.42, 1]}
-          style={s.backgroundLeftFog}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-        />
-
-        {/* Bruma inferior, combinada con una transición oscura suave. */}
-        <LinearGradient
-          colors={[
-            "rgba(22, 23, 24, 0.02)",
-            "rgba(13, 13, 14, 0.3)",
-            "rgba(8,8,8,0.52)",
-          ]}
-          locations={[0, 0.48, 1]}
-          style={s.backgroundBottomFog}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-        />
-      </View>
+      <BackdropBackground
+        uri={heroItem?.backdropUrl || heroItem?.posterUrl}
+        variant="home"
+      />
 
       <ScrollView
         style={s.sectionsScroll}
@@ -357,72 +418,18 @@ export default function HomeTvScreen() {
       >
         <View style={s.heroContainer}>
           {heroItem && (
-            <View style={s.heroInfo} pointerEvents="none">
-              <Text style={s.heroTitle}>{heroItem.title}</Text>
-              <View style={s.heroMeta}>
-                <Text style={s.heroMetaText}>
-                  {TYPE_LABEL[heroItem.type] || heroItem.type}
-                </Text>
-                {heroItem.genres?.[0] && (
-                  <Text style={s.heroMetaText}>
-                    {" "}
-                    • {heroItem.genres[0].name}
-                  </Text>
-                )}
-                {heroItem.duration ? (
-                  <Text style={s.heroMetaText}>
-                    {" "}
-                    • {formatDuration(heroItem.duration)}
-                  </Text>
-                ) : null}
-                {heroItem.releaseYear ? (
-                  <Text style={s.heroMetaText}> • {heroItem.releaseYear}</Text>
-                ) : null}
-              </View>
-
-              <View style={s.heroBadges}>
-                <View style={s.badge}>
-                  <Text style={s.badgeText}>
-                    {heroItem.contentRating
-                      ? `${heroItem.contentRating} | ESTRENADA`
-                      : "ESTRENADA"}
-                  </Text>
-                </View>
-                {heroItem.rating ? (
-                  <View style={[s.badge, s.badgeImdb]}>
-                    <Text style={[s.badgeText, s.badgeImdbText]}>
-                      IMDb {heroItem.rating.toFixed(1)}
-                    </Text>
-                  </View>
-                ) : null}
-                {heroItem.language ? (
-                  <View style={s.badge}>
-                    <Text style={s.badgeText}>
-                      {heroItem.language.toUpperCase()}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-
-              {heroItem.description ? (
-                <Text style={s.heroDesc} numberOfLines={3}>
-                  {heroItem.description}
-                </Text>
-              ) : null}
-            </View>
+            <HeroInfo
+              item={heroItem}
+              onPlay={handlePlay}
+              onDetails={handleContentPress}
+            />
           )}
         </View>
 
         {trending.length > 0 && (
           <View style={s.section}>
             <Text style={s.sectionTitle}>Tendencia</Text>
-            <TrendingRow
-              items={trending}
-              onSelect={(item) => {
-                const idx = heroItems.findIndex((h) => h.id === item.id);
-                if (idx >= 0) setHeroIdx(idx);
-              }}
-            />
+            <TrendingRow items={trending} onSelect={handleTrendSelect} />
           </View>
         )}
 
@@ -450,13 +457,6 @@ export default function HomeTvScreen() {
   );
 }
 
-const HERO_H = Math.min(SH * 0.64, scale(520));
-const CARD_W = scale(130);
-const CARD_H = scale(180);
-const TREND_FOCUSED_W = scale(260);
-const TREND_FOCUSED_H = scale(160);
-const CHANNEL_CARD_W = scale(110);
-
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#080808", position: "relative" },
   loadWrap: {
@@ -468,41 +468,18 @@ const s = StyleSheet.create({
   },
   loadText: { color: C.textSecondary, fontSize: scale(14) },
 
-  backgroundLayer: {
-    ...StyleSheet.absoluteFill,
-    zIndex: 0,
-    overflow: "hidden",
-  },
-  backgroundImage: {
-    ...StyleSheet.absoluteFill,
-    width: "100%",
-    height: "100%",
-  },
-  backgroundLeftFog: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: 0,
-    width: "40%",
-  },
-  backgroundBottomFog: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: scale(250),
-  },
   heroContainer: {
-    height: HERO_H,
+    height: HERO_H * 0.82,
     width: "100%",
     position: "relative",
     backgroundColor: "transparent",
   },
   heroInfo: {
     position: "absolute",
-    top: scale(110),
+    top: scale(30),
     left: scale(28),
-    right: "30%",
+    maxWidth: scale(440),
+    width: "35%",
     zIndex: 2,
   },
   heroTitle: {
@@ -510,7 +487,7 @@ const s = StyleSheet.create({
     fontSize: scale(36),
     color: C.accent,
     letterSpacing: 0.3,
-    marginBottom: scale(35),
+    marginBottom: scale(34),
     textShadowColor: "rgba(0,0,0,0.55)",
     textShadowOffset: { width: 1, height: 2 },
     textShadowRadius: 4,
@@ -520,7 +497,7 @@ const s = StyleSheet.create({
   heroBadges: {
     flexDirection: "row",
     gap: scale(6),
-    marginBottom: scale(10),
+    marginBottom: scale(3),
     flexWrap: "wrap",
   },
   badge: {
@@ -532,33 +509,64 @@ const s = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.2)",
   },
   badgeText: { fontSize: scale(13), color: "#fff", fontWeight: "700" },
-  badgeImdb: { backgroundColor: "#f5c518" },
-  badgeImdbText: { color: "#000" },
   heroDesc: {
     fontSize: scale(13),
     color: "rgba(255,255,255,0.75)",
     lineHeight: scale(18),
   },
+  heroButtons: {
+    flexDirection: "row",
+    gap: scale(12),
+    marginTop: scale(16),
+  },
+  btnPlay: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(8),
+    backgroundColor: C.accent,
+    paddingHorizontal: scale(22),
+    height: scale(42),
+    borderRadius: scale(10),
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  btnPlayFocused: {
+    backgroundColor: "#fff",
+  },
+  btnPlayText: { color: "#000", fontSize: scale(14), fontWeight: "900" },
+  btnInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(8),
+    backgroundColor: "rgba(255,255,255,0.14)",
+    paddingHorizontal: scale(20),
+    height: scale(42),
+    borderRadius: scale(10),
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  btnInfoFocused: {
+    backgroundColor: "#fff",
+  },
+  btnInfoText: { color: "#fff", fontSize: scale(14), fontWeight: "800" },
 
   sectionsScroll: {
     flex: 1,
     backgroundColor: "transparent",
-    marginTop: 0,
     zIndex: 1,
   },
   sectionsContent: {
-    paddingTop: scale(8),
-    paddingBottom: scale(40),
+    paddingTop: scale(56),
+    paddingBottom: scale(20),
     paddingLeft: scale(64),
   },
-  section: { marginTop: -20, marginBottom: scale(4) },
+  section: { marginTop: 40, marginBottom: scale(4) },
   sectionTitle: {
     fontSize: scale(18),
     fontWeight: "800",
     color: C.textPrimary,
     marginLeft: scale(24),
-    marginBottom: scale(12),
-    marginTop: 0,
+   
   },
   rowHeader: {
     flexDirection: "row",
@@ -572,6 +580,7 @@ const s = StyleSheet.create({
     height: scale(18),
     borderRadius: scale(2),
     marginRight: scale(10),
+    marginBottom:scale(30)
   },
   rowTitle: { fontSize: scale(16), fontWeight: "800", color: C.textPrimary },
   liveDot: {
@@ -581,29 +590,37 @@ const s = StyleSheet.create({
     backgroundColor: C.live,
     marginLeft: scale(12),
   },
-  rowList: { paddingLeft: scale(24), paddingRight: scale(16), gap: scale(12) },
+  rowList: {
+    paddingLeft: scale(24),
+    paddingRight: scale(16),
+    paddingVertical: scale(6),
+    gap: CARD_GAP,
+  },
   trendingList: {
     paddingLeft: scale(24),
     paddingRight: scale(16),
-    gap: scale(12),
+    paddingVertical: scale(6),
+    gap: CARD_GAP,
+    alignItems: "flex-start",
   },
-  trendCard: { borderRadius: scale(12), overflow: "hidden" },
+  trendCard: {
+    borderRadius: scale(12),
+    overflow: "hidden",
+    backgroundColor: C.bgCard,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
   trendCardNormal: { width: CARD_W, height: CARD_H },
   trendCardFocused: {
     width: TREND_FOCUSED_W,
     height: TREND_FOCUSED_H,
-    borderWidth: 2,
-    borderColor: C.accent,
-    shadowColor: "transparent",
-    shadowOpacity: 0,
-    elevation: 0,
+    backgroundColor: "rgba(255,183,3,0.12)",
   },
-  trendPoster: { width: "100%", height: "100%" },
-  trendBanner: { width: "100%", height: "100%" },
   trendBannerGrad: {
     ...StyleSheet.absoluteFill,
     justifyContent: "flex-end",
     padding: scale(10),
+    backgroundColor: "rgba(0,0,0,0.35)",
   },
   trendBannerTitle: {
     fontSize: scale(14),
@@ -618,43 +635,6 @@ const s = StyleSheet.create({
     color: "rgba(255,255,255,0.7)",
     marginTop: scale(2),
   },
-  posterCard: {
-    width: CARD_W,
-    height: CARD_H,
-    borderRadius: scale(10),
-    overflow: "hidden",
-    backgroundColor: C.bgCard,
-  },
-  posterCardFocused: {
-    borderWidth: 2,
-    borderColor: C.accent,
-    transform: [{ scale: 1.01 }],
-    shadowColor: "transparent",
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  posterImg: { ...StyleSheet.absoluteFill },
-  posterGrad: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: scale(8),
-  },
-  posterTitle: { fontSize: scale(11), fontWeight: "700", color: "#fff" },
-  posterRating: {
-    position: "absolute",
-    top: scale(6),
-    right: scale(6),
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(3),
-    backgroundColor: "rgba(0,0,0,0.6)",
-    paddingHorizontal: scale(5),
-    paddingVertical: scale(2),
-    borderRadius: scale(4),
-  },
-  posterRatingText: { fontSize: scale(9), fontWeight: "800", color: C.accent },
   channelCard: {
     width: CHANNEL_CARD_W,
     height: scale(80),
@@ -663,16 +643,12 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: scale(8),
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: C.borderSubtle,
   },
   channelCardFocused: {
     borderColor: C.accent,
     backgroundColor: C.bgCardHover,
-    transform: [{ scale: 1.02 }],
-    shadowColor: "transparent",
-    shadowOpacity: 0,
-    elevation: 0,
   },
   channelLogo: { width: scale(50), height: scale(36), marginBottom: scale(4) },
   channelLogoFallback: {

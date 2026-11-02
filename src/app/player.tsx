@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { View, Text, ActivityIndicator, BackHandler, Platform, StyleSheet, Pressable, ScrollView, FlatList, Image, TextInput, KeyboardAvoidingView } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { useGlobal, API_URL, Channel } from '../contexts/GlobalContext';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import VodPlayer from '../components/tv/VodPlayer';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale } from '../lib/scale';
 import { C } from '../lib/tvColors';
@@ -33,6 +34,12 @@ function OSDButton({ icon: Icon, label, onPress, onFocus, onBlur }: any) {
 }
 
 export default function PlayerScreen() {
+  const { slug, episodeId } = useLocalSearchParams<{ slug?: string; episodeId?: string }>();
+  if (slug) return <VodPlayer slug={String(slug)} episodeId={episodeId ? String(episodeId) : undefined} />;
+  return <ChannelPlayer />;
+}
+
+function ChannelPlayer() {
   const { activeChannel, setActiveChannel, channels } = useGlobal();
   const router = useRouter();
   const videoRef = useRef<Video>(null);

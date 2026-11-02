@@ -5,6 +5,7 @@ import { scale } from '../../lib/scale';
 import { C } from '../../lib/tvColors';
 import { searchContent, NexoContentItem } from '../../services/nexoplay';
 import { LinearGradient } from 'expo-linear-gradient';
+import PosterCard from '../../components/tv/PosterCard';
 import { Search as SearchIcon } from 'lucide-react-native';
 
 const CARD_W = scale(130);
@@ -47,16 +48,12 @@ export default function SearchScreen() {
           columnWrapperStyle={{ gap: scale(14) }}
           contentContainerStyle={s.grid}
           renderItem={({ item }) => (
-            <Pressable
-              focusable
-              onPress={() => router.push({ pathname: '/player', params: { slug: item.slug } } as any)}
-              style={({ focused }: any) => [s.card, focused && s.cardFocused]}
-            >
-              <Image source={{ uri: item.posterUrl || item.backdropUrl || '' }} style={s.img} resizeMode="cover" />
-              <LinearGradient colors={['transparent', 'rgba(0,0,0,0.75)']} style={s.grad}>
-                <Text style={s.name} numberOfLines={2}>{item.title}</Text>
-              </LinearGradient>
-            </Pressable>
+            <PosterCard
+              item={item}
+              width={CARD_W}
+              height={CARD_H}
+              onPressItem={(it) => router.push({ pathname: '/detail', params: { slug: it.slug } } as any)}
+            />
           )}
         />
       ) : query.length > 0 ? (
@@ -87,11 +84,10 @@ const s = StyleSheet.create({
   grid: { paddingHorizontal: scale(32), paddingBottom: scale(40), gap: scale(14) },
   card: {
     width: CARD_W, height: CARD_H, borderRadius: scale(10),
-    overflow: 'hidden', backgroundColor: C.bgCard,
+    overflow: 'visible', backgroundColor: C.bgCard,
   },
   cardFocused: {
-    borderWidth: 2, borderColor: C.accent,
-    transform: [{ scale: 1.04 }],
+    backgroundColor: "rgba(255,183,3,0.12)",
     shadowColor: C.accent, shadowRadius: scale(10), shadowOpacity: 0.5, elevation: 8,
   },
   img: { ...StyleSheet.absoluteFill },

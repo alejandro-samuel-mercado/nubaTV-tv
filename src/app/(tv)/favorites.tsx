@@ -7,10 +7,12 @@ import { scale } from '../../lib/scale';
 import { C } from '../../lib/tvColors';
 import ChannelCard from '../../components/tv/ChannelCard';
 import ScreenBackground from '../../components/tv/ScreenBackground';
+import { useSidebarHandle } from '../../hooks/useNavThrottle';
 
 export default function FavoritesTvScreen() {
   const { channels, favorites, toggleFavorite, activeChannel, setActiveChannel } = useGlobal();
   const router = useRouter();
+  const sidebarHandle = useSidebarHandle();
 
   const favChannels = channels.filter(c => favorites.includes(c.id));
 
@@ -28,7 +30,7 @@ export default function FavoritesTvScreen() {
           <Heart size={scale(32)} color={C.live} fill={C.live} style={s.icon} />
           <Text style={s.title}>Mis Favoritos</Text>
         </View>
-        <Text style={s.subtitle}>{favChannels.length} canales guardados</Text>
+        <Text style={s.subtitle}>{favChannels.length} contenidos guardados</Text>
       </View>
 
       {/* Grid */}
@@ -36,12 +38,14 @@ export default function FavoritesTvScreen() {
         data={favChannels}
         keyExtractor={c => c.id}
         numColumns={6}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <View style={s.cardWrapper}>
             <ChannelCard
               channel={item}
               isActive={activeChannel?.id === item.id}
               isFav={true}
+              hasTVPreferredFocus={index === 0}
+              nextFocusLeft={index % 6 === 0 ? sidebarHandle ?? undefined : undefined}
               onPress={() => handlePlay(item)}
               onToggleFav={() => toggleFavorite(item.id)}
             />
@@ -52,8 +56,8 @@ export default function FavoritesTvScreen() {
         ListEmptyComponent={
           <View style={s.empty}>
             <Heart size={scale(64)} color={C.borderMedium} strokeWidth={1} style={{ marginBottom: scale(20) }} />
-            <Text style={s.emptyText}>No tienes canales favoritos aún.</Text>
-            <Text style={s.emptySub}>Presiona el botón de corazón en un canal para guardarlo aquí.</Text>
+            <Text style={s.emptyText}>No tienes contenido favorito aún.</Text>
+            
           </View>
         }
       />
@@ -65,7 +69,8 @@ const s = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: '#080808',
-    paddingHorizontal: scale(48),
+    paddingLeft: scale(110),
+    paddingRight: scale(48),
     paddingTop: scale(40),
   },
   header: {
