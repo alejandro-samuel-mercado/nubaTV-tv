@@ -19,7 +19,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "isTV": true
+      "isTV": true,
+      "package": "com.ale181021aa.nubaTVtv"
     },
     "web": {
       "output": "static",
