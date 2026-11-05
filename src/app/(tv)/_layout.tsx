@@ -347,7 +347,7 @@ const s = StyleSheet.create({
   },
 
   stackLayer: {
-    ...StyleSheet.absoluteFillObject,
+    ...(StyleSheet.absoluteFill as any),
     zIndex: 0,
     backgroundColor: "transparent",
   },
@@ -462,7 +462,7 @@ const s = StyleSheet.create({
 
   // El contorno se dibuja por separado, por encima del botón.
   selectionOutline: {
-    ...StyleSheet.absoluteFillObject,
+    ...(StyleSheet.absoluteFill as any),
     borderWidth: 1,
     borderRadius: scale(12),
   },

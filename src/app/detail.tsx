@@ -32,6 +32,7 @@ import {
   NEXOPLAY_API_BASE,
   NexoContentItem,
 } from "../services/nexoplay";
+import { getItemAsync, setItemAsync } from "../utils/storage";
 
 const { height: SH } = Dimensions.get("window");
 
@@ -148,6 +149,32 @@ export default function DetailScreen() {
   const [seasonIdx, setSeasonIdx] = useState(0);
   const [inMyList, setInMyList] = useState(false);
   const [related, setRelated] = useState<NexoContentItem[]>([]);
+
+  useEffect(() => {
+    if (!slug) return;
+    getItemAsync("local_favorites").then((raw) => {
+      try {
+        const list = JSON.parse(raw || "[]");
+        if (list.includes(String(slug))) setInMyList(true);
+      } catch {}
+    });
+  }, [slug]);
+
+  const toggleFavorite = useCallback(async () => {
+    if (!slug) return;
+    try {
+      const raw = await getItemAsync("local_favorites");
+      let list: string[] = JSON.parse(raw || "[]");
+      const next = !inMyList;
+      if (next) {
+        if (!list.includes(String(slug))) list.push(String(slug));
+      } else {
+        list = list.filter((x: string) => x !== String(slug));
+      }
+      await setItemAsync("local_favorites", JSON.stringify(list));
+      setInMyList(next);
+    } catch {}
+  }, [slug, inMyList]);
 
   useEffect(() => {
     let on = true;
@@ -328,7 +355,7 @@ export default function DetailScreen() {
                 <Text style={s.btnPlayTxt}>{isSeries ? "Reproducir T1 E1" : "Reproducir"}</Text>
               </Focusable>
               <Focusable
-                onPress={() => setInMyList((v) => !v)}
+                onPress={toggleFavorite}
                 style={[s.btnIcon, inMyList && s.btnIconActive]}
                 focusedStyle={s.btnIconFocused}
               >
