@@ -29,6 +29,7 @@ import {
   Text,
   View,
 } from "react-native";
+import Video from "react-native-video";
 import HeroVideo from "../../components/tv/HeroVideo";
 import Focusable from "../../components/tv/Focusable";
 import RemoteImage from "../../components/tv/RemoteImage";
