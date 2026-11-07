@@ -6,6 +6,28 @@
 import React from 'react';
 import { View } from 'react-native';
 
-export default function WebPlayer(_: { uri: string; onError?: (msg: string) => void }) {
-  return <View />;
+export interface WebPlayerHandle {
+  playAsync: () => Promise<void>;
+  pauseAsync: () => Promise<void>;
+  setPositionAsync: (millis: number) => Promise<void>;
 }
+
+interface Props {
+  uri: string;
+  fallbackUri?: string;
+  controls?: boolean;
+  onPlaybackStatusUpdate?: (status: {
+    isLoaded: boolean;
+    isPlaying?: boolean;
+    positionMillis?: number;
+    durationMillis?: number;
+    isBuffering?: boolean;
+  }) => void;
+  onError?: (msg: string) => void;
+}
+
+const WebPlayer = React.forwardRef<WebPlayerHandle, Props>((_, ref) => {
+  return <View />;
+});
+
+export default WebPlayer;

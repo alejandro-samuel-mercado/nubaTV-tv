@@ -18,32 +18,45 @@ interface Props {
   hasTVPreferredFocus?: boolean;
 }
 
-function PosterCard({ item, width, height, onPressItem, onFocusItem, nextFocusLeft, hasTVPreferredFocus }: Props) {
+function PosterCard({
+  item,
+  width,
+  height,
+  onPressItem,
+  onFocusItem,
+  nextFocusLeft,
+  hasTVPreferredFocus,
+}: Props) {
   return (
-    /**
-     * Two-layer approach to fix TV focus border clipping:
-     *   Outer Focusable  → holds borderColor (overflow: visible)
-     *   Inner View       → clips image to borderRadius (overflow: hidden)
-     * This prevents the focus border from being cut off by overflow:hidden.
-     */
     <Focusable
       onPress={() => onPressItem(item)}
       onFocus={onFocusItem ? () => onFocusItem(item) : undefined}
       nextFocusLeft={nextFocusLeft}
       hasTVPreferredFocus={hasTVPreferredFocus}
+      scaleFocused={1.06}
       style={[s.outer, { width, height }]}
       focusedStyle={s.outerFocused}
     >
       <View style={s.inner}>
-        <RemoteImage uri={item.posterUrl || item.backdropUrl} style={StyleSheet.absoluteFill as any} />
+        <RemoteImage
+          uri={item.posterUrl || item.backdropUrl}
+          style={StyleSheet.absoluteFill as any}
+          contentFit="cover"
+        />
         {item.rating ? (
           <View style={s.rating}>
             <Star size={scale(9)} color={C.accent} fill={C.accent} />
             <Text style={s.ratingText}>{item.rating.toFixed(1)}</Text>
           </View>
         ) : null}
-        <LinearGradient colors={["transparent", "rgba(0,0,0,0.78)"]} style={s.grad} pointerEvents="none">
-          <Text style={s.name} numberOfLines={2}>{item.title}</Text>
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.82)"]}
+          style={s.grad}
+          pointerEvents="none"
+        >
+          <Text style={s.name} numberOfLines={2}>
+            {item.title}
+          </Text>
         </LinearGradient>
       </View>
     </Focusable>
@@ -53,29 +66,56 @@ function PosterCard({ item, width, height, onPressItem, onFocusItem, nextFocusLe
 export default memo(PosterCard);
 
 const s = StyleSheet.create({
-  /* Outer: visible overflow — focus border never clipped */
   outer: {
-    borderRadius: scale(12),
+    borderRadius: scale(10),
     backgroundColor: C.bgCard,
+    borderWidth: 2,
+    borderColor: "transparent",
   },
   outerFocused: {
-    backgroundColor: "rgba(255,255,255,0.12)",
+    borderColor: "#ffffff",
+    backgroundColor: "rgba(255,255,255,0.14)",
+    shadowColor: "#ffffff",
+    shadowOpacity: 0.35,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: scale(8),
+    elevation: 8,
+    zIndex: 20,
   },
-  /* Inner: overflow:hidden clips image to card radius */
   inner: {
     flex: 1,
-    borderRadius: scale(11),
+    borderRadius: scale(8),
     overflow: "hidden",
     backgroundColor: C.bgCard,
   },
-  grad: { position: "absolute", bottom: 0, left: 0, right: 0, padding: scale(8) },
-  name: { fontSize: scale(11), fontWeight: "700", color: "#fff" },
+  grad: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: scale(7),
+  },
+  name: {
+    fontSize: scale(10.5),
+    fontWeight: "700",
+    color: "#fff",
+    lineHeight: scale(14),
+  },
   rating: {
-    position: "absolute", top: scale(6), right: scale(6),
-    flexDirection: "row", alignItems: "center", gap: scale(3),
-    backgroundColor: "rgba(0,0,0,0.6)",
-    paddingHorizontal: scale(5), paddingVertical: scale(2),
+    position: "absolute",
+    top: scale(5),
+    right: scale(5),
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(3),
+    backgroundColor: "rgba(0,0,0,0.65)",
+    paddingHorizontal: scale(5),
+    paddingVertical: scale(2),
     borderRadius: scale(4),
   },
-  ratingText: { fontSize: scale(9), fontWeight: "800", color: C.accent },
+  ratingText: {
+    fontSize: scale(9),
+    fontWeight: "800",
+    color: C.accent,
+  },
 });

@@ -4,7 +4,7 @@
  */
 import React, { useRef } from 'react';
 import { StyleSheet } from 'react-native';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import Video, { VideoRef } from 'react-native-video';
 
 interface Props {
   uri: string;
@@ -13,27 +13,19 @@ interface Props {
 }
 
 export default function HeroVideo({ uri, onError, onCanPlay }: Props) {
-  const ref = useRef<Video>(null);
-
-  const handleStatus = (status: AVPlaybackStatus) => {
-    if (!status.isLoaded) {
-      if ('error' in status) onError?.();
-      return;
-    }
-    if (status.isPlaying) onCanPlay?.();
-  };
+  const ref = useRef<VideoRef>(null);
 
   return (
     <Video
       ref={ref}
       source={{ uri }}
       style={StyleSheet.absoluteFill}
-      resizeMode={ResizeMode.COVER}
-      shouldPlay={true}
-      isMuted={true}
-      isLooping={true}
-      useNativeControls={false}
-      onPlaybackStatusUpdate={handleStatus}
+      resizeMode="cover"
+      paused={false}
+      muted={true}
+      repeat={true}
+      controls={false}
+      onReadyForDisplay={onCanPlay}
       onError={onError}
     />
   );

@@ -1,8 +1,9 @@
 /**
- * useNavThrottle — Sistema de foco para Android TV
+ * useNavThrottle — Sistema de foco y estabilización para Android TV
  *
  * Proporciona el handle del sidebar como estado reactivo para que
- * los componentes que lo usan (TVHeroBanner) se re-rendericen cuando esté listo.
+ * los componentes que lo usan se re-rendericen cuando esté listo.
+ * Además ofrece utilidades para estabilizar la navegación rápida con D-pad.
  */
 
 import React from 'react';
@@ -14,8 +15,8 @@ export let globalSidebarNodeHandle: number | null = null;
 const _subscribers = new Set<(handle: number | null) => void>();
 
 export function setGlobalSidebarNodeHandle(handle: number | null) {
-    globalSidebarNodeHandle = handle;
-    _subscribers.forEach((fn) => fn(handle));
+  globalSidebarNodeHandle = handle;
+  _subscribers.forEach((fn) => fn(handle));
 }
 
 /**
@@ -23,20 +24,40 @@ export function setGlobalSidebarNodeHandle(handle: number | null) {
  * El componente que lo use se re-renderizará cuando el sidebar esté listo.
  */
 export function useSidebarHandle(): number | null {
-    const [handle, setHandle] = React.useState<number | null>(globalSidebarNodeHandle);
-    React.useEffect(() => {
-        // Sincronizar si ya estaba disponible antes de montar
-        setHandle(globalSidebarNodeHandle);
-        _subscribers.add(setHandle);
-        return () => { _subscribers.delete(setHandle); };
-    }, []);
-    return handle;
+  const [handle, setHandle] = React.useState<number | null>(globalSidebarNodeHandle);
+  React.useEffect(() => {
+    setHandle(globalSidebarNodeHandle);
+    _subscribers.add(setHandle);
+    return () => { _subscribers.delete(setHandle); };
+  }, []);
+  return handle;
 }
 
-// Stubs por compatibilidad (ya no hacen nada pesado)
+// Control de throttle global para callbacks de navegación rápida
+let _globalFocusTimer: any = null;
+
 export function registerFocusable(_id: string, _ref: any) {}
 export function unregisterFocusable(_id: string) {}
-export function handleGlobalFocus(_id: string, onFocusExecute: () => void) { onFocusExecute(); }
-export function cancelGlobalFocus(_id: string) {}
-export function resetNavThrottle() {}
+
+export function handleGlobalFocus(_id: string, onFocusExecute: () => void, delayMs = 80) {
+  if (_globalFocusTimer) {
+    clearTimeout(_globalFocusTimer);
+    _globalFocusTimer = null;
+  }
+  _globalFocusTimer = setTimeout(() => {
+    _globalFocusTimer = null;
+    onFocusExecute();
+  }, delayMs);
+}
+
+export function cancelGlobalFocus(_id?: string) {
+  if (_globalFocusTimer) {
+    clearTimeout(_globalFocusTimer);
+    _globalFocusTimer = null;
+  }
+}
+
+export function resetNavThrottle() {
+  cancelGlobalFocus();
+}
 export { resetNavThrottle as resetNavLock };

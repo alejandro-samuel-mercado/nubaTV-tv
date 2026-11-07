@@ -6,8 +6,7 @@ import { Channel } from '../../contexts/GlobalContext';
 import { scale } from '../../lib/scale';
 import { C, rowColor } from '../../lib/tvColors';
 import RemoteImage from './RemoteImage';
-
-const TVPressable = Pressable as any;
+import Focusable from './Focusable';
 
 interface Props {
   channel: Channel;
@@ -28,17 +27,18 @@ function ChannelCard({ channel, isActive, isFav, onPress, onFocus, onToggleFav, 
   const color = rowColor(catName);
 
   return (
-    <TVPressable
-      focusable
+    <Focusable
       nextFocusLeft={nextFocusLeft}
       hasTVPreferredFocus={hasTVPreferredFocus}
       onFocus={() => { setFocused(true); onFocus?.(); }}
       onBlur={() => setFocused(false)}
       onPress={onPress}
+      borderRadius={scale(16)}
+      focusRingColor={color}
+      scaleValue={1.05}
       style={[
         s.root,
         isActive && s.rootActive,
-        focused && { backgroundColor: 'rgba(255,255,255,0.1)', zIndex: 50 }
       ]}
     >
       {/* Background / Logo */}
@@ -102,7 +102,7 @@ function ChannelCard({ channel, isActive, isFav, onPress, onFocus, onToggleFav, 
           <Heart size={scale(12)} fill={isFav ? '#ff4d6d' : 'none'} color={isFav ? '#ff4d6d' : 'rgba(255,255,255,0.6)'} />
         </Pressable>
       )}
-    </TVPressable>
+    </Focusable>
   );
 }
 
@@ -125,7 +125,6 @@ const s = StyleSheet.create({
     aspectRatio: 3/4,
     backgroundColor: C.bgCard,
     borderRadius: scale(16),
-
     overflow: 'visible',   // must be visible so focus border isn't clipped
     position: 'relative',
   },

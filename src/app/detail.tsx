@@ -1,140 +1,287 @@
+import { Bangers_400Regular, useFonts } from "@expo-google-fonts/bangers";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   ArrowLeft,
-  Check,
+  Award,
+  Calendar,
   Clock,
   Film,
   Globe,
+  Heart,
   Info,
+  MonitorPlay,
   Play,
-  Plus,
+  Sparkles,
   Star,
+  Tag,
   Tv,
+  Volume2,
 } from "lucide-react-native";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
   FlatList,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import BackdropBackground from "../components/tv/BackdropBackground";
 import Focusable from "../components/tv/Focusable";
 import RemoteImage from "../components/tv/RemoteImage";
+import ViewAllCard from "../components/tv/ViewAllCard";
 import { useSidebarHandle } from "../hooks/useNavThrottle";
 import { scale } from "../lib/scale";
 import { C } from "../lib/tvColors";
 import {
   getContentDetail,
+  getHomepage,
   NEXOPLAY_API_BASE,
   NexoContentItem,
 } from "../services/nexoplay";
 import { getItemAsync, setItemAsync } from "../utils/storage";
 
-const { height: SH } = Dimensions.get("window");
+const { height: SH, width: SW } = Dimensions.get("window");
 
-const fmt = (mins?: number) => {
+// ── Medidas estandarizadas y curvadas ─────────────────────────────────────────
+const POSTER_W = scale(125);
+const POSTER_H = scale(180);
+const CARD_GAP = scale(14);
+
+const fmtDuration = (mins?: number) => {
   if (!mins) return "";
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return h > 0 ? `${h}h ${m > 0 ? `${m}m` : ""}`.trim() : `${m}m`;
 };
+
 const TYPE_LABEL: Record<string, string> = {
   MOVIE: "Película",
   SERIES: "Serie",
   DOCUMENTARY: "Documental",
   ANIME: "Anime",
+  NOVELA: "Telenovela",
+  REALITY_SHOW: "Reality",
 };
+
 const pickTitle = (o: any, fb = "") =>
   o?.title || o?.translations?.[0]?.title || fb;
 
-const CastItem = memo(function CastItem({ actor }: { actor: any }) {
-  return (
-    <Focusable style={s.castCard} focusedStyle={s.castCardFocused}>
-      <RemoteImage uri={actor.photo || actor.profileUrl} style={s.castAvatar as any} />
-      <View style={s.castInfo}>
-        <Text style={s.castName} numberOfLines={1}>{actor.name}</Text>
-        <Text style={s.castRole} numberOfLines={1}>{actor.character || actor.role || "Reparto"}</Text>
-      </View>
-    </Focusable>
-  );
-});
-
-const RelatedCard = memo(function RelatedCard({
+// ── Card de Contenido Curvada para Carruseles ────────────────────────────────
+const CurvedPosterCard = memo(function CurvedPosterCard({
   item,
   onPress,
+  accentColor = C.accent,
 }: {
   item: NexoContentItem;
   onPress: (item: NexoContentItem) => void;
+  accentColor?: string;
 }) {
   return (
-    <Focusable onPress={() => onPress(item)} style={s.relCard} focusedStyle={s.relCardFocused}>
-      <RemoteImage uri={item.posterUrl || item.backdropUrl} style={s.relPoster as any} />
-      <LinearGradient colors={["transparent", "rgba(0,0,0,0.85)"]} style={s.relGrad} />
-      <View style={s.relInfo}>
-        <Text style={s.relTitle} numberOfLines={2}>{item.title}</Text>
-        {item.releaseYear ? <Text style={s.relYear}>{item.releaseYear}</Text> : null}
+    <Focusable
+      onPress={() => onPress(item)}
+      style={s.card}
+      focusedStyle={[s.cardFocused, { borderColor: accentColor, shadowColor: accentColor }]}
+      scaleFocused={1.06}
+    >
+      <RemoteImage
+        uri={item.posterUrl || item.backdropUrl}
+        style={StyleSheet.absoluteFill as any}
+        contentFit="cover"
+        transition={150}
+      />
+      <LinearGradient
+        colors={["transparent", "rgba(5,5,8,0.92)"]}
+        style={s.cardGrad}
+      />
+
+      {item.rating ? (
+        <View style={[s.cardRating, { backgroundColor: accentColor }]}>
+          <Star size={scale(9)} color="#000" fill="#000" />
+          <Text style={s.cardRatingTxt}>{Number(item.rating).toFixed(1)}</Text>
+        </View>
+      ) : null}
+
+      <View style={s.cardInfo}>
+        <Text style={s.cardTitle} numberOfLines={2}>
+          {item.title}
+        </Text>
+        <Text style={[s.cardMeta, { color: accentColor }]}>
+          {TYPE_LABEL[item.type] || item.type}
+          {item.releaseYear ? ` • ${item.releaseYear}` : ""}
+        </Text>
       </View>
     </Focusable>
   );
 });
 
-const EpCard = memo(function EpCard({
+// ── Card de Reparto Circular y Orgánica ──────────────────────────────────────
+const CastAvatarCard = memo(function CastAvatarCard({ actor }: { actor: any }) {
+  const photo = actor.photo || actor.photoUrl || actor.profileUrl;
+  return (
+    <Focusable
+      style={s.castCard}
+      focusedStyle={s.castCardFocused}
+      scaleFocused={1.08}
+    >
+      <View style={s.castAvatarRing}>
+        {photo ? (
+          <RemoteImage uri={photo} style={s.castAvatarImg as any} contentFit="cover" />
+        ) : (
+          <Film size={scale(20)} color="rgba(255,255,255,0.4)" />
+        )}
+      </View>
+      <Text style={s.castName} numberOfLines={1}>
+        {actor.name}
+      </Text>
+      <Text style={s.castRole} numberOfLines={1}>
+        {actor.character || actor.role || "Reparto"}
+      </Text>
+    </Focusable>
+  );
+});
+
+// ── Card de Episodio Curvada Panorámica 16:9 ─────────────────────────────────
+const EpisodeCard = memo(function EpisodeCard({
   ep,
   index,
   item,
+  currentSeasonNumber,
   onPlay,
 }: {
   ep: any;
   index: number;
   item: NexoContentItem;
+  currentSeasonNumber: number;
   onPlay: (epId: string) => void;
 }) {
+  const epThumb =
+    ep.thumbnailUrl || ep.stillUrl || item.backdropUrl || item.posterUrl;
+  const num = ep.number ?? index + 1;
+
   return (
-    <Focusable onPress={() => onPlay(ep.id)} style={s.epCard} focusedStyle={s.epCardFocused}>
+    <Focusable
+      onPress={() => onPlay(ep.id)}
+      style={s.epCard}
+      focusedStyle={s.epCardFocused}
+      scaleFocused={1.04}
+    >
       <View style={s.epThumbWrap}>
         <RemoteImage
-          uri={ep.thumbnailUrl || ep.stillUrl || item.backdropUrl || item.posterUrl}
-          style={s.epThumb as any}
+          uri={epThumb}
+          style={StyleSheet.absoluteFill as any}
+          contentFit="cover"
+          transition={150}
+        />
+        <LinearGradient
+          colors={["transparent", "rgba(5,5,8,0.85)"]}
+          style={StyleSheet.absoluteFill}
         />
         <View style={s.epPlayOverlay}>
-          <Play size={scale(20)} color="#fff" fill="#fff" />
+          <View style={s.epPlayCircle}>
+            <Play size={scale(15)} color="#000" fill="#000" />
+          </View>
         </View>
         {ep.duration ? (
           <View style={s.epDurBadge}>
-            <Text style={s.epDurText}>{fmt(ep.duration)}</Text>
+            <Text style={s.epDurText}>{fmtDuration(ep.duration)}</Text>
           </View>
         ) : null}
       </View>
+
       <View style={s.epMeta}>
-        <Text style={s.epNum}>Ep. {ep.number ?? index + 1}</Text>
-        <Text style={s.epTitle} numberOfLines={2}>
-          {pickTitle(ep, `Episodio ${ep.number ?? index + 1}`)}
+        <Text style={s.epBadge}>
+          T{currentSeasonNumber} • Ep. {num}
+        </Text>
+        <Text style={s.epTitle} numberOfLines={1}>
+          {pickTitle(ep, `Episodio ${num}`)}
         </Text>
         {ep.description ? (
-          <Text style={s.epDesc} numberOfLines={2}>{ep.description}</Text>
+          <Text style={s.epDesc} numberOfLines={2}>
+            {ep.description}
+          </Text>
         ) : null}
       </View>
     </Focusable>
   );
 });
 
-const DetailRow = memo(function DetailRow({
-  label,
-  value,
-  last,
+// ── Cabecera de Sección Curvada con Línea Neón Divisoria ──────────────────────
+function SectionHead({
+  title,
+  subtitle,
+  accentColor,
+  icon: Icon,
 }: {
-  label: string;
-  value: string;
-  last?: boolean;
+  title: string;
+  subtitle?: string;
+  accentColor: string;
+  icon?: any;
 }) {
   return (
-    <View style={[s.detRow, last && { borderBottomWidth: 0 }]}>
-      <Text style={s.detLabel}>{label}</Text>
-      <Text style={s.detValue}>{value}</Text>
+    <View style={s.sectionHead}>
+      <View style={[s.sectionAccentBar, { backgroundColor: accentColor }]} />
+      {Icon && <Icon size={scale(16)} color={accentColor} style={{ marginRight: scale(6) }} />}
+      <View style={{ marginRight: scale(14) }}>
+        <Text style={s.sectionTitle}>{title}</Text>
+        {subtitle ? <Text style={s.sectionSub}>{subtitle}</Text> : null}
+      </View>
+      <LinearGradient
+        colors={[`${accentColor}80`, "transparent"]}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.5 }}
+        style={s.sectionDividerLine}
+      />
+    </View>
+  );
+}
+
+// ── Bento Spec Tile Curvada con Marca de Agua Geométrica ─────────────────────
+const BentoTile = memo(function BentoTile({
+  icon: Icon,
+  title,
+  line1,
+  line2,
+  accent,
+}: {
+  icon: any;
+  title: string;
+  line1: string;
+  line2?: string;
+  accent: string;
+}) {
+  return (
+    <View style={s.bentoTile}>
+      {/* Línea Neón Superior */}
+      <View style={[s.bentoTileTopGlow, { backgroundColor: accent }]} />
+      {/* Marca de Agua Geométrica de fondo */}
+      <View style={s.bentoWatermark} pointerEvents="none">
+        <Icon size={scale(68)} color={accent} />
+      </View>
+      <View style={s.bentoTileInner}>
+        <View
+          style={[
+            s.bentoTileIconWrap,
+            { backgroundColor: `${accent}20`, borderColor: `${accent}50` },
+          ]}
+        >
+          <Icon size={scale(17)} color={accent} />
+        </View>
+        <View style={s.bentoTileBody}>
+          <Text style={[s.bentoTileTitle, { color: accent }]}>{title}</Text>
+          <Text style={s.bentoTileL1} numberOfLines={1}>
+            {line1}
+          </Text>
+          {line2 ? (
+            <Text style={s.bentoTileL2} numberOfLines={1}>
+              {line2}
+            </Text>
+          ) : null}
+        </View>
+      </View>
     </View>
   );
 });
@@ -144,12 +291,20 @@ export default function DetailScreen() {
   const router = useRouter();
   const sidebarHandle = useSidebarHandle();
 
+  const [fontsLoaded] = useFonts({
+    Bangers: Bangers_400Regular,
+  });
+
   const [item, setItem] = useState<NexoContentItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [seasonIdx, setSeasonIdx] = useState(0);
   const [inMyList, setInMyList] = useState(false);
-  const [related, setRelated] = useState<NexoContentItem[]>([]);
 
+  // Secciones adicionales
+  const [related, setRelated] = useState<NexoContentItem[]>([]);
+  const [trending, setTrending] = useState<NexoContentItem[]>([]);
+
+  // Cargar estado de favoritos
   useEffect(() => {
     if (!slug) return;
     getItemAsync("local_favorites").then((raw) => {
@@ -176,25 +331,85 @@ export default function DetailScreen() {
     } catch {}
   }, [slug, inMyList]);
 
+  // Cargar Detalle y Colecciones Curadas
   useEffect(() => {
-    let on = true;
+    let cancelled = false;
     setLoading(true);
     setItem(null);
     setRelated([]);
+    setTrending([]);
     setSeasonIdx(0);
 
-    getContentDetail(String(slug))
-      .then((d) => { if (on) setItem(d); })
-      .finally(() => { if (on) setLoading(false); });
+    (async () => {
+      try {
+        const [mainData, homeData, relData] = await Promise.all([
+          getContentDetail(String(slug)),
+          getHomepage().catch(() => null),
+          fetch(`${NEXOPLAY_API_BASE}/api/content/${slug}/related`)
+            .then((r) => r.json())
+            .then((j) => (j?.success && Array.isArray(j.data) ? j.data : []))
+            .catch(() => []),
+        ]);
 
-    fetch(`${NEXOPLAY_API_BASE}/api/content/${slug}/related`)
-      .then((r) => r.json())
-      .then((j) => {
-        if (on && j?.success && Array.isArray(j.data)) setRelated(j.data);
-      })
-      .catch(() => {});
+        if (cancelled) return;
+        setItem(mainData);
 
-    return () => { on = false; };
+        const seenIds = new Set<string>();
+        if (mainData?.id) seenIds.add(mainData.id);
+        if (mainData?.slug) seenIds.add(mainData.slug);
+
+        // 1. Relacionados
+        let relList: NexoContentItem[] = [];
+        if (Array.isArray(relData) && relData.length > 0) {
+          relList = relData.filter(
+            (r: any) => !seenIds.has(r.id) && !seenIds.has(r.slug),
+          );
+        }
+        // Fallback si la API no devolvió relacionados directos
+        if (relList.length === 0 && homeData) {
+          const currentGenres = (mainData?.genres || []).map((g: any) =>
+            (g.name || g.slug || "").toLowerCase(),
+          );
+          const candidates = [
+            ...(homeData.recent || []),
+            ...(homeData.trending || []),
+            ...(homeData.featured || []),
+          ];
+          relList = candidates
+            .filter((cand: any) => {
+              if (seenIds.has(cand.id) || seenIds.has(cand.slug)) return false;
+              const candGenres = (cand.genres || []).map((g: any) =>
+                (g.name || g.slug || "").toLowerCase(),
+              );
+              return candGenres.some((cg: string) =>
+                currentGenres.includes(cg),
+              );
+            })
+            .slice(0, 15);
+        }
+        relList.forEach((r) => {
+          if (r.id) seenIds.add(r.id);
+          if (r.slug) seenIds.add(r.slug);
+        });
+        setRelated(relList);
+
+        // 2. Tendencias en NubaTV (excluyendo vistos)
+        if (homeData && Array.isArray(homeData.trending)) {
+          const trendList = homeData.trending.filter(
+            (r: any) => !seenIds.has(r.id) && !seenIds.has(r.slug),
+          );
+          setTrending(trendList.slice(0, 15));
+        }
+      } catch (err) {
+        console.warn("Error cargando detalle:", err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [slug]);
 
   const seasons: any[] = useMemo(
@@ -209,14 +424,23 @@ export default function DetailScreen() {
     (episodeId?: string) =>
       router.push({
         pathname: "/player",
-        params: episodeId ? { slug: String(slug), episodeId } : { slug: String(slug) },
+        params: episodeId
+          ? { slug: String(slug), episodeId }
+          : { slug: String(slug) },
       } as any),
     [router, slug],
   );
 
-  const handleRelated = useCallback(
-    (r: NexoContentItem) =>
-      router.replace({ pathname: "/detail", params: { slug: r.slug } } as any),
+  const handleTrailer = useCallback(() => {
+    const trailer = (item as any)?.trailerUrl;
+    if (trailer) {
+      Linking.openURL(trailer).catch(() => {});
+    }
+  }, [item]);
+
+  const handleContentPress = useCallback(
+    (target: NexoContentItem) =>
+      router.replace({ pathname: "/detail", params: { slug: target.slug } } as any),
     [router],
   );
 
@@ -224,41 +448,55 @@ export default function DetailScreen() {
   const title = item?.title || "";
   const tagline = item?.tagline || "";
   const backdrop = item?.backdropUrl || item?.posterUrl;
-  const genres = item?.genres?.map((g) => g.name).join(" • ") || "";
+  const poster = item?.posterUrl || item?.backdropUrl;
+  const genres = item?.genres || [];
   const year = item?.releaseYear || "";
-  const durationStr = fmt(item?.duration);
+  const durationStr = fmtDuration(item?.duration);
   const rating = item?.rating ? Number(item.rating).toFixed(1) : null;
-  const ageRating = c.ageRating || item?.contentRating || "";
+  const ageRating =
+    typeof c.ageRating === "object"
+      ? c.ageRating?.code
+      : c.ageRating || item?.contentRating || "ATP";
   const directors: string =
     Array.isArray(c.directors) && c.directors.length > 0
       ? c.directors.map((d: any) => d?.name || d).join(", ")
       : "";
   const cast: any[] =
     Array.isArray(c.actors) && c.actors.length > 0 ? c.actors : [];
+  const tags: any[] =
+    Array.isArray(c.tags) && c.tags.length > 0 ? c.tags : [];
+  const originLang = (
+    c.originalLanguage ||
+    item?.language ||
+    (item as any)?.languages?.[0] ||
+    "ES"
+  ).toUpperCase();
+  const country = c.country || c.originCountry || "Internacional";
+  const trailerUrl = c.trailerUrl;
 
   if (loading) {
     return (
-      <View style={s.center}>
+      <View style={s.centerScreen}>
         <ActivityIndicator size="large" color={C.accent} />
-        <Text style={s.loadTxt}>Cargando...</Text>
+        <Text style={s.loadingLabel}>Cargando…</Text>
       </View>
     );
   }
 
   if (!item) {
     return (
-      <View style={s.center}>
-        <Info size={scale(40)} color={C.textMuted} />
-        <Text style={s.empty}>No se pudo cargar el contenido</Text>
+      <View style={s.centerScreen}>
+        <Info size={scale(48)} color={C.textMuted} />
+        <Text style={s.errorLabel}>No se encontró el contenido</Text>
         <Focusable
           hasTVPreferredFocus
           onPress={() => router.back()}
-          style={s.btnBack}
-          focusedStyle={s.btnBackFocused}
+          style={s.backActionBtn}
+          focusedStyle={s.backActionBtnFocused}
           nextFocusLeft={sidebarHandle ?? undefined}
         >
-          <ArrowLeft size={scale(16)} color="#fff" />
-          <Text style={s.btnBackTxt}>Volver</Text>
+          <ArrowLeft size={scale(16)} color="#000" />
+          <Text style={s.backActionTxt}>Volver</Text>
         </Focusable>
       </View>
     );
@@ -266,492 +504,1107 @@ export default function DetailScreen() {
 
   return (
     <View style={s.root}>
-      {/* Full-screen backdrop */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <RemoteImage uri={backdrop} style={StyleSheet.absoluteFill as any} priority="high" transition={400} />
-        <LinearGradient
-          colors={["rgba(8,8,8,0.25)", "rgba(8,8,8,0.5)", "#080808"]}
-          locations={[0, 0.55, 1]}
-          style={StyleSheet.absoluteFill}
-        />
-        <LinearGradient
-          colors={["rgba(8,8,8,0.92)", "rgba(8,8,8,0)"]}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 0.45, y: 0.5 }}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
+      {/* Fondo cinematográfico con niebla orgánica */}
+      <BackdropBackground uri={backdrop} variant="home" />
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* HERO */}
-        <View style={s.hero}>
+      <ScrollView
+        style={s.scroll}
+        contentContainerStyle={s.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── BOTÓN VOLVER CURVADO Y DISCRETO ── */}
+        <Focusable
+          onPress={() => router.back()}
+          style={s.backBtn}
+          focusedStyle={s.backBtnFocused}
+          scaleFocused={1.06}
+          nextFocusLeft={sidebarHandle ?? undefined}
+        >
+          <ArrowLeft size={scale(13)} color="rgba(255,255,255,0.85)" />
+          <Text style={s.backBtnTxt}>Volver</Text>
+        </Focusable>
+
+        {/* ── HERO SPOTLIGHT ASIMÉTRICO: PORTADA EMPUJADA A LA DERECHA CON EFECTOS 3D ── */}
+        <View style={s.heroPod}>
+          {/* Módulo Izquierdo: Información limpia sobre el fondo cinematográfico */}
           <View style={s.heroLeft}>
-            <Focusable
-              hasTVPreferredFocus
-              onPress={() => router.back()}
-              style={s.backBtn}
-              focusedStyle={s.backBtnFocused}
-              nextFocusLeft={sidebarHandle ?? undefined}
-            >
-              <ArrowLeft size={scale(16)} color="#fff" />
-              <Text style={s.backTxt}>Volver</Text>
-            </Focusable>
-
-            <Text style={s.title} numberOfLines={3}>{title}</Text>
-            {!!tagline && <Text style={s.tagline} numberOfLines={2}>{tagline}</Text>}
-
-            {/* Meta chips */}
-            <View style={s.chips}>
-              {!!year && (
-                <View style={s.chip}>
-                  <Text style={s.chipTxt}>{year}</Text>
-                </View>
-              )}
-              {!!durationStr && (
-                <View style={s.chip}>
-                  <Clock size={scale(11)} color="rgba(255,255,255,0.8)" />
-                  <Text style={s.chipTxt}>{durationStr}</Text>
-                </View>
-              )}
-              {!!ageRating && (
-                <View style={[s.chip, s.chipBorder]}>
-                  <Text style={s.chipTxt}>{ageRating}</Text>
-                </View>
-              )}
-              {rating ? (
-                <View style={[s.chip, s.chipImdb]}>
-                  <Star size={scale(11)} color="#000" fill="#000" />
-                  <Text style={s.chipImdbTxt}>{rating}</Text>
-                </View>
-              ) : null}
-              {isSeries && (
-                <View style={s.chip}>
-                  <Tv size={scale(11)} color="rgba(255,255,255,0.8)" />
-                  <Text style={s.chipTxt}>{seasons.length} temp.</Text>
-                </View>
-              )}
+            {/* Tagline / Chip de Categoría */}
+            <View style={s.categoryChip}>
+              <Sparkles size={scale(11)} color={C.accent} />
+              <Text style={s.categoryChipTxt}>
+                {tagline || (TYPE_LABEL[item.type] || item.type).toUpperCase()}
+              </Text>
             </View>
 
-            {!!genres && <Text style={s.genres} numberOfLines={2}>{genres}</Text>}
+            {/* Título Principal */}
+            <Text
+              style={[
+                s.heroTitle,
+                fontsLoaded && { fontFamily: "Bangers", letterSpacing: 1 },
+              ]}
+              numberOfLines={2}
+            >
+              {title}
+            </Text>
 
+            {/* Cápsulas Curvadas de Metadatos con Iconos */}
+            <View style={s.metaCapsules}>
+              {!!year && (
+                <View style={s.metaCapsule}>
+                  <Calendar size={scale(11)} color="rgba(255,255,255,0.7)" />
+                  <Text style={s.metaCapsuleTxt}>{year}</Text>
+                </View>
+              )}
+
+              {!!durationStr && (
+                <View style={s.metaCapsule}>
+                  <Clock size={scale(11)} color="rgba(255,255,255,0.7)" />
+                  <Text style={s.metaCapsuleTxt}>{durationStr}</Text>
+                </View>
+              )}
+
+              {isSeries && (
+                <View style={s.metaCapsule}>
+                  <Tv size={scale(11)} color="rgba(255,255,255,0.7)" />
+                  <Text style={s.metaCapsuleTxt}>
+                    {seasons.length} {seasons.length === 1 ? "Temp" : "Temps"}
+                  </Text>
+                </View>
+              )}
+
+              {!!ageRating && (
+                <View style={[s.metaCapsule, s.metaCapsuleAge]}>
+                  <Text style={s.metaCapsuleTxt}>{ageRating}</Text>
+                </View>
+              )}
+
+              {rating ? (
+                <View style={[s.metaCapsule, s.metaCapsuleImdb]}>
+                  <Star size={scale(10)} color="#000" fill="#000" />
+                  <Text style={s.metaCapsuleImdbTxt}>{rating}</Text>
+                </View>
+              ) : null}
+            </View>
+
+            {/* Burbujas Curvadas de Géneros */}
+            {genres.length > 0 && (
+              <View style={s.genresRow}>
+                {genres.slice(0, 3).map((g, i) => (
+                  <View key={g.id ?? i} style={s.genreBubble}>
+                    <Text style={s.genreBubbleTxt}>{g.name}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Sinopsis Cómoda */}
             {item.description ? (
-              <Text style={s.desc} numberOfLines={5}>{item.description}</Text>
+              <Text style={s.heroDesc} numberOfLines={3}>
+                {item.description}
+              </Text>
             ) : null}
 
+            {/* Dirección */}
             {!!directors && (
-              <Text style={s.director}>
-                <Text style={s.directorLabel}>Dirección: </Text>
+              <Text style={s.heroDirector}>
+                <Text style={s.heroDirectorStrong}>Dirección: </Text>
                 {directors}
               </Text>
             )}
 
-            <View style={s.buttons}>
+            {/* Botones de Acción Curvados con Relieve */}
+            <View style={s.buttonsRow}>
+              {/* Botón Reproducir */}
               <Focusable
+                hasTVPreferredFocus
                 onPress={() => play(isSeries ? firstEpisode?.id : undefined)}
                 style={s.btnPlay}
                 focusedStyle={s.btnPlayFocused}
+                scaleFocused={1.05}
+                nextFocusLeft={sidebarHandle ?? undefined}
               >
-                <Play size={scale(18)} color="#000" fill="#000" />
-                <Text style={s.btnPlayTxt}>{isSeries ? "Reproducir T1 E1" : "Reproducir"}</Text>
+                <Play size={scale(16)} color="#000" fill="#000" />
+                <Text style={s.btnPlayTxt}>
+                  {isSeries ? "Reproducir T1 E1" : "Reproducir"}
+                </Text>
               </Focusable>
+
+              {/* Botón Tráiler */}
+              {!!trailerUrl && (
+                <Focusable
+                  onPress={handleTrailer}
+                  style={s.btnTrailer}
+                  focusedStyle={s.btnTrailerFocused}
+                  scaleFocused={1.05}
+                >
+                  <MonitorPlay size={scale(16)} color="#ffffff" />
+                  <Text style={s.btnTrailerTxt}>Tráiler</Text>
+                </Focusable>
+              )}
+
+              {/* Botón Favorito Curvado */}
               <Focusable
                 onPress={toggleFavorite}
                 style={[s.btnIcon, inMyList && s.btnIconActive]}
                 focusedStyle={s.btnIconFocused}
+                scaleFocused={1.06}
               >
-                {inMyList ? (
-                  <Check size={scale(20)} color={C.accent} />
-                ) : (
-                  <Plus size={scale(20)} color="#fff" />
-                )}
+                <Heart
+                  size={scale(18)}
+                  color={inMyList ? C.accent : "#ffffff"}
+                  fill={inMyList ? C.accent : "none"}
+                />
               </Focusable>
             </View>
           </View>
 
-          {/* Poster */}
+          {/* Módulo Derecho: Portada Empujada a la Derecha con Halo de Luz y Marco 3D */}
           <View style={s.heroRight}>
-            <RemoteImage uri={item.posterUrl || item.backdropUrl} style={s.poster as any} />
-            <LinearGradient
-              colors={["transparent", "rgba(8,8,8,0.4)"]}
-              style={s.posterShad}
-            />
+            {poster ? (
+              <View style={s.posterPodWrap}>
+                {/* 1. Halo de Luz Ambiental Radiante Detrás de la Portada */}
+                <View style={s.posterGlowAura} pointerEvents="none" />
+
+                {/* 2. Marco Geométrico Decorativo Angulado (Forma Tridimensional) */}
+                <View style={s.posterBackFrame} pointerEvents="none" />
+
+                {/* 3. Pod Principal de Portada */}
+                <View style={s.posterPod}>
+                  <RemoteImage
+                    uri={poster}
+                    style={s.posterPodImg as any}
+                    contentFit="cover"
+                    transition={200}
+                    priority="high"
+                  />
+                  {/* Reflejo Especular Superior de Cristal */}
+                  <LinearGradient
+                    colors={["rgba(255,255,255,0.22)", "transparent"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 0.7, y: 0.7 }}
+                    style={s.posterGlassSheen}
+                    pointerEvents="none"
+                  />
+                  {/* Sombra Inferior Suave */}
+                  <LinearGradient
+                    colors={["transparent", "rgba(0,0,0,0.65)"]}
+                    style={s.posterPodShad}
+                    pointerEvents="none"
+                  />
+                  {/* Badge Holográfico Flotante */}
+                  <View style={s.posterCornerBadge}>
+                    <Sparkles size={scale(10)} color={C.accent} />
+                    <Text style={s.posterCornerBadgeTxt}>4K HDR10+</Text>
+                  </View>
+                </View>
+              </View>
+            ) : null}
           </View>
         </View>
 
-        {/* CAST */}
+        {/* ── REPARTO PRINCIPAL (AVATARES CIRCULARES CON DOBLE ANILLO) ── */}
         {cast.length > 0 && (
           <View style={s.section}>
-            <View style={s.sectionHead}>
-              <View style={[s.sectionAccent, { backgroundColor: C.accent }]} />
-              <Text style={s.sectionTitle}>Reparto</Text>
-            </View>
+            <SectionHead title="Reparto Principal" accentColor="#ffb703" />
             <FlatList
-              data={cast}
-              keyExtractor={(a, i) => String(a.id ?? i)}
+              data={cast.slice(0, 16)}
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={s.castList}
-              initialNumToRender={6}
-              windowSize={4}
-              renderItem={({ item: actor }) => <CastItem actor={actor} />}
+              keyExtractor={(a, i) => String(a.id ?? i)}
+              contentContainerStyle={s.castRow}
+              renderItem={({ item: actor }) => <CastAvatarCard actor={actor} />}
             />
           </View>
         )}
 
-        {/* DETAILS TABLE */}
+        {/* ── BENTO MOSAICO: FICHA TÉCNICA CON MARCAS DE AGUA Y EFECTOS ── */}
         <View style={s.section}>
-          <View style={s.sectionHead}>
-            <View style={[s.sectionAccent, { backgroundColor: C.accentOrange }]} />
-            <Text style={s.sectionTitle}>
-              {item.type === "SERIES" ? "Detalles de la serie" : "Detalles de la película"}
-            </Text>
+          <SectionHead
+            title={isSeries ? "Ficha de la Serie" : "Ficha de la Película"}
+            accentColor="#ff9100"
+          />
+          <View style={s.bentoGrid}>
+            <BentoTile
+              icon={Film}
+              title="Producción"
+              line1={directors ? `Dir. ${directors}` : TYPE_LABEL[item.type] || item.type}
+              line2={item.originalTitle && item.originalTitle !== item.title ? `Orig: ${item.originalTitle}` : `Categoría: ${TYPE_LABEL[item.type] || item.type}`}
+              accent="#ff9100"
+            />
+            <BentoTile
+              icon={Globe}
+              title="Audio & Origen"
+              line1={`País: ${country}`}
+              line2={`Idioma Original: ${originLang}`}
+              accent="#00f0ff"
+            />
+            <BentoTile
+              icon={Clock}
+              title="Formato & Métricas"
+              line1={`Duración: ${durationStr || `${seasons.length} Temporadas`}`}
+              line2={`Estreno: ${year || "Reciente"} • Edad: ${ageRating}`}
+              accent="#ff5500"
+            />
+            <BentoTile
+              icon={Star}
+              title="Valoración"
+              line1={rating ? `★ ${rating} IMDb` : "Excelente recepción"}
+              line2="Disponible en Audio Dolby 5.1"
+              accent="#ffb703"
+            />
           </View>
-          <View style={s.detTable}>
-            <DetailRow label="Tipo" value={TYPE_LABEL[item.type] || item.type} />
-            {!!year && <DetailRow label="Año de estreno" value={String(year)} />}
-            {!!durationStr && <DetailRow label="Duración" value={durationStr} />}
-            {isSeries && <DetailRow label="Temporadas" value={String(seasons.length)} />}
-            {!!ageRating && <DetailRow label="Clasificación" value={ageRating} />}
-            {!!(c.country || c.originCountry) && (
-              <DetailRow label="País de origen" value={c.country || c.originCountry} />
-            )}
-            {!!(c.originalLanguage || item.language) && (
-              <DetailRow
-                label="Idioma original"
-                value={(c.originalLanguage || item.language || "").toUpperCase()}
-                last
-              />
-            )}
-          </View>
+
+          {/* Tags con Burbujas Curvadas Neón */}
+          {tags.length > 0 && (
+            <View style={s.tagsDock}>
+              {tags.slice(0, 8).map((t, idx) => (
+                <View key={t.id ?? idx} style={s.tagBubble}>
+                  <Tag size={scale(9)} color={C.accent} />
+                  <Text style={s.tagBubbleTxt}>{t.name}</Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
 
-        {/* SEASONS + EPISODES */}
+        {/* ── EPISODIOS Y TEMPORADAS (PARA SERIES) ── */}
         {isSeries && (
           <View style={s.section}>
-            <View style={s.sectionHead}>
-              <View style={[s.sectionAccent, { backgroundColor: C.accentFire }]} />
-              <Text style={s.sectionTitle}>Episodios</Text>
-            </View>
+            <SectionHead
+              title="Episodios y Temporadas"
+              subtitle={`${seasons.length} ${
+                seasons.length === 1 ? "temporada" : "temporadas"
+              } • ${seasons.reduce((acc, s) => acc + (s.episodes?.length || 0), 0)} episodios`}
+              accentColor="#ff5500"
+            />
+
+            {/* Selector de Temporadas en Cápsulas Curvadas */}
             {seasons.length > 1 && (
               <FlatList
                 data={seasons}
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                keyExtractor={(se, i) => String(se.id ?? i)}
+                keyExtractor={(s, i) => String(s.id ?? i)}
                 contentContainerStyle={s.seasonList}
                 extraData={seasonIdx}
                 renderItem={({ item: se, index }) => {
                   const on = index === seasonIdx;
+                  const epCount = se.episodes?.length || 0;
                   return (
                     <Focusable
                       onPress={() => setSeasonIdx(index)}
-                      onFocus={() => setSeasonIdx(index)}
-                      style={[s.seasonChip, on && s.seasonChipOn]}
-                      focusedStyle={s.seasonChipFocused}
+                      style={[s.seasonCapsule, on && s.seasonCapsuleActive]}
+                      focusedStyle={s.seasonCapsuleFocused}
+                      scaleFocused={1.04}
                     >
-                      <Text style={[s.seasonTxt, on && s.seasonTxtOn]}>
-                        Temporada {se.number ?? index + 1}
+                      <Text style={[s.seasonCapsuleTxt, on && s.seasonCapsuleTxtActive]}>
+                        {se.title || `Temporada ${se.number ?? index + 1}`}
                       </Text>
+                      <View style={[s.seasonCountBadge, on && s.seasonCountBadgeActive]}>
+                        <Text style={[s.seasonCountBadgeTxt, on && s.seasonCountBadgeTxtActive]}>
+                          {epCount}
+                        </Text>
+                      </View>
                     </Focusable>
                   );
                 }}
               />
             )}
+
+            {/* Carrusel 16:9 de Episodios con Bordes Curvados */}
             <FlatList
               data={currentSeason?.episodes || []}
               horizontal
               showsHorizontalScrollIndicator={false}
-              keyExtractor={(e: any, i) => String(e.id ?? i)}
+              keyExtractor={(ep, i) => String(ep.id ?? i)}
               contentContainerStyle={s.epList}
-              initialNumToRender={5}
-              windowSize={4}
-              renderItem={({ item: ep, index }: any) => (
-                <EpCard ep={ep} index={index} item={item} onPlay={play} />
+              renderItem={({ item: ep, index }) => (
+                <EpisodeCard
+                  ep={ep}
+                  index={index}
+                  item={item}
+                  currentSeasonNumber={currentSeason?.number || 1}
+                  onPlay={play}
+                />
               )}
             />
           </View>
         )}
 
-        {/* RELATED */}
+        {/* ── TÍTULOS SIMILARES Y RECOMENDADOS (CURADOS, SIN RELLENO) ── */}
         {related.length > 0 && (
           <View style={s.section}>
-            <View style={s.sectionHead}>
-              <View style={[s.sectionAccent, { backgroundColor: "#8b5cf6" }]} />
-              <Text style={s.sectionTitle}>Relacionados</Text>
-            </View>
+            <SectionHead title="Títulos Similares" accentColor="#ffba08" />
             <FlatList
               data={related}
-              keyExtractor={(r: any) => String(r.id || r.slug)}
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={s.relList}
-              initialNumToRender={6}
-              windowSize={4}
-              renderItem={({ item: r }: any) => <RelatedCard item={r} onPress={handleRelated} />}
+              keyExtractor={(r, i) => String(r.id ?? i)}
+              contentContainerStyle={s.rowTrack}
+              renderItem={({ item: r }) => (
+                <CurvedPosterCard
+                  item={r}
+                  onPress={handleContentPress}
+                  accentColor="#ffba08"
+                />
+              )}
+              ListFooterComponent={
+                <View style={{ marginLeft: CARD_GAP }}>
+                  <ViewAllCard
+                    width={POSTER_W}
+                    height={POSTER_H}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/(tv)/explore",
+                        params: item.genres?.[0]?.name
+                          ? { genre: item.genres[0].name }
+                          : { type: item.type },
+                      } as any)
+                    }
+                    label="Ver todo"
+                    sublabel="Relacionados"
+                    accentColor="#ffba08"
+                  />
+                </View>
+              }
             />
           </View>
         )}
 
-        <View style={{ height: scale(60) }} />
+        {/* ── TENDENCIAS EN NUBATV (SOLO SI EXISTEN Y DIFERENTES) ── */}
+        {trending.length > 0 && (
+          <View style={s.section}>
+            <SectionHead
+              title="Tendencias en Nuba TV"
+              accentColor="#ef4444"
+              icon={Sparkles}
+            />
+            <FlatList
+              data={trending}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(r, i) => String(r.id ?? i)}
+              contentContainerStyle={s.rowTrack}
+              renderItem={({ item: r }) => (
+                <CurvedPosterCard
+                  item={r}
+                  onPress={handleContentPress}
+                  accentColor="#ef4444"
+                />
+              )}
+              ListFooterComponent={
+                <View style={{ marginLeft: CARD_GAP }}>
+                  <ViewAllCard
+                    width={POSTER_W}
+                    height={POSTER_H}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/(tv)/explore",
+                        params: { sort: "popular" },
+                      } as any)
+                    }
+                    label="Ver todo"
+                    sublabel="Tendencias"
+                    accentColor="#ef4444"
+                  />
+                </View>
+              }
+            />
+          </View>
+        )}
+
+        <View style={{ height: scale(48) }} />
       </ScrollView>
     </View>
   );
 }
 
-const EP_W = scale(240);
-const REL_W = scale(130);
-const REL_H = scale(190);
-
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#080808" },
-  center: {
+  root: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: scale(16),
     backgroundColor: "#080808",
   },
-  loadTxt: { color: C.textSecondary, fontSize: scale(14) },
-  empty: { color: C.textMuted, fontSize: scale(16) },
-  scroll: { flex: 1, zIndex: 1 },
-  scrollContent: { paddingBottom: scale(40), paddingLeft: scale(72) },
-
-  hero: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    paddingTop: scale(24),
-    paddingRight: scale(48),
-    paddingBottom: scale(16),
-    minHeight: SH * 0.55,
+  scroll: {
+    flex: 1,
   },
-  heroLeft: { flex: 1, maxWidth: "58%", paddingRight: scale(32) },
-  heroRight: { width: scale(220), alignItems: "center" },
+  scrollContent: {
+    paddingHorizontal: scale(52),
+    paddingTop: scale(36),
+    paddingBottom: scale(36),
+  },
+  centerScreen: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#080808",
+    gap: scale(14),
+  },
+  loadingLabel: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: scale(15),
+    fontWeight: "600",
+  },
+  errorLabel: {
+    color: "#ffffff",
+    fontSize: scale(18),
+    fontWeight: "700",
+  },
+  backActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(8),
+    backgroundColor: C.accent,
+    paddingHorizontal: scale(20),
+    paddingVertical: scale(10),
+    borderRadius: scale(16),
+  },
+  backActionBtnFocused: {
+    backgroundColor: "#ffffff",
+  },
+  backActionTxt: {
+    color: "#000",
+    fontWeight: "800",
+    fontSize: scale(13),
+  },
 
+  // ── BOTÓN VOLVER (CÁPSULA CURVADA) ─────────────────────────────────────────
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: scale(6),
     alignSelf: "flex-start",
-    marginBottom: scale(18),
-    backgroundColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.14)",
     paddingHorizontal: scale(14),
-    height: scale(34),
-    borderRadius: 99,
-      },
-  backBtnFocused: { backgroundColor: "rgba(255,255,255,0.2)" },
-  backTxt: { color: "#fff", fontSize: scale(13), fontWeight: "700" },
-
-  title: {
-    fontSize: scale(38),
-    fontWeight: "900",
-    color: C.accent,
-    lineHeight: scale(44),
-    marginBottom: scale(6),
-    textShadowColor: "rgba(0,0,0,0.7)",
-    textShadowOffset: { width: 0, height: 3 },
-    textShadowRadius: 8,
+    paddingVertical: scale(6.5),
+    borderRadius: scale(18),
+    marginBottom: scale(20),
   },
-  tagline: {
-    fontSize: scale(14),
-    color: "rgba(255,255,255,0.6)",
-    fontStyle: "italic",
-    marginBottom: scale(12),
-    letterSpacing: 0.5,
+  backBtnFocused: {
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
+    borderColor: "#ffffff",
+  },
+  backBtnTxt: {
+    color: "rgba(255, 255, 255, 0.9)",
+    fontSize: scale(12),
+    fontWeight: "700",
   },
 
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: scale(8), marginBottom: scale(10) },
-  chip: {
+  // ── HERO POD: ASIMÉTRICO, PORTADA A LA DERECHA CON EFECTOS 3D ─────────────
+  heroPod: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(4),
-    backgroundColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(4),
-    borderRadius: 99,
+    justifyContent: "space-between",
+    marginBottom: scale(44),
   },
-  chipBorder: { borderWidth: 1, borderColor: "rgba(255,255,255,0.3)" },
-  chipTxt: { color: "#fff", fontSize: scale(12), fontWeight: "700" },
-  chipImdb: { backgroundColor: "#f5c518" },
-  chipImdbTxt: { color: "#000", fontSize: scale(12), fontWeight: "900" },
-
-  genres: { fontSize: scale(13), color: "rgba(255,255,255,0.6)", marginBottom: scale(10) },
-  desc: {
-    fontSize: scale(14),
-    color: "rgba(255,255,255,0.82)",
-    lineHeight: scale(20),
+  heroLeft: {
+    flex: 1,
+    maxWidth: scale(660),
+  },
+  categoryChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(6),
+    backgroundColor: "rgba(255, 183, 3, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 183, 3, 0.3)",
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(4.5),
+    borderRadius: scale(16),
+    alignSelf: "flex-start",
     marginBottom: scale(10),
   },
-  director: { fontSize: scale(13), color: "rgba(255,255,255,0.75)", marginBottom: scale(16) },
-  directorLabel: { color: "rgba(255,255,255,0.45)" },
+  categoryChipTxt: {
+    color: C.accent,
+    fontSize: scale(11.5),
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  heroTitle: {
+    color: "#ffffff",
+    fontSize: scale(42),
+    fontWeight: "900",
+    lineHeight: scale(48),
+    marginBottom: scale(10),
+    textShadowColor: "rgba(255, 183, 3, 0.25)",
+    textShadowOffset: { width: 0, height: scale(2) },
+    textShadowRadius: scale(10),
+  },
+  metaCapsules: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: scale(8),
+    marginBottom: scale(12),
+  },
+  metaCapsule: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(5),
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(4),
+    borderRadius: scale(14),
+  },
+  metaCapsuleAge: {
+    borderColor: "rgba(255,255,255,0.35)",
+  },
+  metaCapsuleImdb: {
+    backgroundColor: "#f5c518",
+    borderColor: "#f5c518",
+  },
+  metaCapsuleTxt: {
+    color: "rgba(255,255,255,0.88)",
+    fontSize: scale(11.5),
+    fontWeight: "700",
+  },
+  metaCapsuleImdbTxt: {
+    color: "#000000",
+    fontSize: scale(11.5),
+    fontWeight: "900",
+  },
+  genresRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: scale(6),
+    marginBottom: scale(12),
+  },
+  genreBubble: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(3.5),
+    borderRadius: scale(12),
+  },
+  genreBubbleTxt: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: scale(11.5),
+    fontWeight: "600",
+  },
+  heroDesc: {
+    fontSize: scale(14),
+    lineHeight: scale(22),
+    color: "rgba(255,255,255,0.8)",
+    marginBottom: scale(12),
+  },
+  heroDirector: {
+    fontSize: scale(12.5),
+    color: "rgba(255,255,255,0.6)",
+    marginBottom: scale(16),
+  },
+  heroDirectorStrong: {
+    color: "rgba(255,255,255,0.9)",
+    fontWeight: "800",
+  },
 
-  buttons: { flexDirection: "row", gap: scale(12), marginTop: scale(4) },
+  // ── BOTONES DE ACCIÓN CURVADOS ─────────────────────────────────────────────
+  buttonsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(12),
+  },
   btnPlay: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(8),
+    gap: scale(10),
     backgroundColor: C.accent,
-    paddingHorizontal: scale(26),
-    height: scale(46),
-    borderRadius: scale(12),
+    paddingHorizontal: scale(28),
+    height: scale(48),
+    borderRadius: scale(24),
   },
-  btnPlayFocused: { backgroundColor: "#fff", elevation: 8 },
-  btnPlayTxt: { color: "#000", fontSize: scale(15), fontWeight: "900" },
-  btnIcon: {
-    width: scale(46),
-    height: scale(46),
-    borderRadius: scale(12),
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.12)",
+  btnPlayFocused: {
+    backgroundColor: "#ffffff",
+    transform: [{ scale: 1.05 }],
+    shadowColor: "#ffffff",
+    shadowRadius: scale(14),
+    shadowOpacity: 0.6,
   },
-  btnIconActive: { backgroundColor: "rgba(255,183,3,0.15)" },
-  btnIconFocused: { backgroundColor: "rgba(255,255,255,0.2)" },
-
-  btnBack: {
+  btnPlayTxt: {
+    color: "#000000",
+    fontSize: scale(14),
+    fontWeight: "900",
+    letterSpacing: 0.3,
+  },
+  btnTrailer: {
     flexDirection: "row",
     alignItems: "center",
     gap: scale(8),
-    backgroundColor: "rgba(255,255,255,0.14)",
-    paddingHorizontal: scale(20),
-    height: scale(44),
-    borderRadius: scale(10),
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.22)",
+    paddingHorizontal: scale(18),
+    height: scale(48),
+    borderRadius: scale(24),
   },
-  btnBackFocused: { backgroundColor: "#fff" },
-  btnBackTxt: { color: "#fff", fontSize: scale(14), fontWeight: "800" },
+  btnTrailerFocused: {
+    backgroundColor: "rgba(255,255,255,0.25)",
+    borderColor: "#ffffff",
+  },
+  btnTrailerTxt: {
+    color: "#ffffff",
+    fontSize: scale(13),
+    fontWeight: "800",
+  },
+  btnIcon: {
+    width: scale(48),
+    height: scale(48),
+    borderRadius: scale(24),
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  btnIconActive: {
+    backgroundColor: "rgba(255,183,3,0.15)",
+    borderColor: C.accent,
+  },
+  btnIconFocused: {
+    backgroundColor: "rgba(255,255,255,0.25)",
+    borderColor: "#ffffff",
+  },
 
-  poster: {
-    width: scale(220),
-    height: scale(315),
-    borderRadius: scale(18),
-    backgroundColor: C.bgCard,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.15)",
+  // ── MÓDULO DERECHO: PORTADA 3D CON HALO Y FORMA ANGULADA ──────────────────
+  heroRight: {
+    marginLeft: scale(36),
+    alignItems: "center",
+    justifyContent: "center",
   },
-  posterShad: {
+  posterPodWrap: {
+    position: "relative",
+    width: scale(235),
+    height: scale(345),
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  posterGlowAura: {
+    position: "absolute",
+    top: scale(-12),
+    left: scale(-12),
+    right: scale(-12),
+    bottom: scale(-12),
+    borderRadius: scale(32),
+    backgroundColor: C.accent,
+    opacity: 0.22,
+    shadowColor: C.accent,
+    shadowRadius: scale(36),
+    shadowOpacity: 0.9,
+  },
+  posterBackFrame: {
+    position: "absolute",
+    width: scale(230),
+    height: scale(340),
+    borderRadius: scale(24),
+    backgroundColor: "rgba(255, 183, 3, 0.08)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 183, 3, 0.35)",
+    transform: [{ rotate: "3.5deg" }],
+  },
+  posterPod: {
+    width: scale(235),
+    height: scale(345),
+    borderRadius: scale(24),
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "rgba(255, 255, 255, 0.22)",
+    backgroundColor: "#0d0b14",
+    elevation: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: scale(12) },
+    shadowOpacity: 0.85,
+    shadowRadius: scale(24),
+  },
+  posterPodImg: {
+    width: "100%",
+    height: "100%",
+  },
+  posterGlassSheen: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "50%",
+  },
+  posterPodShad: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    height: scale(80),
-    borderBottomLeftRadius: scale(18),
-    borderBottomRightRadius: scale(18),
+    height: "45%",
+  },
+  posterCornerBadge: {
+    position: "absolute",
+    top: scale(12),
+    right: scale(12),
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(4),
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 183, 3, 0.5)",
+    paddingHorizontal: scale(9),
+    paddingVertical: scale(4),
+    borderRadius: scale(10),
+  },
+  posterCornerBadgeTxt: {
+    color: C.accent,
+    fontSize: scale(9.5),
+    fontWeight: "900",
+    letterSpacing: 0.5,
   },
 
-  section: { marginBottom: scale(10) },
+  // ── SECCIÓN ────────────────────────────────────────────────────────────────
+  section: {
+    marginBottom: scale(38),
+  },
   sectionHead: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: scale(12),
-    marginTop: scale(6),
-    paddingRight: scale(48),
+    marginBottom: scale(16),
   },
-  sectionAccent: { width: scale(4), height: scale(20), borderRadius: scale(2), marginRight: scale(10) },
-  sectionTitle: { fontSize: scale(18), fontWeight: "800", color: C.textPrimary },
+  sectionAccentBar: {
+    width: scale(4),
+    height: scale(20),
+    borderRadius: scale(2),
+    marginRight: scale(10),
+  },
+  sectionTitle: {
+    color: "#ffffff",
+    fontSize: scale(20),
+    fontWeight: "800",
+  },
+  sectionSub: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: scale(12),
+    marginTop: scale(2),
+  },
+  sectionDividerLine: {
+    flex: 1,
+    height: 1.5,
+    borderRadius: 1,
+  },
 
-  castList: { gap: scale(14), paddingRight: scale(48), paddingVertical: scale(4) },
+  // ── REPARTO (CIRCULAR CON DOBLE ANILLO) ────────────────────────────────────
+  castRow: {
+    gap: scale(18),
+    paddingRight: scale(36),
+  },
   castCard: {
-    width: scale(90),
+    width: scale(88),
     alignItems: "center",
-    borderRadius: scale(12),
-    padding: scale(6),
   },
-  castCardFocused: { backgroundColor: "rgba(255,255,255,0.1)" },
-  castAvatar: {
-    width: scale(72),
-    height: scale(72),
-    borderRadius: scale(36),
-    backgroundColor: C.bgCard,
-    borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.12)",
+  castCardFocused: {
+    transform: [{ scale: 1.08 }],
   },
-  castInfo: { marginTop: scale(6), alignItems: "center" },
-  castName: { color: "#fff", fontSize: scale(11), fontWeight: "700", textAlign: "center" },
-  castRole: { color: "rgba(255,255,255,0.5)", fontSize: scale(10), textAlign: "center", marginTop: scale(2) },
-
-  detTable: {
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderRadius: scale(16),
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    overflow: "hidden",
-    marginRight: scale(48),
-    maxWidth: scale(600),
-  },
-  detRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: scale(18),
-    paddingVertical: scale(12),
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
-  },
-  detLabel: { flex: 1, color: "rgba(255,255,255,0.5)", fontSize: scale(13), fontWeight: "600" },
-  detValue: { color: "#fff", fontSize: scale(13), fontWeight: "700", maxWidth: "55%", textAlign: "right" },
-
-  seasonList: { gap: scale(10), paddingVertical: scale(4), paddingRight: scale(48) },
-  seasonChip: {
-    height: scale(38),
-    paddingHorizontal: scale(20),
-    borderRadius: 99,
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
-  },
-  seasonChipOn: { backgroundColor: "rgba(255,183,3,0.22)" },
-  seasonChipFocused: { backgroundColor: "rgba(255,255,255,0.18)" },
-  seasonTxt: { color: "#fff", fontSize: scale(13), fontWeight: "700" },
-  seasonTxtOn: { color: C.accent },
-
-  epList: { gap: scale(14), paddingVertical: scale(8), paddingRight: scale(48), marginTop: scale(10) },
-  epCard: {
-    width: EP_W,
-    borderRadius: scale(14),
+  castAvatarRing: {
+    width: scale(70),
+    height: scale(70),
+    borderRadius: scale(35),
     overflow: "hidden",
     backgroundColor: "rgba(255,255,255,0.06)",
-    borderLeftWidth: 3, borderLeftColor: "transparent",
+    borderWidth: 2,
+    borderColor: "rgba(255, 183, 3, 0.35)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: scale(8),
   },
-  epCardFocused: { borderLeftColor: C.accent, backgroundColor: "rgba(255,255,255,0.1)" },
-  epThumbWrap: { position: "relative", width: "100%", height: EP_W * 0.56 },
-  epThumb: { width: "100%", height: "100%", backgroundColor: "#15100a" },
+  castAvatarImg: {
+    width: "100%",
+    height: "100%",
+  },
+  castName: {
+    color: "#ffffff",
+    fontSize: scale(11.5),
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  castRole: {
+    color: "rgba(255, 183, 3, 0.8)",
+    fontSize: scale(10),
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: scale(2),
+  },
+
+  // ── BENTO MOSAICO: FICHA TÉCNICA CON MARCAS DE AGUA ────────────────────────
+  bentoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: scale(12),
+  },
+  bentoTile: {
+    width: (SW - scale(104) - scale(36)) / 4,
+    minWidth: scale(180),
+    position: "relative",
+    overflow: "hidden",
+    backgroundColor: "rgba(14, 12, 20, 0.65)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderRadius: scale(18),
+    padding: scale(14),
+  },
+  bentoTileTopGlow: {
+    position: "absolute",
+    top: 0,
+    left: scale(20),
+    right: scale(20),
+    height: scale(2),
+    borderRadius: scale(1),
+  },
+  bentoWatermark: {
+    position: "absolute",
+    right: scale(-12),
+    bottom: scale(-12),
+    opacity: 0.07,
+  },
+  bentoTileInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(10),
+  },
+  bentoTileIconWrap: {
+    width: scale(38),
+    height: scale(38),
+    borderRadius: scale(14),
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  bentoTileBody: {
+    flex: 1,
+  },
+  bentoTileTitle: {
+    fontSize: scale(10.5),
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: scale(2),
+  },
+  bentoTileL1: {
+    color: "#ffffff",
+    fontSize: scale(12.5),
+    fontWeight: "700",
+  },
+  bentoTileL2: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: scale(11),
+    fontWeight: "500",
+    marginTop: scale(1),
+  },
+  tagsDock: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: scale(6),
+    marginTop: scale(14),
+  },
+  tagBubble: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(5),
+    backgroundColor: "rgba(255, 183, 3, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 183, 3, 0.25)",
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(4.5),
+    borderRadius: scale(12),
+  },
+  tagBubbleTxt: {
+    color: "#ffe082",
+    fontSize: scale(11),
+    fontWeight: "700",
+  },
+
+  // ── EPISODIOS Y TEMPORADAS ─────────────────────────────────────────────────
+  seasonList: {
+    gap: scale(10),
+    marginBottom: scale(14),
+  },
+  seasonCapsule: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(8),
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: scale(14),
+    paddingVertical: scale(7),
+    borderRadius: scale(20),
+  },
+  seasonCapsuleActive: {
+    backgroundColor: "rgba(255,183,3,0.18)",
+    borderColor: C.accent,
+  },
+  seasonCapsuleFocused: {
+    borderColor: C.accent,
+    backgroundColor: "rgba(255,183,3,0.3)",
+  },
+  seasonCapsuleTxt: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: scale(12),
+    fontWeight: "700",
+  },
+  seasonCapsuleTxtActive: {
+    color: C.accent,
+    fontWeight: "900",
+  },
+  seasonCountBadge: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: scale(7),
+    paddingVertical: scale(2),
+    borderRadius: scale(10),
+  },
+  seasonCountBadgeActive: {
+    backgroundColor: C.accent,
+  },
+  seasonCountBadgeTxt: {
+    color: "#ffffff",
+    fontSize: scale(10),
+    fontWeight: "800",
+  },
+  seasonCountBadgeTxtActive: {
+    color: "#000000",
+    fontWeight: "900",
+  },
+  epList: {
+    gap: scale(16),
+    paddingRight: scale(36),
+  },
+  epCard: {
+    width: scale(240),
+    borderRadius: scale(16),
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  epCardFocused: {
+    borderColor: C.accent,
+    shadowColor: C.accent,
+    shadowRadius: scale(12),
+    shadowOpacity: 0.8,
+  },
+  epThumbWrap: {
+    width: "100%",
+    height: scale(135),
+    position: "relative",
+    backgroundColor: "#111116",
+  },
   epPlayOverlay: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+  },
+  epPlayCircle: {
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(18),
+    backgroundColor: C.accent,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingLeft: scale(2),
   },
   epDurBadge: {
     position: "absolute",
     bottom: scale(6),
     right: scale(6),
-    backgroundColor: "rgba(0,0,0,0.75)",
+    backgroundColor: "rgba(0,0,0,0.8)",
     paddingHorizontal: scale(6),
     paddingVertical: scale(2),
-    borderRadius: scale(4),
+    borderRadius: scale(6),
   },
-  epDurText: { color: "#fff", fontSize: scale(10), fontWeight: "700" },
-  epMeta: { padding: scale(10) },
-  epNum: { color: C.accent, fontSize: scale(10), fontWeight: "800" },
-  epTitle: { color: "#fff", fontSize: scale(13), fontWeight: "700", marginTop: scale(3) },
-  epDesc: { color: "rgba(255,255,255,0.5)", fontSize: scale(11), marginTop: scale(4), lineHeight: scale(15) },
+  epDurText: {
+    color: "#ffffff",
+    fontSize: scale(10),
+    fontWeight: "700",
+  },
+  epMeta: {
+    padding: scale(10),
+  },
+  epBadge: {
+    color: C.accent,
+    fontSize: scale(10),
+    fontWeight: "800",
+    textTransform: "uppercase",
+    marginBottom: scale(2),
+  },
+  epTitle: {
+    color: "#ffffff",
+    fontWeight: "700",
+    fontSize: scale(12),
+    marginBottom: scale(2),
+  },
+  epDesc: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: scale(10.5),
+    lineHeight: scale(14),
+  },
 
-  relList: { gap: scale(12), paddingVertical: scale(4), paddingRight: scale(48) },
-  relCard: {
-    width: REL_W,
-    height: REL_H,
-    borderRadius: scale(12),
-    overflow: "hidden",
-    backgroundColor: C.bgCard,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.06)",
+  // ── FILAS DE CONTENIDO (CARRUSELES) ────────────────────────────────────────
+  rowTrack: {
+    gap: CARD_GAP,
+    paddingRight: scale(36),
   },
-  relCardFocused: { backgroundColor: "rgba(255,255,255,0.1)" },
-  relPoster: { width: "100%", height: "100%" },
-  relGrad: { position: "absolute", bottom: 0, left: 0, right: 0, height: REL_H * 0.5 },
-  relInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: scale(8) },
-  relTitle: { color: "#fff", fontSize: scale(11), fontWeight: "700" },
-  relYear: { color: "rgba(255,255,255,0.6)", fontSize: scale(10), marginTop: scale(2) },
+  card: {
+    width: POSTER_W,
+    height: POSTER_H,
+    borderRadius: scale(14),
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  cardFocused: {
+    borderColor: C.accent,
+    shadowColor: C.accent,
+    shadowRadius: scale(10),
+    shadowOpacity: 0.8,
+  },
+  cardGrad: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: "60%",
+  },
+  cardRating: {
+    position: "absolute",
+    top: scale(7),
+    right: scale(7),
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(3),
+    paddingHorizontal: scale(6),
+    paddingVertical: scale(2),
+    borderRadius: scale(6),
+  },
+  cardRatingTxt: {
+    color: "#000",
+    fontWeight: "900",
+    fontSize: scale(9.5),
+  },
+  cardInfo: {
+    position: "absolute",
+    left: scale(8),
+    right: scale(8),
+    bottom: scale(8),
+  },
+  cardTitle: {
+    color: "#ffffff",
+    fontWeight: "700",
+    fontSize: scale(11.5),
+    lineHeight: scale(15),
+    marginBottom: scale(2),
+  },
+  cardMeta: {
+    fontSize: scale(9.5),
+    fontWeight: "600",
+  },
 });

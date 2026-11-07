@@ -7,6 +7,7 @@ import {
       Heart,
       Home,
       Settings,
+      Smile,
       Tv,
 } from "lucide-react-native";
 
@@ -58,6 +59,12 @@ const NAV_ITEMS = [
     label: "Series",
     icon: Clapperboard,
     route: "/(tv)/series",
+  },
+  {
+    key: "kids",
+    label: "Kids",
+    icon: Smile,
+    route: "/(tv)/kids",
   },
   {
     key: "explore",

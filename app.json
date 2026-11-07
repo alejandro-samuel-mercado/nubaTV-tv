@@ -19,15 +19,29 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "isTV": true,
-      "package": "com.ale181021aa.nubaTVtv"
+      "package": "com.ale181021aa.nubaTVtv",
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ],
+      "intentFilters": [
+        {
+          "action": "MAIN",
+          "category": [
+            "LAUNCHER",
+            "LEANBACK_LAUNCHER"
+          ]
+        }
+      ]
     },
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "./plugins/withAndroidTV.js",
       "expo-router",
+      "react-native-video",
       [
         "expo-splash-screen",
         {

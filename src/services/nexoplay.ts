@@ -86,6 +86,8 @@ export async function getContentList(params: {
   type?: string;
   search?: string;
   sort?: string;
+  genre?: string;
+  genreId?: string;
   limit?: number;
   page?: number;
 }): Promise<NexoContentItem[]> {
@@ -94,6 +96,8 @@ export async function getContentList(params: {
     if (params.type) query.append("type", params.type);
     if (params.search) query.append("search", params.search);
     if (params.sort) query.append("sort", params.sort);
+    if (params.genre) query.append("genre", params.genre);
+    if (params.genreId) query.append("genreId", params.genreId);
     if (params.limit) query.append("limit", String(params.limit));
     if (params.page) query.append("page", String(params.page));
     const res = await axios.get(

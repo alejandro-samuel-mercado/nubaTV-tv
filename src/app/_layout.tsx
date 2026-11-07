@@ -39,8 +39,11 @@ function RootLayoutNav() {
 
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#080808' } }}>
+      <Stack.Screen name="index" />
       <Stack.Screen name="(auth)/login" />
       <Stack.Screen name="(tv)" />
+      <Stack.Screen name="player" />
+      <Stack.Screen name="detail" />
     </Stack>
   );
 }

@@ -1,6 +1,6 @@
-import { ResizeMode, Video } from "expo-av";
+import Video from "react-native-video";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useRouter, usePathname } from "expo-router";
 import { Heart, List, Maximize2, Search, Tv2, X } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -32,25 +32,33 @@ const keyById = (c: Channel) => c.id;
 
 // ── Mini player ──────────────────────────────────────────────────────────────
 const MiniPlayer = memo(function MiniPlayer({
-  channel, onExpand,
-}: { channel: Channel | null; onExpand: () => void }) {
+  channel, onExpand, isActive = true,
+}: { channel: Channel | null; onExpand: () => void; isActive?: boolean }) {
   const [a, b] = colorsFor(channel?.category?.name);
   const [error, setError] = useState(false);
 
   useEffect(() => { setError(false); }, [channel?.url]);
 
   return (
-    <Focusable onPress={onExpand} style={s.mini} focusedStyle={s.miniFocused}>
+    <Focusable
+      onPress={onExpand}
+      style={s.mini}
+      focusedStyle={s.miniFocused}
+      borderRadius={scale(14)}
+      scaleValue={1.03}
+    >
       {/* Background gradient */}
       <LinearGradient colors={[a, b]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
 
       {/* Video feed */}
-      {channel && !error && (
+      {channel && !error && isActive && (
         <Video
           source={{ uri: channel.url }}
           style={StyleSheet.absoluteFill as any}
-          resizeMode={ResizeMode.COVER}
-          shouldPlay isMuted isLooping
+          resizeMode="cover"
+          paused={!isActive}
+          muted
+          repeat
           onError={() => setError(true)}
         />
       )}
@@ -97,9 +105,14 @@ const ChannelRow = memo(function ChannelRow({
 }) {
   return (
     <Focusable
-      hasTVPreferredFocus={preferFocus} nextFocusLeft={nextFocusLeft}
-      onFocus={() => onFocus(item)} onPress={() => onOpen(item)}
-      style={[s.chRow, isActive && s.chRowActive]} focusedStyle={s.chRowFocused}
+      hasTVPreferredFocus={preferFocus}
+      nextFocusLeft={nextFocusLeft}
+      onFocus={() => onFocus(item)}
+      onPress={() => onOpen(item)}
+      borderRadius={scale(8)}
+      scaleValue={1.02}
+      style={[s.chRow, isActive && s.chRowActive]}
+      focusedStyle={s.chRowFocused}
     >
       <Text style={[s.chNum, isActive && { color: C.accent }]}>{index + 1}</Text>
       <View style={[s.chLogoWrap, isActive && s.chLogoWrapActive]}>
@@ -119,7 +132,7 @@ const ChannelRow = memo(function ChannelRow({
           <Text style={s.liveTxt}>EN VIVO</Text>
         </View>
       )}
-      <Focusable onPress={() => onToggleFav(item.id)} style={s.favBtn} focusedStyle={s.favBtnFocused} hitSlop={8}>
+      <Focusable onPress={() => onToggleFav(item.id)} style={s.favBtn} focusedStyle={s.favBtnFocused} hitSlop={8} scaleValue={1.12}>
         <Heart size={scale(14)} color={isFav ? "#e879f9" : "rgba(255,255,255,0.28)"} fill={isFav ? "#e879f9" : "none"} />
       </Focusable>
     </Focusable>
@@ -132,8 +145,12 @@ const SideItem = memo(function SideItem({
 }: { item: SidebarItem; isActive: boolean; onSelect: (id: string) => void }) {
   return (
     <Focusable
-      onPress={() => onSelect(item.id)} onFocus={() => onSelect(item.id)}
-      style={[s.sideItem, isActive && s.sideItemActive]} focusedStyle={s.sideItemFocused}
+      onPress={() => onSelect(item.id)}
+      onFocus={() => onSelect(item.id)}
+      borderRadius={scale(6)}
+      scaleValue={1.02}
+      style={[s.sideItem, isActive && s.sideItemActive]}
+      focusedStyle={s.sideItemFocused}
     >
       {item.id === "favorites" ? (
         <Heart size={scale(12)} color={isActive ? C.accent : "rgba(255,255,255,0.4)"} />
@@ -149,6 +166,7 @@ const SideItem = memo(function SideItem({
 
 export default function ChannelsScreen() {
   const router = useRouter();
+  const pathname = usePathname();
   const sidebarHandle = useSidebarHandle();
   const { channels, activeChannel, setActiveChannel, favorites, toggleFavorite } = useGlobal();
 
@@ -159,10 +177,22 @@ export default function ChannelsScreen() {
   const [settings, setSettings] = useState<ChannelSettings>({ parentalLock: false, hideRestricted: true });
   const searchRef = useRef<TextInput>(null);
 
+  // Timer para debouncear el streaming de video al navegar rápido con control remoto
+  const channelFocusTimer = useRef<any>(null);
+
   useEffect(() => {
     loadAppSettings().then((saved) =>
       setSettings({ parentalLock: saved.parentalLock, hideRestricted: saved.hideRestricted })
     );
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (channelFocusTimer.current) {
+        clearTimeout(channelFocusTimer.current);
+        channelFocusTimer.current = null;
+      }
+    };
   }, []);
 
   const playlistOptions = useMemo(() => {
@@ -208,11 +238,20 @@ export default function ChannelsScreen() {
   }, []);
 
   const openFullscreen = useCallback((ch: Channel) => {
+    if (channelFocusTimer.current) clearTimeout(channelFocusTimer.current);
     setActiveChannel(ch);
     router.push({ pathname: "/player", params: { channelId: ch.id, channelUrl: ch.url } } as any);
   }, [router, setActiveChannel]);
 
-  const handleFocus = useCallback((ch: Channel) => setActiveChannel(ch), [setActiveChannel]);
+  // Debounce suave al navegar: la card se enfoca al instante, pero el video en el mini-player
+  // solo arranca si el usuario se detiene 220ms sobre el canal.
+  const handleFocus = useCallback((ch: Channel) => {
+    if (channelFocusTimer.current) clearTimeout(channelFocusTimer.current);
+    channelFocusTimer.current = setTimeout(() => {
+      setActiveChannel(ch);
+    }, 220);
+  }, [setActiveChannel]);
+
   const toggleSearch = useCallback(() => {
     const next = !showSearch;
     setShowSearch(next);
@@ -227,7 +266,7 @@ export default function ChannelsScreen() {
     <View style={s.root}>
       {/* ── LEFT: mini player + playlist chips + category sidebar ── */}
       <View style={s.leftCol}>
-        <MiniPlayer channel={activeChannel} onExpand={() => activeChannel && openFullscreen(activeChannel)} />
+        <MiniPlayer channel={activeChannel} isActive={pathname.includes("channels")} onExpand={() => activeChannel && openFullscreen(activeChannel)} />
 
         {/* Playlist chips */}
         {playlistOptions.length > 0 && (
@@ -328,7 +367,6 @@ const s = StyleSheet.create({
     width: "100%", height: MINI_H,
     borderRadius: scale(14), overflow: "hidden",
     backgroundColor: "#1a1a1c",
-
     marginBottom: scale(10),
   },
   miniFocused: { backgroundColor: "rgba(255,255,255,0.15)" },
@@ -372,7 +410,7 @@ const s = StyleSheet.create({
   sideItem: {
     flexDirection: "row", alignItems: "center", gap: scale(8),
     paddingHorizontal: scale(10), paddingVertical: scale(10),
-    borderRadius: scale(2), marginBottom: scale(2),
+    borderRadius: scale(6), marginBottom: scale(2),
     borderLeftWidth: 6, borderLeftColor: "transparent",
   },
   sideItemActive: { backgroundColor: "rgba(255,255,255,0.07)" },

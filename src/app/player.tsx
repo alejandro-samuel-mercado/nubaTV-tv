@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { View, Text, ActivityIndicator, BackHandler, Platform, StyleSheet, Pressable, ScrollView, FlatList, Image, TextInput, KeyboardAvoidingView } from 'react-native';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import Video, { VideoRef } from 'react-native-video';
 import { useGlobal, API_URL, Channel } from '../contexts/GlobalContext';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import VodPlayer from '../components/tv/VodPlayer';
@@ -34,17 +34,55 @@ function OSDButton({ icon: Icon, label, onPress, onFocus, onBlur }: any) {
 }
 
 export default function PlayerScreen() {
-  const { slug, episodeId } = useLocalSearchParams<{ slug?: string; episodeId?: string }>();
-  if (slug) return <VodPlayer slug={String(slug)} episodeId={episodeId ? String(episodeId) : undefined} />;
-  return <ChannelPlayer />;
+  const { slug, episodeId, channelId, channelUrl } = useLocalSearchParams<{
+    slug?: string;
+    episodeId?: string;
+    channelId?: string;
+    channelUrl?: string;
+  }>();
+
+  if (slug) {
+    return <VodPlayer slug={String(slug)} episodeId={episodeId ? String(episodeId) : undefined} />;
+  }
+
+  return (
+    <ChannelPlayer
+      initialChannelId={channelId ? String(channelId) : undefined}
+      initialChannelUrl={channelUrl ? String(channelUrl) : undefined}
+    />
+  );
 }
 
-function ChannelPlayer() {
+function ChannelPlayer({
+  initialChannelId,
+  initialChannelUrl,
+}: {
+  initialChannelId?: string;
+  initialChannelUrl?: string;
+}) {
   const { activeChannel, setActiveChannel, channels } = useGlobal();
   const router = useRouter();
-  const videoRef = useRef<Video>(null);
+  const videoRef = useRef<VideoRef | null>(null);
 
-  const [status, setStatus] = useState<AVPlaybackStatus | null>(null);
+  useEffect(() => {
+    if (initialChannelId || initialChannelUrl) {
+      if (!activeChannel || (initialChannelId && activeChannel.id !== initialChannelId)) {
+        const found = channels.find((c) => c.id === initialChannelId);
+        if (found) {
+          setActiveChannel(found);
+        } else if (initialChannelUrl) {
+          setActiveChannel({
+            id: initialChannelId || 'temp-ch',
+            name: 'Canal en vivo',
+            url: initialChannelUrl,
+          } as Channel);
+        }
+      }
+    }
+  }, [initialChannelId, initialChannelUrl, channels]);
+
+  const [isNativeBuffering, setIsNativeBuffering] = useState(true);
+  const [isNativeError, setIsNativeError] = useState(false);
   const [webError, setWebError] = useState<string | null>(null);
   const [showOSD, setShowOSD] = useState(true);
   const [showPanel, setShowPanel] = useState(false);
@@ -170,8 +208,8 @@ function ChannelPlayer() {
   const proxyUrl = Platform.OS === 'web' 
     ? `${API_URL}/proxy?url=${encodeURIComponent(activeChannel.url)}` 
     : activeChannel.url;
-  const isError = status && !status.isLoaded && 'error' in status;
-  const isBuffering = !status?.isLoaded || (status?.isLoaded && status.isBuffering);
+  const isError = Platform.OS === 'web' ? Boolean(webError) : isNativeError;
+  const isBuffering = Platform.OS === 'web' ? false : isNativeBuffering;
 
   return (
     <View style={s.root}>
@@ -179,20 +217,32 @@ function ChannelPlayer() {
       {/* ── Video ── */}
       {Platform.OS === 'web' ? (
         <WebPlayer
-          key={reloadKey} // Remount to sync
+          key={reloadKey}
           uri={proxyUrl}
+          fallbackUri={activeChannel.url}
           onError={(msg: string) => setWebError(msg)}
         />
       ) : (
         <Video
           key={reloadKey}
           ref={videoRef}
-          style={StyleSheet.absoluteFill}
+          style={s.videoAbsolute}
           source={{ uri: proxyUrl }}
-          useNativeControls={false}
-          resizeMode={ResizeMode.CONTAIN}
-          shouldPlay={true}
-          onPlaybackStatusUpdate={setStatus}
+          controls={false}
+          resizeMode="contain"
+          paused={false}
+          onLoad={() => {
+            setIsNativeBuffering(false);
+            setIsNativeError(false);
+          }}
+          onBuffer={({ isBuffering: b }: { isBuffering: boolean }) => {
+            setIsNativeBuffering(b);
+          }}
+          onError={(err: any) => {
+            console.warn('[ChannelPlayer] Playback error:', err);
+            setIsNativeError(true);
+            setIsNativeBuffering(false);
+          }}
         />
       )}
 
@@ -337,7 +387,19 @@ function ChannelPlayer() {
 const s = StyleSheet.create({
   root: {
     flex: 1,
+    width: '100%',
+    height: '100%',
     backgroundColor: '#000',
+    ...(Platform.OS === 'web' ? { width: '100vw' as any, height: '100vh' as any, position: 'fixed' as any, top: 0, left: 0 } : {}),
+  },
+  videoAbsolute: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
   },
   center: {
     flex: 1,
