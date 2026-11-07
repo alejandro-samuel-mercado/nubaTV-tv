@@ -640,7 +640,7 @@ export default function ChannelsScreen() {
                 },
               ]}
             >
-              {/* Video en Vivo */}
+              {/* Video en Vivo con HeroVideo universal */}
               {previewUrl && !videoError ? (
                 <HeroVideo
                   key={previewUrl}
