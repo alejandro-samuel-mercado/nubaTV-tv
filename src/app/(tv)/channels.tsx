@@ -1,5 +1,5 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useFocusEffect, usePathname, useRouter } from "expo-router";
 import {
   Compass,
   Film,
@@ -458,6 +458,8 @@ const ThemedChannelRow = memo(function ThemedChannelRow({
 export default function ChannelsScreen() {
   const router = useRouter();
   const sidebarHandle = useSidebarHandle();
+  const pathname = usePathname();
+  const isChannelsRoute = pathname.includes("channels");
 
   const {
     channels,
@@ -486,11 +488,13 @@ export default function ChannelsScreen() {
   // Filtro de categoría seleccionada en el ribbon superior ("all" por defecto)
   const [selectedCatId, setSelectedCatId] = useState<string>("all");
 
-  // Estado del reproductor de video en el Hero
+  // Estado del reproductor de video en el Hero y control de foco de sección
+  const [isScreenFocused, setIsScreenFocused] = useState(true);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [videoLoading, setVideoLoading] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const debounceTimerRef = useRef<any>(null);
+  const initialRandomDoneRef = useRef(false);
 
   // Filtrar canales bloqueados por control parental
   const allowedChannels = useMemo(() => {
@@ -501,18 +505,49 @@ export default function ChannelsScreen() {
     );
   }, [channels, settings]);
 
-  // Si no hay canal activo pero hay canales disponibles, seleccionar el primero
+  // ── Reproducción Aleatoria al entrar y Apagado Inmediato al cambiar de sección ──
+  useFocusEffect(
+    useCallback(() => {
+      setIsScreenFocused(true);
+
+      // Reproducción automática aleatoria apenas entra a la pantalla
+      if (allowedChannels.length > 0 && !initialRandomDoneRef.current) {
+        initialRandomDoneRef.current = true;
+        const randomIdx = Math.floor(Math.random() * allowedChannels.length);
+        const randomCh = allowedChannels[randomIdx];
+        if (randomCh) {
+          setActiveChannel(randomCh);
+        }
+      }
+
+      return () => {
+        // Al cambiar de sección, APAGAR el video y liberar recursos inmediatamente
+        setIsScreenFocused(false);
+        setPreviewUrl(null);
+        setVideoLoading(false);
+        initialRandomDoneRef.current = false;
+      };
+    }, [allowedChannels, setActiveChannel]),
+  );
+
+  // Si los canales aún estaban cargando cuando se montó la pantalla, elegir aleatorio en cuanto terminen
   useEffect(() => {
-    if (!activeChannel && allowedChannels.length > 0) {
-      setActiveChannel(allowedChannels[0]);
+    if (!initialRandomDoneRef.current && allowedChannels.length > 0 && isScreenFocused && isChannelsRoute) {
+      initialRandomDoneRef.current = true;
+      const randomIdx = Math.floor(Math.random() * allowedChannels.length);
+      const randomCh = allowedChannels[randomIdx];
+      if (randomCh) {
+        setActiveChannel(randomCh);
+      }
     }
-  }, [activeChannel, allowedChannels, setActiveChannel]);
+  }, [allowedChannels, isScreenFocused, isChannelsRoute, setActiveChannel]);
 
   // Debounce para cargar la vista previa del video en el Hero
   useEffect(() => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
-    if (!activeChannel?.url) {
+    // Si la pantalla no está enfocada, no está en la sección channels o no hay URL, APAGAR video
+    if (!isScreenFocused || !isChannelsRoute || !activeChannel?.url) {
       setPreviewUrl(null);
       setVideoLoading(false);
       return;
@@ -528,7 +563,7 @@ export default function ChannelsScreen() {
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  }, [activeChannel?.url]);
+  }, [activeChannel?.url, isScreenFocused, isChannelsRoute]);
 
   // Tema activo correspondiente al canal seleccionado
   const activeTheme = useMemo(() => {
@@ -683,11 +718,12 @@ export default function ChannelsScreen() {
                 },
               ]}
             >
-              {/* Video en Vivo con HeroVideo universal */}
-              {previewUrl && !videoError ? (
+              {/* Video en Vivo con HeroVideo universal: se apaga inmediatamente al cambiar de sección */}
+              {isScreenFocused && isChannelsRoute && previewUrl && !videoError ? (
                 <HeroVideo
                   key={previewUrl}
                   uri={previewUrl}
+                  muted={false}
                   onError={() => {
                     setVideoLoading(false);
                     setVideoError(true);
