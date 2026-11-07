@@ -29,7 +29,7 @@ import {
   Text,
   View,
 } from "react-native";
-import Video from "react-native-video";
+import HeroVideo from "../../components/tv/HeroVideo";
 import Focusable from "../../components/tv/Focusable";
 import RemoteImage from "../../components/tv/RemoteImage";
 import ViewAllCard from "../../components/tv/ViewAllCard";
@@ -642,27 +642,16 @@ export default function ChannelsScreen() {
             >
               {/* Video en Vivo */}
               {previewUrl && !videoError ? (
-                <Video
+                <HeroVideo
                   key={previewUrl}
-                  source={{ uri: previewUrl }}
-                  style={StyleSheet.absoluteFill}
-                  resizeMode="cover"
-                  paused={false}
-                  repeat={true}
-                  muted={false}
-                  bufferConfig={{
-                    minBufferMs: 1500,
-                    maxBufferMs: 5000,
-                    bufferForPlaybackMs: 1000,
-                    bufferForPlaybackAfterRebufferMs: 1500,
-                  }}
-                  onLoad={() => {
-                    setVideoLoading(false);
-                    setVideoError(false);
-                  }}
+                  uri={previewUrl}
                   onError={() => {
                     setVideoLoading(false);
                     setVideoError(true);
+                  }}
+                  onCanPlay={() => {
+                    setVideoLoading(false);
+                    setVideoError(false);
                   }}
                 />
               ) : (
