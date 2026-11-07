@@ -277,67 +277,85 @@ const LiveChannelCard = memo(function LiveChannelCard({
         },
       ]}
     >
-      {/* Fondo de tarjeta con degradado oscuro suave */}
-      <LinearGradient
-        colors={[
-          "rgba(255,255,255,0.05)",
-          "rgba(18, 14, 36, 0.8)",
-          "rgba(7, 5, 18, 0.98)",
-        ]}
-        style={StyleSheet.absoluteFill}
-      />
-
-      {/* Indicador superior derecho: En Pantalla o Favorito */}
-      <View style={s.cardTopRow}>
-        {isActive ? (
-          <View style={[s.cardLiveBadge, { backgroundColor: themeColor }]}>
-            <View style={s.cardLiveDot} />
-            <Text style={s.cardLiveTxt}>EN PANTALLA</Text>
-          </View>
-        ) : (
-          <View style={s.cardLivePill}>
-            <View style={[s.cardLiveDot, { backgroundColor: LIVE_COLORS.neonRed }]} />
-            <Text style={s.cardLiveTxt}>VIVO</Text>
-          </View>
-        )}
-
-        {isFav ? (
-          <View style={s.cardFavBadge}>
-            <Heart size={scale(10)} color="#fff" fill={LIVE_COLORS.favHeart} />
-          </View>
-        ) : null}
-      </View>
-
-      {/* Logo Central del Canal en cápsula glassmorphism */}
-      <View style={s.cardLogoContainer}>
-        {channel.logo ? (
-          <RemoteImage
-            uri={channel.logo}
-            style={s.cardLogo as any}
-            contentFit="contain"
-            transition={150}
+      {({ focused }) => (
+        <>
+          {/* Fondo de tarjeta con degradado oscuro suave */}
+          <LinearGradient
+            colors={[
+              "rgba(255,255,255,0.05)",
+              "rgba(18, 14, 36, 0.8)",
+              "rgba(7, 5, 18, 0.98)",
+            ]}
+            style={StyleSheet.absoluteFill}
           />
-        ) : (
-          <View style={[s.cardFallbackIcon, { borderColor: `${themeColor}40` }]}>
-            <Tv2 size={scale(24)} color={themeColor} />
-          </View>
-        )}
-      </View>
 
-      {/* Información inferior de canal */}
-      <View style={s.cardBottomInfo}>
-        <Text style={s.cardTitle} numberOfLines={1}>
-          {channel.name}
-        </Text>
-        <View style={s.cardMetaRow}>
-          <Text style={[s.cardCategoryTxt, { color: themeColor }]} numberOfLines={1}>
-            {channel.category?.name || channel.groupTitle || "General"}
-          </Text>
-          {channel.country ? (
-            <Text style={s.cardCountryTxt}> • {channel.country}</Text>
-          ) : null}
-        </View>
-      </View>
+          {/* Indicador superior derecho: En Pantalla o Favorito */}
+          <View style={s.cardTopRow}>
+            {isActive ? (
+              <View style={[s.cardLiveBadge, { backgroundColor: themeColor }]}>
+                <View style={s.cardLiveDot} />
+                <Text style={s.cardLiveTxt}>EN PANTALLA</Text>
+              </View>
+            ) : (
+              <View style={s.cardLivePill}>
+                <View style={[s.cardLiveDot, { backgroundColor: LIVE_COLORS.neonRed }]} />
+                <Text style={s.cardLiveTxt}>VIVO</Text>
+              </View>
+            )}
+
+            {isFav ? (
+              <View style={s.cardFavBadge}>
+                <Heart size={scale(10)} color="#fff" fill={LIVE_COLORS.favHeart} />
+              </View>
+            ) : null}
+          </View>
+
+          {/* Logo Central del Canal en cápsula glassmorphism */}
+          <View style={s.cardLogoContainer}>
+            {channel.logo ? (
+              <RemoteImage
+                uri={channel.logo}
+                style={s.cardLogo as any}
+                contentFit="contain"
+                transition={150}
+              />
+            ) : (
+              <View style={[s.cardFallbackIcon, { borderColor: `${themeColor}40` }]}>
+                <Tv2 size={scale(24)} color={themeColor} />
+              </View>
+            )}
+
+            {/* Overlay interactivo con botón Play al hacer foco con el control remoto */}
+            {focused && (
+              <View style={s.cardPlayOverlay}>
+                <View style={[s.cardPlayBtn, { backgroundColor: themeColor }]}>
+                  <Play
+                    size={scale(16)}
+                    color="#000000"
+                    fill="#000000"
+                    style={{ marginLeft: scale(2) }}
+                  />
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* Información inferior de canal */}
+          <View style={s.cardBottomInfo}>
+            <Text style={s.cardTitle} numberOfLines={1}>
+              {channel.name}
+            </Text>
+            <View style={s.cardMetaRow}>
+              <Text style={[s.cardCategoryTxt, { color: themeColor }]} numberOfLines={1}>
+                {channel.category?.name || channel.groupTitle || "General"}
+              </Text>
+              {channel.country ? (
+                <Text style={s.cardCountryTxt}> • {channel.country}</Text>
+              ) : null}
+            </View>
+          </View>
+        </>
+      )}
     </Focusable>
   );
 });
@@ -362,6 +380,16 @@ const ThemedChannelRow = memo(function ThemedChannelRow({
   if (!channels || channels.length === 0) return null;
 
   const Icon = theme.icon;
+
+  // Layout matemático fijo para scroll a 60fps con control remoto
+  const getItemLayout = useCallback(
+    (_: any, index: number) => ({
+      length: CH_CARD_W + CARD_GAP,
+      offset: (CH_CARD_W + CARD_GAP) * index,
+      index,
+    }),
+    [],
+  );
 
   return (
     <View style={s.rowWrapper}>
@@ -392,7 +420,9 @@ const ThemedChannelRow = memo(function ThemedChannelRow({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowTrack}
         initialNumToRender={6}
+        maxToRenderPerBatch={8}
         windowSize={5}
+        getItemLayout={getItemLayout}
         renderItem={({ item, index }) => (
           <LiveChannelCard
             channel={item}
@@ -550,15 +580,25 @@ export default function ChannelsScreen() {
     [activeChannel, router],
   );
 
-  // Manejar click en tarjeta de canal
+  // Manejar click en tarjeta de canal del catálogo: Abrir directamente el reproductor
   const handleChannelPress = useCallback(
     (ch: Channel) => {
-      if (activeChannel?.id === ch.id) {
-        // Doble click o click en el canal ya activo: ingresar a pantalla completa
-        handleOpenFullscreen(ch);
+      setActiveChannel(ch);
+      router.push({
+        pathname: "/player",
+        params: { channelId: ch.id, channelUrl: ch.url },
+      } as any);
+    },
+    [router, setActiveChannel],
+  );
+
+  // Zapping rápido en la rejilla 2x2 del Hero: primer click sintoniza vista previa, segundo click abre pantalla completa
+  const handleHeroGridPress = useCallback(
+    (item: Channel) => {
+      if (activeChannel?.id === item.id) {
+        handleOpenFullscreen(item);
       } else {
-        // Cambiar canal activo en el Hero
-        setActiveChannel(ch);
+        setActiveChannel(item);
       }
     },
     [activeChannel?.id, handleOpenFullscreen, setActiveChannel],
@@ -625,6 +665,8 @@ export default function ChannelsScreen() {
         style={s.scroll}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        removeClippedSubviews={false}
       >
         {/* ════════════════════════════════════════════════════════════════════
             1. MASTER BROADCAST HERO STAGE (70% Player + 30% 2x2 Quick Grid)
@@ -824,7 +866,7 @@ export default function ChannelsScreen() {
                 return (
                   <Focusable
                     key={item.id}
-                    onPress={() => handleChannelPress(item)}
+                    onPress={() => handleHeroGridPress(item)}
                     scaleFocused={1.06}
                     style={s.gridCard}
                     focusedStyle={[
@@ -1586,6 +1628,29 @@ const s = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  cardPlayOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    borderRadius: scale(8),
+    zIndex: 4,
+  },
+  cardPlayBtn: {
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(18),
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.5,
+    shadowRadius: scale(6),
+    elevation: 6,
   },
   cardBottomInfo: {
     zIndex: 2,
