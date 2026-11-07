@@ -136,13 +136,15 @@ function ChannelPlayer({
   }, [showPanel, triggerOSD]);
 
   const nextChannel = useCallback(() => {
-    if (activeIndex !== -1 && activeIndex < currentList.length - 1)
-      setActiveChannel(currentList[activeIndex + 1]);
+    if (currentList.length === 0) return;
+    const nextIdx = (activeIndex + 1) % currentList.length;
+    setActiveChannel(currentList[nextIdx]);
   }, [activeIndex, currentList, setActiveChannel]);
 
   const prevChannel = useCallback(() => {
-    if (activeIndex > 0)
-      setActiveChannel(currentList[activeIndex - 1]);
+    if (currentList.length === 0) return;
+    const prevIdx = (activeIndex - 1 + currentList.length) % currentList.length;
+    setActiveChannel(currentList[prevIdx]);
   }, [activeIndex, currentList, setActiveChannel]);
 
   const syncLive = () => {
@@ -581,8 +583,8 @@ const s = StyleSheet.create({
     borderColor: 'rgba(217, 119, 6, 0.3)',
   },
   panelItemFocused: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderColor: '#fff',
+    backgroundColor: 'rgba(255,183,3,0.18)',
+    borderColor: C.accent,
     transform: [{ scale: 1.02 }],
   },
   panelItemIcon: {

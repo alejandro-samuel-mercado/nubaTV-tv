@@ -1,165 +1,232 @@
-import Video from "react-native-video";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter, usePathname } from "expo-router";
-import { Heart, List, Maximize2, Search, Tv2, X } from "lucide-react-native";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "expo-router";
 import {
-      FlatList, StyleSheet, Text, TextInput, View,
+  Compass,
+  Film,
+  Globe,
+  Heart,
+  List,
+  Maximize2,
+  Music,
+  Play,
+  Search,
+  SkipBack,
+  SkipForward,
+  Smile,
+  Sparkles,
+  Trophy,
+  Tv,
+  Tv2,
+  X,
+} from "lucide-react-native";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Dimensions,
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
+import Video from "react-native-video";
 import Focusable from "../../components/tv/Focusable";
 import RemoteImage from "../../components/tv/RemoteImage";
 import { Channel, useGlobal } from "../../contexts/GlobalContext";
 import { useSidebarHandle } from "../../hooks/useNavThrottle";
 import { scale } from "../../lib/scale";
 import { C } from "../../lib/tvColors";
-import { AppSettings, contentIsRestricted, loadAppSettings } from "../../utils/appSettings";
+import {
+  AppSettings,
+  contentIsRestricted,
+  loadAppSettings,
+} from "../../utils/appSettings";
 
-const MINI_W = scale(268);
-const MINI_H = Math.round(MINI_W * 9 / 16);
+const { height: SH, width: SW } = Dimensions.get("window");
+
+// ── Altura fija para cada fila de canal (Garantiza scroll 100% fluido en TV) ──
+const ITEM_HEIGHT = scale(62);
+
+const CATEGORY_TRANSLATIONS: Record<string, string> = {
+  Entertainment: "Entretenimiento",
+  News: "Noticias",
+  Sports: "Deportes",
+  Kids: "Infantil",
+  Family: "Familiar",
+  Culture: "Cultura",
+  Education: "Educación",
+  Series: "Series",
+  Comedy: "Comedia",
+  Movies: "Películas",
+  Music: "Música",
+  Lifestyle: "Estilo de Vida",
+  Documentary: "Documentales",
+  Undefined: "General",
+  General: "General",
+  "News;Public": "Noticias",
+  "Kids;Family": "Infantil",
+  Anime: "Anime",
+};
+
+const catOf = (c: Channel) => {
+  const raw = c.category?.name || c.groupTitle || "General";
+  return CATEGORY_TRANSLATIONS[raw] || raw;
+};
+
+const getCategoryIcon = (id: string, label: string) => {
+  if (id === "favorites") return Heart;
+  if (id === "all") return List;
+  switch (label) {
+    case "Deportes":
+      return Trophy;
+    case "Noticias":
+      return Globe;
+    case "Películas":
+      return Film;
+    case "Series":
+      return Tv;
+    case "Entretenimiento":
+    case "Comedia":
+      return Sparkles;
+    case "Infantil":
+    case "Familiar":
+      return Smile;
+    case "Música":
+      return Music;
+    case "Documentales":
+    case "Cultura":
+    case "Educación":
+      return Compass;
+    default:
+      return Tv2;
+  }
+};
 
 type ChannelSettings = Pick<AppSettings, "parentalLock" | "hideRestricted">;
-type SidebarItem = { id: string; label: string };
 
-const PALETTE: [string, string][] = [
-  ["#e11d63", "#8a1c5e"], ["#2fb344", "#c2410c"],
-  ["#2563eb", "#ea7a12"], ["#0e9aa7", "#4338ca"], ["#d97706", "#9a1b1b"],
-];
-const colorsFor = (name?: string): [string, string] => {
-  const h = (name || "General").split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-  return PALETTE[h % PALETTE.length];
-};
-const keyById = (c: Channel) => c.id;
-
-// ── Mini player ──────────────────────────────────────────────────────────────
-const MiniPlayer = memo(function MiniPlayer({
-  channel, onExpand, isActive = true,
-}: { channel: Channel | null; onExpand: () => void; isActive?: boolean }) {
-  const [a, b] = colorsFor(channel?.category?.name);
-  const [error, setError] = useState(false);
-
-  useEffect(() => { setError(false); }, [channel?.url]);
-
+// ── Píldora de Categoría Horizontal ──────────────────────────────────────────
+const CategoryPill = memo(function CategoryPill({
+  id,
+  label,
+  count,
+  isActive,
+  icon: Icon,
+  onSelect,
+}: {
+  id: string;
+  label: string;
+  count?: number;
+  isActive: boolean;
+  icon: any;
+  onSelect: (id: string) => void;
+}) {
   return (
     <Focusable
-      onPress={onExpand}
-      style={s.mini}
-      focusedStyle={s.miniFocused}
-      borderRadius={scale(14)}
-      scaleValue={1.03}
+      onPress={() => onSelect(id)}
+      style={[s.catPill, isActive && s.catPillActive]}
+      focusedStyle={s.catPillFocused}
+      scaleFocused={1.05}
     >
-      {/* Background gradient */}
-      <LinearGradient colors={[a, b]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-
-      {/* Video feed */}
-      {channel && !error && isActive && (
-        <Video
-          source={{ uri: channel.url }}
-          style={StyleSheet.absoluteFill as any}
-          resizeMode="cover"
-          paused={!isActive}
-          muted
-          repeat
-          onError={() => setError(true)}
-        />
-      )}
-
-      {/* Dark overlay + info bar */}
-      <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.82)"]}
-        locations={[0.4, 1]}
-        style={StyleSheet.absoluteFill}
+      <Icon
+        size={scale(13)}
+        color={isActive ? "#000000" : "rgba(255,255,255,0.75)"}
       />
-
-      <View style={s.miniBar}>
-        {channel?.logo ? (
-          <RemoteImage uri={channel.logo} style={s.miniLogo as any} contentFit="contain" />
-        ) : (
-          <Tv2 size={scale(18)} color="#fff" />
-        )}
-        <View style={s.miniText}>
-          <Text style={s.miniName} numberOfLines={1}>{channel?.name ?? "Sin canal"}</Text>
-          {channel && (
-            <View style={s.livePill}>
-              <View style={s.liveDot} />
-              <Text style={s.liveTxt}>EN VIVO</Text>
-            </View>
-          )}
+      <Text style={[s.catPillTxt, isActive && s.catPillTxtActive]} numberOfLines={1}>
+        {label}
+      </Text>
+      {count !== undefined && count > 0 ? (
+        <View style={[s.catCountBadge, isActive && s.catCountBadgeActive]}>
+          <Text style={[s.catCountTxt, isActive && s.catCountTxtActive]}>
+            {count}
+          </Text>
         </View>
-        <Maximize2 size={scale(13)} color="rgba(255,255,255,0.65)" />
-      </View>
-
-      <View style={s.miniHintWrap}>
-        <Text style={s.miniHintTxt}>Pantalla completa</Text>
-      </View>
+      ) : null}
     </Focusable>
   );
 });
 
-// ── Fila de canal ────────────────────────────────────────────────────────────
+// ── Fila de Canal en la Guía (Sin Focusable anidado = Cero bugs de control) ───
 const ChannelRow = memo(function ChannelRow({
-  item, index, isActive, isFav, onOpen, onFocus, onToggleFav, nextFocusLeft, preferFocus,
+  item,
+  index,
+  isActive,
+  isFav,
+  onSelect,
+  onOpenFullscreen,
+  nextFocusLeft,
+  preferFocus,
 }: {
-  item: Channel; index: number; isActive: boolean; isFav: boolean;
-  onOpen: (ch: Channel) => void; onFocus: (ch: Channel) => void;
-  onToggleFav: (id: string) => void; nextFocusLeft?: number; preferFocus?: boolean;
+  item: Channel;
+  index: number;
+  isActive: boolean;
+  isFav: boolean;
+  onSelect: (ch: Channel) => void;
+  onOpenFullscreen: (ch: Channel) => void;
+  nextFocusLeft?: number;
+  preferFocus?: boolean;
 }) {
+  const numStr = index + 1 < 10 ? `0${index + 1}` : `${index + 1}`;
+
   return (
     <Focusable
       hasTVPreferredFocus={preferFocus}
       nextFocusLeft={nextFocusLeft}
-      onFocus={() => onFocus(item)}
-      onPress={() => onOpen(item)}
-      borderRadius={scale(8)}
-      scaleValue={1.02}
+      onPress={() => {
+        if (isActive) {
+          onOpenFullscreen(item);
+        } else {
+          onSelect(item);
+        }
+      }}
       style={[s.chRow, isActive && s.chRowActive]}
       focusedStyle={s.chRowFocused}
+      scaleFocused={1.02}
     >
-      <Text style={[s.chNum, isActive && { color: C.accent }]}>{index + 1}</Text>
+      {/* Número de Canal */}
+      <Text style={[s.chNum, isActive && s.chNumActive]}>{numStr}</Text>
+
+      {/* Logo del Canal en Cápsula Curvada */}
       <View style={[s.chLogoWrap, isActive && s.chLogoWrapActive]}>
         {item.logo ? (
-          <RemoteImage uri={item.logo} style={s.chLogo as any} contentFit="contain" transition={120} />
+          <RemoteImage
+            uri={item.logo}
+            style={s.chLogo as any}
+            contentFit="contain"
+            transition={100}
+          />
         ) : (
-          <Tv2 size={scale(18)} color={isActive ? C.accent : "rgba(255,255,255,0.4)"} />
+          <Tv2
+            size={scale(18)}
+            color={isActive ? C.accent : "rgba(255,255,255,0.4)"}
+          />
         )}
       </View>
+
+      {/* Nombre y Metadatos */}
       <View style={s.chInfo}>
-        <Text style={[s.chName, isActive && { color: C.accent }]} numberOfLines={1}>{item.name}</Text>
-        <Text style={s.chMeta} numberOfLines={1}>{item.category?.name ?? "Sin categoría"}</Text>
+        <Text style={[s.chName, isActive && s.chNameActive]} numberOfLines={1}>
+          {item.name}
+        </Text>
+        <Text style={s.chMeta} numberOfLines={1}>
+          {catOf(item)}
+          {item.country ? ` • ${item.country}` : ""}
+        </Text>
       </View>
+
+      {/* Badge EN VIVO si es el canal activo */}
       {isActive && (
         <View style={s.liveBadge}>
           <View style={s.liveDot} />
           <Text style={s.liveTxt}>EN VIVO</Text>
         </View>
       )}
-      <Focusable onPress={() => onToggleFav(item.id)} style={s.favBtn} focusedStyle={s.favBtnFocused} hitSlop={8} scaleValue={1.12}>
-        <Heart size={scale(14)} color={isFav ? "#e879f9" : "rgba(255,255,255,0.28)"} fill={isFav ? "#e879f9" : "none"} />
-      </Focusable>
-    </Focusable>
-  );
-});
 
-// ── Sidebar item ─────────────────────────────────────────────────────────────
-const SideItem = memo(function SideItem({
-  item, isActive, onSelect,
-}: { item: SidebarItem; isActive: boolean; onSelect: (id: string) => void }) {
-  return (
-    <Focusable
-      onPress={() => onSelect(item.id)}
-      onFocus={() => onSelect(item.id)}
-      borderRadius={scale(6)}
-      scaleValue={1.02}
-      style={[s.sideItem, isActive && s.sideItemActive]}
-      focusedStyle={s.sideItemFocused}
-    >
-      {item.id === "favorites" ? (
-        <Heart size={scale(12)} color={isActive ? C.accent : "rgba(255,255,255,0.4)"} />
-      ) : item.id === "all" ? (
-        <List size={scale(12)} color={isActive ? C.accent : "rgba(255,255,255,0.4)"} />
-      ) : (
-        <View style={[s.sideDot, { backgroundColor: isActive ? C.accent : "rgba(255,255,255,0.22)" }]} />
+      {/* Indicador de Favorito (Puro Icono Visual, Sin interferir en el foco) */}
+      {isFav && (
+        <View style={s.favIndicator}>
+          <Heart size={scale(13)} color="#ff4d80" fill="#ff4d80" />
+        </View>
       )}
-      <Text style={[s.sideLabel, isActive && s.sideLabelActive]} numberOfLines={2}>{item.label}</Text>
     </Focusable>
   );
 });
@@ -168,180 +235,442 @@ export default function ChannelsScreen() {
   const router = useRouter();
   const pathname = usePathname();
   const sidebarHandle = useSidebarHandle();
-  const { channels, activeChannel, setActiveChannel, favorites, toggleFavorite } = useGlobal();
+
+  const {
+    channels,
+    activeChannel,
+    setActiveChannel,
+    favorites,
+    toggleFavorite,
+  } = useGlobal();
 
   const [search, setSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
-  const [playlistSel, setPlaylistSel] = useState("__default__");
-  const [activeSideId, setActiveSideId] = useState("all");
-  const [settings, setSettings] = useState<ChannelSettings>({ parentalLock: false, hideRestricted: true });
-  const searchRef = useRef<TextInput>(null);
+  const [activeCatId, setActiveCatId] = useState("all");
+  const [videoError, setVideoError] = useState(false);
+  const [settings, setSettings] = useState<ChannelSettings>({
+    parentalLock: false,
+    hideRestricted: true,
+  });
 
-  // Timer para debouncear el streaming de video al navegar rápido con control remoto
+  const searchInputRef = useRef<TextInput>(null);
   const channelFocusTimer = useRef<any>(null);
 
+  // Cargar ajustes parentales
   useEffect(() => {
     loadAppSettings().then((saved) =>
-      setSettings({ parentalLock: saved.parentalLock, hideRestricted: saved.hideRestricted })
+      setSettings({
+        parentalLock: saved.parentalLock,
+        hideRestricted: saved.hideRestricted,
+      }),
     );
   }, []);
 
+  // Seleccionar primer canal si no hay activo
+  useEffect(() => {
+    if (!activeChannel && channels.length > 0) {
+      setActiveChannel(channels[0]);
+    }
+  }, [activeChannel, channels, setActiveChannel]);
+
+  // Limpiar timer de debounce al desmontar
   useEffect(() => {
     return () => {
       if (channelFocusTimer.current) {
         clearTimeout(channelFocusTimer.current);
-        channelFocusTimer.current = null;
       }
     };
   }, []);
 
-  const playlistOptions = useMemo(() => {
-    const map = new Map<string, boolean>();
+  // Reset video error on channel change
+  useEffect(() => {
+    setVideoError(false);
+  }, [activeChannel?.url]);
+
+  // Lista de categorías traducidas y únicas
+  const categoriesList = useMemo(() => {
+    const catsSet = new Set<string>();
     channels.forEach((c) => {
-      const name = c.playlist?.name;
-      if (name) map.set(name, (map.get(name) ?? false) || !!c.playlist?.isDefault);
+      catsSet.add(catOf(c));
     });
-    return Array.from(map.entries()).map(([name, isDefault]) => ({ name, isDefault }));
+    const sorted = Array.from(catsSet).sort();
+    return [
+      { id: "all", label: "Todos", icon: List },
+      { id: "favorites", label: "Favoritos", icon: Heart },
+      ...sorted.map((cat) => ({
+        id: `cat:${cat}`,
+        label: cat,
+        icon: getCategoryIcon(`cat:${cat}`, cat),
+      })),
+    ];
   }, [channels]);
-  const hasDefault = playlistOptions.some((p) => p.isDefault);
 
-  const byPlaylist = useMemo(() => {
-    if (playlistSel === "__all__") return channels;
-    if (playlistSel === "__default__")
-      return hasDefault ? channels.filter((c) => c.playlist?.isDefault) : channels;
-    return channels.filter((c) => c.playlist?.name === playlistSel);
-  }, [channels, playlistSel, hasDefault]);
-
-  const sidebarItems = useMemo<SidebarItem[]>(() => {
-    const cats = Array.from(new Set(byPlaylist.map((c) => c.category?.name).filter(Boolean))).sort() as string[];
-    return [{ id: "favorites", label: "Favoritos" }, { id: "all", label: "Todos" },
-      ...cats.map((cat) => ({ id: `cat:${cat}`, label: cat }))];
-  }, [byPlaylist]);
-
-  const filtered = useMemo(() => {
-    let list = byPlaylist;
-    if (activeSideId === "favorites") {
+  // Canales filtrados por categoría, búsqueda y control parental
+  const filteredChannels = useMemo(() => {
+    let list = channels;
+    if (activeCatId === "favorites") {
       const favSet = new Set(favorites);
       list = list.filter((c) => favSet.has(c.id));
-    } else if (activeSideId.startsWith("cat:")) {
-      list = list.filter((c) => c.category?.name === activeSideId.slice(4));
+    } else if (activeCatId.startsWith("cat:")) {
+      const targetCat = activeCatId.slice(4);
+      list = list.filter((c) => catOf(c) === targetCat);
     }
     const q = search.trim().toLowerCase();
-    if (q) list = list.filter((c) => c.name.toLowerCase().includes(q));
-    if (settings.parentalLock || settings.hideRestricted)
-      list = list.filter((c) => !contentIsRestricted((c as any).contentRating));
+    if (q) {
+      list = list.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          catOf(c).toLowerCase().includes(q),
+      );
+    }
+    if (settings.parentalLock || settings.hideRestricted) {
+      list = list.filter(
+        (c) => !contentIsRestricted((c as any).contentRating),
+      );
+    }
     return list;
-  }, [byPlaylist, activeSideId, favorites, search, settings]);
+  }, [channels, activeCatId, favorites, search, settings]);
 
-  const selectPlaylist = useCallback((key: string) => {
-    setPlaylistSel(key); setActiveSideId("all");
-  }, []);
+  const currentIndex = useMemo(
+    () => filteredChannels.findIndex((c) => c.id === activeChannel?.id),
+    [filteredChannels, activeChannel],
+  );
 
-  const openFullscreen = useCallback((ch: Channel) => {
-    if (channelFocusTimer.current) clearTimeout(channelFocusTimer.current);
-    setActiveChannel(ch);
-    router.push({ pathname: "/player", params: { channelId: ch.id, channelUrl: ch.url } } as any);
-  }, [router, setActiveChannel]);
+  // Navegación rápida entre canales (Zapping en directo)
+  const handlePrevChannel = useCallback(() => {
+    if (filteredChannels.length === 0) return;
+    const prevIdx =
+      (currentIndex - 1 + filteredChannels.length) % filteredChannels.length;
+    setActiveChannel(filteredChannels[prevIdx]);
+  }, [currentIndex, filteredChannels, setActiveChannel]);
 
-  // Debounce suave al navegar: la card se enfoca al instante, pero el video en el mini-player
-  // solo arranca si el usuario se detiene 220ms sobre el canal.
-  const handleFocus = useCallback((ch: Channel) => {
-    if (channelFocusTimer.current) clearTimeout(channelFocusTimer.current);
-    channelFocusTimer.current = setTimeout(() => {
-      setActiveChannel(ch);
-    }, 220);
-  }, [setActiveChannel]);
+  const handleNextChannel = useCallback(() => {
+    if (filteredChannels.length === 0) return;
+    const nextIdx = (currentIndex + 1) % filteredChannels.length;
+    setActiveChannel(filteredChannels[nextIdx]);
+  }, [currentIndex, filteredChannels, setActiveChannel]);
+
+  // Abrir reproductor en pantalla completa
+  const openFullscreen = useCallback(
+    (ch?: Channel) => {
+      const target = ch || activeChannel;
+      if (!target) return;
+      if (channelFocusTimer.current) clearTimeout(channelFocusTimer.current);
+      setActiveChannel(target);
+      router.push({
+        pathname: "/player",
+        params: { channelId: target.id, channelUrl: target.url },
+      } as any);
+    },
+    [router, activeChannel, setActiveChannel],
+  );
+
+  // Debounce suave al navegar: la card se enfoca al instante, pero el video
+  // del reproductor arranca si el usuario se detiene 220ms
+  const handleSelectChannel = useCallback(
+    (ch: Channel) => {
+      if (channelFocusTimer.current) clearTimeout(channelFocusTimer.current);
+      channelFocusTimer.current = setTimeout(() => {
+        setActiveChannel(ch);
+      }, 150);
+    },
+    [setActiveChannel],
+  );
 
   const toggleSearch = useCallback(() => {
     const next = !showSearch;
     setShowSearch(next);
-    if (next) setTimeout(() => searchRef.current?.focus(), 150);
-    else setSearch("");
+    if (next) {
+      setTimeout(() => searchInputRef.current?.focus(), 150);
+    } else {
+      setSearch("");
+    }
   }, [showSearch]);
 
   const favSet = useMemo(() => new Set(favorites), [favorites]);
-  const sectionTitle = activeSideId === "all" ? "Todos" : activeSideId === "favorites" ? "Favoritos" : activeSideId.slice(4);
+  const isCurrentFav = activeChannel ? favSet.has(activeChannel.id) : false;
+  const isPageActive = pathname.includes("channels");
+
+  // FlatList getItemLayout para scroll matemático exacto y sin saltos
+  const getItemLayout = useCallback(
+    (_: any, index: number) => ({
+      length: ITEM_HEIGHT,
+      offset: ITEM_HEIGHT * index,
+      index,
+    }),
+    [],
+  );
 
   return (
     <View style={s.root}>
-      {/* ── LEFT: mini player + playlist chips + category sidebar ── */}
+      {/* ── COLUMNA IZQUIERDA: EL GRAN ESCENARIO EN VIVO (LIVE CINEMA STAGE) ── */}
       <View style={s.leftCol}>
-        <MiniPlayer channel={activeChannel} isActive={pathname.includes("channels")} onExpand={() => activeChannel && openFullscreen(activeChannel)} />
+        {/* Gran Reproductor 16:9 con Halo y Bordes Curvados */}
+        <Focusable
+          onPress={() => activeChannel && openFullscreen(activeChannel)}
+          style={s.stagePlayerWrap}
+          focusedStyle={s.stagePlayerWrapFocused}
+          scaleFocused={1.02}
+          nextFocusLeft={sidebarHandle ?? undefined}
+        >
+          {/* Halo de luz ambiental */}
+          <View style={s.playerGlowAura} pointerEvents="none" />
 
-        {/* Playlist chips */}
-        {playlistOptions.length > 0 && (
-          <FlatList
-            horizontal showsHorizontalScrollIndicator={false}
-            data={[{ key: "__default__", label: hasDefault ? "Por defecto" : "Todas" },
-              { key: "__all__", label: "Todas las listas" },
-              ...playlistOptions.map((p) => ({ key: p.name, label: p.name }))]}
-            keyExtractor={(o) => o.key}
-            style={s.plStrip}
-            contentContainerStyle={s.plContent}
-            renderItem={({ item: o }) => {
-              const on = playlistSel === o.key;
-              return (
-                <Focusable onPress={() => selectPlaylist(o.key)}
-                  style={[s.plChip, on && s.plChipOn]} focusedStyle={s.plChipFocused}>
-                  <Text style={[s.plChipTxt, on && s.plChipTxtOn]} numberOfLines={1}>{o.label}</Text>
-                </Focusable>
-              );
-            }}
-          />
-        )}
+          <View style={s.playerFrame}>
+            {/* Video en tiempo real */}
+            {activeChannel && !videoError && isPageActive ? (
+              <Video
+                source={{ uri: activeChannel.url }}
+                style={StyleSheet.absoluteFill as any}
+                resizeMode="cover"
+                paused={!isPageActive}
+                muted
+                repeat
+                onError={() => setVideoError(true)}
+              />
+            ) : (
+              <LinearGradient
+                colors={["#1c172e", "#0a0814"]}
+                style={StyleSheet.absoluteFill}
+              />
+            )}
 
-        {/* Category sidebar */}
-        <FlatList
-          data={sidebarItems} keyExtractor={(i) => i.id}
-          showsVerticalScrollIndicator={false} style={s.sidebar}
-          contentContainerStyle={s.sidebarContent}
-          renderItem={({ item }) => (
-            <SideItem item={item} isActive={activeSideId === item.id} onSelect={setActiveSideId} />
-          )}
-        />
-      </View>
+            {/* Degradado y Viñeta Cinematográfica */}
+            <LinearGradient
+              colors={["rgba(0,0,0,0.4)", "transparent", "rgba(0,0,0,0.85)"]}
+              locations={[0, 0.45, 1]}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
 
-      {/* ── RIGHT: header + channel list ── */}
-      <View style={s.rightCol}>
-        <View style={s.header}>
-          <View style={s.headerLeft}>
-            <Text style={s.headerTitle}>{sectionTitle}</Text>
-            <Text style={s.headerCount}>{filtered.length} canales</Text>
-          </View>
-          {showSearch && (
-            <View style={s.searchWrap}>
-              <Search size={scale(14)} color="rgba(255,255,255,0.5)" />
-              <TextInput ref={searchRef} style={s.searchInput}
-                placeholder="Buscar canal..." placeholderTextColor="rgba(255,255,255,0.3)"
-                value={search} onChangeText={setSearch} autoCorrect={false} />
-              {search.length > 0 && (
-                <Focusable onPress={() => setSearch("")} hitSlop={8}>
-                  <X size={scale(13)} color="rgba(255,255,255,0.5)" />
-                </Focusable>
+            {/* Barra Superior del Video: EN VIVO + Categoría */}
+            <View style={s.playerTopBar}>
+              <View style={s.liveChip}>
+                <View style={s.liveDot} />
+                <Text style={s.liveChipTxt}>EN VIVO</Text>
+              </View>
+              {activeChannel && (
+                <View style={s.catBadge}>
+                  <Text style={s.catBadgeTxt}>{catOf(activeChannel)}</Text>
+                </View>
               )}
             </View>
-          )}
-          <Focusable onPress={toggleSearch} style={s.iconBtn} focusedStyle={s.iconBtnFocused}>
-            {showSearch ? <X size={scale(17)} color="#fff" /> : <Search size={scale(17)} color="#fff" />}
-          </Focusable>
+
+            {/* Aviso de Pantalla Completa al enfocar */}
+            <View style={s.playerHint}>
+              <Maximize2 size={scale(14)} color="#ffffff" />
+              <Text style={s.playerHintTxt}>PANTALLA COMPLETA [ OK ]</Text>
+            </View>
+          </View>
+        </Focusable>
+
+        {/* ── CONSOLA DE IDENTIDAD Y CONTROLES DEL CANAL EN VIVO ── */}
+        <View style={s.liveDeck}>
+          {/* Identidad del canal */}
+          <View style={s.deckIdentity}>
+            <View style={s.deckLogoWrap}>
+              {activeChannel?.logo ? (
+                <RemoteImage
+                  uri={activeChannel.logo}
+                  style={s.deckLogo as any}
+                  contentFit="contain"
+                  transition={120}
+                />
+              ) : (
+                <Tv2 size={scale(24)} color={C.accent} />
+              )}
+            </View>
+            <View style={s.deckInfo}>
+              <Text style={s.deckTitle} numberOfLines={1}>
+                {activeChannel?.name || "Selecciona un canal"}
+              </Text>
+              <Text style={s.deckMeta} numberOfLines={1}>
+                {activeChannel
+                  ? [
+                      catOf(activeChannel),
+                      activeChannel.country || "Internacional",
+                      activeChannel.language || "Español",
+                      "1080p Full HD",
+                    ]
+                      .filter(Boolean)
+                      .join(" • ")
+                  : "Explora la grilla de canales en vivo"}
+              </Text>
+            </View>
+          </View>
+
+          {/* Botones de Control del Reproductor */}
+          <View style={s.deckButtons}>
+            {/* Botón Principal Pantalla Completa */}
+            <Focusable
+              onPress={() => activeChannel && openFullscreen(activeChannel)}
+              style={s.btnPrimaryFullscreen}
+              focusedStyle={s.btnPrimaryFullscreenFocused}
+              scaleFocused={1.05}
+              nextFocusLeft={sidebarHandle ?? undefined}
+            >
+              <Maximize2 size={scale(15)} color="#000000" />
+              <Text style={s.btnPrimaryFullscreenTxt}>Pantalla Completa</Text>
+            </Focusable>
+
+            {/* Canal Anterior */}
+            <Focusable
+              onPress={handlePrevChannel}
+              style={s.btnControl}
+              focusedStyle={s.btnControlFocused}
+              scaleFocused={1.06}
+            >
+              <SkipBack size={scale(16)} color="#ffffff" />
+            </Focusable>
+
+            {/* Canal Siguiente */}
+            <Focusable
+              onPress={handleNextChannel}
+              style={s.btnControl}
+              focusedStyle={s.btnControlFocused}
+              scaleFocused={1.06}
+            >
+              <SkipForward size={scale(16)} color="#ffffff" />
+            </Focusable>
+
+            {/* Favorito */}
+            <Focusable
+              onPress={() => activeChannel && toggleFavorite(activeChannel.id)}
+              style={[s.btnControl, isCurrentFav && s.btnControlFavActive]}
+              focusedStyle={s.btnControlFocused}
+              scaleFocused={1.06}
+            >
+              <Heart
+                size={scale(16)}
+                color={isCurrentFav ? "#ff4d80" : "#ffffff"}
+                fill={isCurrentFav ? "#ff4d80" : "none"}
+              />
+            </Focusable>
+          </View>
+
+          {/* Atajos de Control Remoto de TV */}
+          <View style={s.consoleHints}>
+            <Text style={s.consoleHintItem}>
+              <Text style={s.consoleHintKey}>[ OK ]</Text> Ver canal
+            </Text>
+            <Text style={s.consoleHintSep}>•</Text>
+            <Text style={s.consoleHintItem}>
+              <Text style={s.consoleHintKey}>[ ◄ ► ]</Text> Cambiar de panel
+            </Text>
+            <Text style={s.consoleHintSep}>•</Text>
+            <Text style={s.consoleHintItem}>
+              <Text style={s.consoleHintKey}>[ ▲ ▼ ]</Text> Navegar
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* ── COLUMNA DERECHA: LA GUÍA INTERACTIVA DE CANALES (CHANNEL GUIDE) ── */}
+      <View style={s.rightCol}>
+        {/* Cabecera de la Guía */}
+        <View style={s.guideHeader}>
+          <View style={s.guideTitleGroup}>
+            <Text style={s.guideTitle}>Guía de Canales</Text>
+            <View style={s.guideCountBadge}>
+              <Text style={s.guideCountTxt}>{filteredChannels.length}</Text>
+            </View>
+          </View>
+
+          {/* Buscador Integrado */}
+          <View style={s.searchBarContainer}>
+            {showSearch ? (
+              <View style={s.searchInputWrap}>
+                <Search size={scale(13)} color="rgba(255,255,255,0.5)" />
+                <TextInput
+                  ref={searchInputRef}
+                  style={s.searchInput}
+                  placeholder="Buscar canal..."
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  value={search}
+                  onChangeText={setSearch}
+                  autoCorrect={false}
+                />
+                {search.length > 0 && (
+                  <Focusable onPress={() => setSearch("")} style={s.searchClear}>
+                    <X size={scale(12)} color="rgba(255,255,255,0.7)" />
+                  </Focusable>
+                )}
+              </View>
+            ) : null}
+
+            <Focusable
+              onPress={toggleSearch}
+              style={s.btnSearchToggle}
+              focusedStyle={s.btnSearchToggleFocused}
+              scaleFocused={1.06}
+            >
+              {showSearch ? (
+                <X size={scale(15)} color="#ffffff" />
+              ) : (
+                <Search size={scale(15)} color="#ffffff" />
+              )}
+            </Focusable>
+          </View>
         </View>
 
+        {/* Cinta Horizontal de Categorías con Iconos */}
+        <View style={s.categoriesBar}>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={categoriesList}
+            keyExtractor={(c) => c.id}
+            contentContainerStyle={s.categoriesTrack}
+            renderItem={({ item }) => (
+              <CategoryPill
+                id={item.id}
+                label={item.label}
+                count={
+                  item.id === "all"
+                    ? channels.length
+                    : item.id === "favorites"
+                    ? favorites.length
+                    : undefined
+                }
+                isActive={activeCatId === item.id}
+                icon={item.icon}
+                onSelect={setActiveCatId}
+              />
+            )}
+          />
+        </View>
+
+        {/* Lista de Canales (Scroll Optimizado con Altura Fija) */}
         <FlatList
-          data={filtered} keyExtractor={keyById} style={s.list}
-          contentContainerStyle={s.listContent}
+          data={filteredChannels}
+          keyExtractor={(c) => c.id}
+          style={s.channelList}
+          contentContainerStyle={s.channelListContent}
           showsVerticalScrollIndicator={false}
-          initialNumToRender={16} maxToRenderPerBatch={12} windowSize={7}
+          getItemLayout={getItemLayout}
+          initialNumToRender={14}
+          maxToRenderPerBatch={10}
+          windowSize={7}
           renderItem={({ item, index }) => (
-            <ChannelRow item={item} index={index}
-              isActive={activeChannel?.id === item.id} isFav={favSet.has(item.id)}
-              onOpen={openFullscreen} onFocus={handleFocus} onToggleFav={toggleFavorite}
-              nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
+            <ChannelRow
+              item={item}
+              index={index}
+              isActive={activeChannel?.id === item.id}
+              isFav={favSet.has(item.id)}
+              onSelect={handleSelectChannel}
+              onOpenFullscreen={openFullscreen}
+              nextFocusLeft={sidebarHandle ?? undefined}
               preferFocus={index === 0}
             />
           )}
           ListEmptyComponent={
-            <View style={s.empty}>
-              <Text style={s.emptyTxt}>{activeSideId === "favorites" ? "Sin favoritos" : "Sin canales"}</Text>
+            <View style={s.emptyGuide}>
+              <Tv2 size={scale(36)} color="rgba(255,255,255,0.2)" />
+              <Text style={s.emptyGuideTxt}>
+                {activeCatId === "favorites"
+                  ? "No tienes canales en favoritos"
+                  : "No se encontraron canales"}
+              </Text>
             </View>
           }
         />
@@ -351,132 +680,471 @@ export default function ChannelsScreen() {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#0e0e10", flexDirection: "row", paddingLeft: scale(72) },
+  root: {
+    flex: 1,
+    backgroundColor: "#07070a",
+    flexDirection: "row",
+    paddingLeft: scale(68),
+    paddingRight: scale(36),
+    paddingTop: scale(24),
+    paddingBottom: scale(20),
+    gap: scale(32),
+  },
 
-  // Left column
+  // ── COLUMNA IZQUIERDA: EL GRAN ESCENARIO EN VIVO ───────────────────────────
   leftCol: {
-    width: MINI_W + scale(24),
-    borderRightWidth: 1,
-    borderRightColor: "rgba(255,255,255,0.07)",
-    paddingTop: scale(14),
+    flex: 1.15,
+    justifyContent: "space-between",
+  },
+  stagePlayerWrap: {
+    position: "relative",
+    width: "100%",
+    aspectRatio: 16 / 9,
+    borderRadius: scale(22),
+  },
+  stagePlayerWrapFocused: {
+    transform: [{ scale: 1.02 }],
+  },
+  playerGlowAura: {
+    position: "absolute",
+    top: scale(-8),
+    left: scale(-8),
+    right: scale(-8),
+    bottom: scale(-8),
+    borderRadius: scale(28),
+    backgroundColor: C.accent,
+    opacity: 0.22,
+    shadowColor: C.accent,
+    shadowRadius: scale(32),
+    shadowOpacity: 0.85,
+  },
+  playerFrame: {
+    width: "100%",
+    height: "100%",
+    borderRadius: scale(22),
+    overflow: "hidden",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.18)",
+    backgroundColor: "#0b0914",
+    elevation: 14,
+  },
+  playerTopBar: {
+    position: "absolute",
+    top: scale(14),
+    left: scale(14),
+    right: scale(14),
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  liveChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(5),
+    backgroundColor: "rgba(0, 0, 0, 0.75)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 77, 128, 0.4)",
+    paddingHorizontal: scale(9),
+    paddingVertical: scale(4),
+    borderRadius: scale(20),
+  },
+  liveDot: {
+    width: scale(6),
+    height: scale(6),
+    borderRadius: scale(3),
+    backgroundColor: "#ff4d80",
+  },
+  liveChipTxt: {
+    color: "#ff4d80",
+    fontSize: scale(10),
+    fontWeight: "900",
+    letterSpacing: 0.6,
+  },
+  catBadge: {
+    backgroundColor: "rgba(0, 0, 0, 0.75)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 183, 3, 0.4)",
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(4),
+    borderRadius: scale(20),
+  },
+  catBadgeTxt: {
+    color: C.accent,
+    fontSize: scale(10.5),
+    fontWeight: "800",
+  },
+  playerHint: {
+    position: "absolute",
+    bottom: scale(14),
+    right: scale(14),
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(6),
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(5),
+    borderRadius: scale(8),
+  },
+  playerHintTxt: {
+    color: "#ffffff",
+    fontSize: scale(10),
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+
+  // ── LIVE DECK: CONSOLA DE IDENTIDAD Y CONTROLES ───────────────────────────
+  liveDeck: {
+    marginTop: scale(16),
+    backgroundColor: "rgba(14, 12, 22, 0.65)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderRadius: scale(22),
+    padding: scale(18),
+  },
+  deckIdentity: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(14),
+    marginBottom: scale(16),
+  },
+  deckLogoWrap: {
+    width: scale(58),
+    height: scale(58),
+    borderRadius: scale(16),
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.14)",
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  deckLogo: {
+    width: "80%",
+    height: "80%",
+  },
+  deckInfo: {
+    flex: 1,
+  },
+  deckTitle: {
+    color: "#ffffff",
+    fontSize: scale(21),
+    fontWeight: "900",
+    letterSpacing: -0.3,
+    marginBottom: scale(2),
+  },
+  deckMeta: {
+    color: "rgba(255, 255, 255, 0.55)",
+    fontSize: scale(12),
+    fontWeight: "600",
+  },
+  deckButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(10),
+    marginBottom: scale(14),
+  },
+  btnPrimaryFullscreen: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: scale(8),
+    backgroundColor: C.accent,
+    height: scale(44),
+    borderRadius: scale(22),
+  },
+  btnPrimaryFullscreenFocused: {
+    backgroundColor: "#ffffff",
+    transform: [{ scale: 1.04 }],
+    shadowColor: "#ffffff",
+    shadowRadius: scale(12),
+    shadowOpacity: 0.6,
+  },
+  btnPrimaryFullscreenTxt: {
+    color: "#000000",
+    fontSize: scale(13.5),
+    fontWeight: "900",
+  },
+  btnControl: {
+    width: scale(44),
+    height: scale(44),
+    borderRadius: scale(22),
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.16)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  btnControlFavActive: {
+    backgroundColor: "rgba(255, 77, 128, 0.15)",
+    borderColor: "#ff4d80",
+  },
+  btnControlFocused: {
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
+    borderColor: "#ffffff",
+  },
+  consoleHints: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(8),
+    paddingTop: scale(10),
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.06)",
+  },
+  consoleHintItem: {
+    color: "rgba(255, 255, 255, 0.4)",
+    fontSize: scale(10.5),
+    fontWeight: "600",
+  },
+  consoleHintKey: {
+    color: C.accent,
+    fontWeight: "800",
+  },
+  consoleHintSep: {
+    color: "rgba(255, 255, 255, 0.2)",
+    fontSize: scale(10),
+  },
+
+  // ── COLUMNA DERECHA: LA GUÍA INTERACTIVA DE CANALES ────────────────────────
+  rightCol: {
+    flex: 1,
+  },
+  guideHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: scale(12),
+  },
+  guideTitleGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(10),
+  },
+  guideTitle: {
+    color: "#ffffff",
+    fontSize: scale(20),
+    fontWeight: "900",
+    letterSpacing: -0.2,
+  },
+  guideCountBadge: {
+    backgroundColor: "rgba(255, 183, 3, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 183, 3, 0.35)",
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(2),
+    borderRadius: scale(10),
+  },
+  guideCountTxt: {
+    color: C.accent,
+    fontSize: scale(11),
+    fontWeight: "900",
+  },
+  searchBarContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(8),
+  },
+  searchInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(6),
+    width: scale(190),
+    height: scale(36),
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.15)",
+    borderRadius: scale(18),
     paddingHorizontal: scale(10),
   },
-
-  // Mini player
-  mini: {
-    width: "100%", height: MINI_H,
-    borderRadius: scale(14), overflow: "hidden",
-    backgroundColor: "#1a1a1c",
-    marginBottom: scale(10),
+  searchInput: {
+    flex: 1,
+    color: "#ffffff",
+    fontSize: scale(12),
+    paddingVertical: 0,
   },
-  miniFocused: { backgroundColor: "rgba(255,255,255,0.15)" },
-  miniBar: {
-    position: "absolute", left: 0, right: 0, bottom: 0,
-    flexDirection: "row", alignItems: "center",
-    paddingHorizontal: scale(10), paddingBottom: scale(8), gap: scale(8),
+  searchClear: {
+    padding: scale(4),
   },
-  miniLogo: { width: scale(30), height: scale(22) },
-  miniText: { flex: 1 },
-  miniName: { color: "#fff", fontSize: scale(12), fontWeight: "700" },
-  miniHintWrap: {
-    position: "absolute", top: scale(7), right: scale(8),
-    backgroundColor: "rgba(0,0,0,0.55)",
-    paddingHorizontal: scale(7), paddingVertical: scale(3),
-    borderRadius: scale(6),
-  },
-  miniHintTxt: { color: "rgba(255,255,255,0.65)", fontSize: scale(9), fontWeight: "600" },
-
-  // Shared live indicator
-  livePill: { flexDirection: "row", alignItems: "center", gap: scale(4), marginTop: scale(2) },
-  liveDot: { width: scale(5), height: scale(5), borderRadius: 99, backgroundColor: C.live },
-  liveTxt: { color: C.live, fontSize: scale(9), fontWeight: "800", letterSpacing: 0.5 },
-
-  // Playlist chips
-  plStrip: { flexGrow: 0, height: scale(42), marginBottom: scale(6) },
-  plContent: { alignItems: "center", gap: scale(6), height: scale(42) },
-  plChip: {
-    height: scale(28), paddingHorizontal: scale(11), borderRadius: 99,
+  btnSearchToggle: {
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(18),
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.15)",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.07)",
+    alignItems: "center",
   },
-  plChipOn: { backgroundColor: C.accent },
-  plChipFocused: { backgroundColor: "rgba(255,255,255,0.22)" },
-  plChipTxt: { color: "rgba(255,255,255,0.6)", fontSize: scale(11), fontWeight: "700", maxWidth: scale(130) },
-  plChipTxtOn: { color: "#000" },
+  btnSearchToggleFocused: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
 
-  // Sidebar categories
-  sidebar: { flex: 1 },
-  sidebarContent: { paddingBottom: scale(20) },
-  sideItem: {
-    flexDirection: "row", alignItems: "center", gap: scale(8),
-    paddingHorizontal: scale(10), paddingVertical: scale(10),
-    borderRadius: scale(6), marginBottom: scale(2),
-    borderLeftWidth: 6, borderLeftColor: "transparent",
+  // ── BARRA HORIZONTAL DE CATEGORÍAS ─────────────────────────────────────────
+  categoriesBar: {
+    marginBottom: scale(12),
   },
-  sideItemActive: { backgroundColor: "rgba(255,255,255,0.07)" },
-  sideItemFocused: { borderLeftColor: C.accent, backgroundColor: "rgba(255,255,255,0.08)" },
-  sideDot: { width: scale(5), height: scale(5), borderRadius: 99, marginHorizontal: scale(3) },
-  sideLabel: { flex: 1, fontSize: scale(12), fontWeight: "600", color: "rgba(255,255,255,0.45)" },
-  sideLabelActive: { color: C.accent },
+  categoriesTrack: {
+    gap: scale(8),
+    paddingRight: scale(20),
+  },
+  catPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(6),
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(6),
+    borderRadius: scale(18),
+  },
+  catPillActive: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+  catPillFocused: {
+    borderColor: "#ffffff",
+    backgroundColor: "rgba(255, 255, 255, 0.22)",
+  },
+  catPillTxt: {
+    color: "rgba(255, 255, 255, 0.8)",
+    fontSize: scale(11.5),
+    fontWeight: "700",
+  },
+  catPillTxtActive: {
+    color: "#000000",
+    fontWeight: "900",
+  },
+  catCountBadge: {
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    paddingHorizontal: scale(6),
+    paddingVertical: scale(1.5),
+    borderRadius: scale(8),
+  },
+  catCountBadgeActive: {
+    backgroundColor: "#000000",
+  },
+  catCountTxt: {
+    color: "#ffffff",
+    fontSize: scale(9.5),
+    fontWeight: "800",
+  },
+  catCountTxtActive: {
+    color: C.accent,
+    fontWeight: "900",
+  },
 
-  // Right column
-  rightCol: { flex: 1 },
-  header: {
-    flexDirection: "row", alignItems: "center", gap: scale(10),
-    paddingHorizontal: scale(16), paddingVertical: scale(12),
-    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)",
+  // ── LISTA DE CANALES CON ALTURA FIJA ────────────────────────────────────────
+  channelList: {
+    flex: 1,
   },
-  headerLeft: { flex: 1 },
-  headerTitle: { fontSize: scale(18), fontWeight: "800", color: "#fff" },
-  headerCount: { fontSize: scale(11), color: "rgba(255,255,255,0.38)", fontWeight: "600", marginTop: scale(2) },
-  searchWrap: {
-    flexDirection: "row", alignItems: "center", gap: scale(8),
-    width: scale(230), height: scale(36), paddingHorizontal: scale(12),
-    borderRadius: scale(10), backgroundColor: "rgba(255,255,255,0.07)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+  channelListContent: {
+    paddingBottom: scale(24),
+    gap: scale(6),
   },
-  searchInput: { flex: 1, color: "#fff", fontSize: scale(13), paddingVertical: 0 },
-  iconBtn: {
-    width: scale(36), height: scale(36), borderRadius: scale(10),
-    alignItems: "center", justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.07)",
-  },
-  iconBtnFocused: { backgroundColor: "rgba(255,255,255,0.2)" },
-
-  // Channel list
-  list: { flex: 1 },
-  listContent: { paddingBottom: scale(30), paddingVertical: scale(4) },
   chRow: {
-    flexDirection: "row", alignItems: "center",
-    paddingHorizontal: scale(14), paddingVertical: scale(10),
-    gap: scale(10), marginHorizontal: scale(6), marginBottom: scale(2),
-    borderRadius: scale(8),
-    borderLeftWidth: 3, borderLeftColor: "transparent",
+    height: ITEM_HEIGHT,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: scale(12),
+    gap: scale(10),
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.06)",
+    borderRadius: scale(14),
   },
-  chRowActive: { backgroundColor: "rgba(255,183,3,0.06)" },
-  chRowFocused: { borderLeftColor: C.accent, backgroundColor: "rgba(255,255,255,0.06)" },
-  chNum: { width: scale(26), textAlign: "center", fontSize: scale(13), fontWeight: "800", color: "rgba(255,255,255,0.28)" },
+  chRowActive: {
+    backgroundColor: "rgba(255, 183, 3, 0.1)",
+    borderColor: "rgba(255, 183, 3, 0.4)",
+  },
+  chRowFocused: {
+    borderColor: C.accent,
+    backgroundColor: "rgba(255, 183, 3, 0.22)",
+    shadowColor: C.accent,
+    shadowRadius: scale(10),
+    shadowOpacity: 0.6,
+  },
+  chNum: {
+    width: scale(26),
+    textAlign: "center",
+    fontSize: scale(12),
+    fontWeight: "800",
+    color: "rgba(255, 255, 255, 0.35)",
+    fontVariant: ["tabular-nums"],
+  },
+  chNumActive: {
+    color: C.accent,
+    fontWeight: "900",
+  },
   chLogoWrap: {
-    width: scale(48), height: scale(48), borderRadius: scale(10),
-    alignItems: "center", justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", overflow: "hidden",
+    width: scale(40),
+    height: scale(40),
+    borderRadius: scale(10),
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
   },
-  chLogoWrapActive: { backgroundColor: "rgba(255,183,3,0.08)" },
-  chLogo: { width: "85%", height: "85%" },
-  chInfo: { flex: 1 },
-  chName: { fontSize: scale(13), fontWeight: "700", color: "#fff" },
-  chMeta: { fontSize: scale(11), color: "rgba(255,255,255,0.38)", marginTop: scale(2) },
+  chLogoWrapActive: {
+    backgroundColor: "rgba(255, 183, 3, 0.12)",
+    borderColor: C.accent,
+  },
+  chLogo: {
+    width: "85%",
+    height: "85%",
+  },
+  chInfo: {
+    flex: 1,
+  },
+  chName: {
+    color: "#ffffff",
+    fontSize: scale(13.5),
+    fontWeight: "700",
+    marginBottom: scale(2),
+  },
+  chNameActive: {
+    color: C.accent,
+    fontWeight: "900",
+  },
+  chMeta: {
+    color: "rgba(255, 255, 255, 0.45)",
+    fontSize: scale(11),
+    fontWeight: "500",
+  },
   liveBadge: {
-    flexDirection: "row", alignItems: "center", gap: scale(4),
-    backgroundColor: "rgba(255,255,255,0.07)",
-    paddingHorizontal: scale(7), height: scale(22), borderRadius: 99,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(4),
+    backgroundColor: "rgba(255, 77, 128, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 77, 128, 0.35)",
+    paddingHorizontal: scale(7),
+    paddingVertical: scale(2.5),
+    borderRadius: scale(12),
   },
-  favBtn: {
-    width: scale(32), height: scale(32), alignItems: "center", justifyContent: "center",
-    borderRadius: scale(8),
+  liveTxt: {
+    color: "#ff4d80",
+    fontSize: scale(9.5),
+    fontWeight: "800",
+    letterSpacing: 0.5,
   },
-  favBtnFocused: { backgroundColor: "rgba(232,121,249,0.12)" },
-  empty: { flex: 1, alignItems: "center", paddingTop: scale(60) },
-  emptyTxt: { color: "rgba(255,255,255,0.28)", fontSize: scale(14), fontWeight: "600" },
+  favIndicator: {
+    paddingHorizontal: scale(4),
+  },
+  emptyGuide: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: scale(60),
+    gap: scale(10),
+  },
+  emptyGuideTxt: {
+    color: "rgba(255, 255, 255, 0.3)",
+    fontSize: scale(13.5),
+    fontWeight: "600",
+  },
 });
