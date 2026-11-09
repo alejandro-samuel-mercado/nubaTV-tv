@@ -29,9 +29,10 @@ const CARD_GAP = scale(14);
 const CONTENT_LEFT_PAD = scale(112);
 const HERO_CONTAINER_H = Math.max(scale(620), Math.round(SH * 0.88));
 
-// Cards del selector de portadas dentro del Hero (reducido sutilmente y uniforme)
-const HS_CARD_W = scale(170);
-const HS_CARD_H = scale(110);
+// Cards del selector de portadas dentro del Hero (diseño original dinámico: vertical inactivo, horizontal expandido activo 16:9)
+const HS_CARD_W = scale(115);
+const HS_CARD_ACTIVE_W = scale(268);
+const HS_CARD_H = scale(150);
 
 // Cards de secciones
 const TREND_W = scale(220);
@@ -189,6 +190,7 @@ const HeroSelector = memo(function HeroSelector({
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.heroSelectorTrack}
+        style={{ overflow: "visible" }}
         onScrollToIndexFailed={(info) => {
           listRef.current?.scrollToOffset({
             offset: info.averageItemLength * info.index,
@@ -200,6 +202,7 @@ const HeroSelector = memo(function HeroSelector({
           const bgImg = isActive
             ? item.backdropUrl || item.posterUrl
             : item.posterUrl || item.backdropUrl;
+          const isWidePosterFallback = isActive && !item.backdropUrl && !!item.posterUrl;
 
           return (
             <Focusable
@@ -207,30 +210,60 @@ const HeroSelector = memo(function HeroSelector({
               onPress={() => onSelectHero(index, item, true)}
               nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
               trapFocusRight={index === items.length - 1}
-              scaleFocused={1.02}
+              scaleFocused={1.03}
               style={[s.hsCard, isActive && s.hsCardActive]}
               focusedStyle={s.hsCardFocused}
             >
-              <RemoteImage
-                uri={bgImg}
-                style={StyleSheet.absoluteFill as any}
-                contentFit="cover"
-                transition={180}
-              />
-              <LinearGradient
-                colors={["transparent", "rgba(0,0,0,0.88)"]}
-                style={StyleSheet.absoluteFill}
-              />
-              <View style={s.hsCardInfo}>
-                <Text style={s.hsCardTitle} numberOfLines={1}>
-                  {item.title.toUpperCase()}
-                </Text>
-                <Text style={s.hsCardSub} numberOfLines={1}>
-                  {item.genres?.[0]?.name || item.type}
-                  {item.releaseYear ? ` • ${item.releaseYear}` : ""}
-                  {item.rating ? ` • ★ ${item.rating.toFixed(1)}` : ""}
-                </Text>
-              </View>
+              {isWidePosterFallback ? (
+                <>
+                  <RemoteImage
+                    uri={item.posterUrl}
+                    style={StyleSheet.absoluteFill as any}
+                    contentFit="cover"
+                    blurRadius={16}
+                    transition={180}
+                  />
+                  <RemoteImage
+                    uri={item.posterUrl}
+                    style={StyleSheet.absoluteFill as any}
+                    contentFit="contain"
+                    contentPosition="center"
+                    transition={180}
+                  />
+                </>
+              ) : (
+                <RemoteImage
+                  uri={bgImg}
+                  style={StyleSheet.absoluteFill as any}
+                  contentFit="cover"
+                  contentPosition="center"
+                  transition={180}
+                />
+              )}
+              {isActive ? (
+                <>
+                  <LinearGradient
+                    colors={["transparent", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.92)"]}
+                    locations={[0, 0.45, 1]}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  <View style={s.hsCardInfo}>
+                    <Text style={s.hsCardTitle} numberOfLines={1}>
+                      {item.title.toUpperCase()}
+                    </Text>
+                    <Text style={s.hsCardSub} numberOfLines={1}>
+                      {item.genres?.[0]?.name || item.type}
+                      {item.releaseYear ? ` • ${item.releaseYear}` : ""}
+                      {item.rating ? ` • ★ ${item.rating.toFixed(1)}` : ""}
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <LinearGradient
+                  colors={["transparent", "rgba(0,0,0,0.25)"]}
+                  style={StyleSheet.absoluteFill}
+                />
+              )}
             </Focusable>
           );
         }}
@@ -281,6 +314,7 @@ const TrendingRow = memo(function TrendingRow({
               uri={item.backdropUrl || item.posterUrl}
               style={StyleSheet.absoluteFill as any}
               contentFit="cover"
+              contentPosition="center"
               transition={150}
             />
             <LinearGradient
@@ -859,7 +893,7 @@ const s = StyleSheet.create({
 
   // ── Hero Container ──
   heroContainer: {
-    paddingTop: scale(88),
+    paddingTop: scale(114),
     paddingBottom: scale(6),
   },
   heroTopRow: {
@@ -1016,24 +1050,33 @@ const s = StyleSheet.create({
   heroSelectorTrack: {
     paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
-    paddingVertical: scale(14),
+    paddingVertical: scale(12),
     gap: CARD_GAP,
-    alignItems: "center",
+    alignItems: "flex-end",
   },
   hsCard: {
     width: HS_CARD_W,
     height: HS_CARD_H,
-    borderRadius: scale(10),
+    borderRadius: scale(12),
     overflow: "hidden",
     backgroundColor: "#161616",
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.08)",
   },
   hsCardActive: {
+    width: HS_CARD_ACTIVE_W,
     borderColor: C.accent,
+    shadowColor: C.accent,
+    shadowOpacity: 0.45,
+    shadowRadius: scale(8),
+    elevation: 8,
   },
   hsCardFocused: {
     borderColor: "#ffffff",
+    shadowColor: "#ffffff",
+    shadowOpacity: 0.5,
+    shadowRadius: scale(8),
+    elevation: 10,
     zIndex: 10,
   },
   hsCardInfo: {
