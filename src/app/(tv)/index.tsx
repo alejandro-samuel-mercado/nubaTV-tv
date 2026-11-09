@@ -123,7 +123,7 @@ const HeroSelector = memo(function HeroSelector({
               onPress={() => onSelectHero(index, item, true)}
               nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
               trapFocusRight={index === items.length - 1}
-              scaleFocused={1.06}
+              scaleFocused={1.02}
               style={[
                 s.hsCard,
                 isActive && s.hsCardActive,
@@ -233,7 +233,6 @@ const HeroInfo = memo(function HeroInfo({
           hasTVPreferredFocus
           onPress={() => onPlay(item)}
           nextFocusLeft={sidebarHandle ?? undefined}
-          scaleFocused={1.05}
           style={s.btnPlay}
           focusedStyle={s.btnPlayFocused}
         >
@@ -244,7 +243,6 @@ const HeroInfo = memo(function HeroInfo({
         {onDetails ? (
           <Focusable
             onPress={() => onDetails(item)}
-            scaleFocused={1.05}
             style={s.btnDetails}
             focusedStyle={s.btnDetailsFocused}
           >
@@ -288,7 +286,7 @@ const TrendingRow = memo(function TrendingRow({
             onPress={() => onPress(item)}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
             trapFocusRight={!onViewAll && index === items.length - 1}
-            scaleFocused={1.06}
+            scaleFocused={1.02}
             style={s.trendCard}
             focusedStyle={s.trendCardActiveBorder}
           >
@@ -426,7 +424,7 @@ const ContinueWatchingRow = memo(function ContinueWatchingRow({
             onPress={() => onPress(item)}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
             trapFocusRight={index === items.length - 1}
-            scaleFocused={1.06}
+            scaleFocused={1.02}
             style={s.continueCard}
             focusedStyle={s.continueCardFocused}
           >
@@ -881,7 +879,8 @@ const s = StyleSheet.create({
   heroSelectorWrapper: {
     marginTop: scale(6),
     marginBottom: scale(10),
-    paddingTop: scale(2),
+    paddingTop: scale(10),
+    overflow: "visible",
   },
   heroSelectorHeading: {
     fontSize: scale(12),
@@ -894,9 +893,9 @@ const s = StyleSheet.create({
   heroSelectorTrack: {
     paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
-    paddingVertical: scale(6),
+    paddingVertical: scale(14),
     gap: CARD_GAP,
-    alignItems: "flex-end",
+    alignItems: "center",
   },
   hsCard: {
     width: HS_CARD_W,
@@ -944,7 +943,7 @@ const s = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: scale(22),
+    height: scale(12),
     zIndex: 20,
   },
   bottomSectorBottomFade: {
@@ -1023,7 +1022,7 @@ const s = StyleSheet.create({
   rowTrack: {
     paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
-    paddingVertical: scale(6),
+    paddingVertical: scale(14),
     gap: CARD_GAP,
   },
 

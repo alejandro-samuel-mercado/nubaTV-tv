@@ -39,7 +39,7 @@ function PosterCard({
       nextFocusRight={nextFocusRight}
       trapFocusRight={trapFocusRight}
       hasTVPreferredFocus={hasTVPreferredFocus}
-      scaleFocused={1.06}
+      scaleFocused={1.02}
       style={[s.outer, { width, height }]}
       focusedStyle={s.outerFocused}
     >

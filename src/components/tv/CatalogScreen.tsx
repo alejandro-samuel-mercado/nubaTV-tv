@@ -207,7 +207,7 @@ const HeroSelector = memo(function HeroSelector({
               onPress={() => onSelectHero(index, item, true)}
               nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
               trapFocusRight={index === items.length - 1}
-              scaleFocused={1.06}
+              scaleFocused={1.02}
               style={[s.hsCard, isActive && s.hsCardActive]}
               focusedStyle={s.hsCardFocused}
             >
@@ -273,7 +273,7 @@ const TrendingRow = memo(function TrendingRow({
             onPress={() => onPress(item)}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
             trapFocusRight={!onViewAll && index === items.length - 1}
-            scaleFocused={1.06}
+            scaleFocused={1.02}
             style={s.trendCard}
             focusedStyle={s.trendCardActiveBorder}
           >
@@ -682,7 +682,6 @@ export default function CatalogScreen({
                     hasTVPreferredFocus
                     onPress={() => handlePlay(activeHero)}
                     nextFocusLeft={sidebarHandle ?? undefined}
-                    scaleFocused={1.05}
                     style={s.btnPlay}
                     focusedStyle={s.btnPlayFocused}
                   >
@@ -692,7 +691,6 @@ export default function CatalogScreen({
 
                   <Focusable
                     onPress={() => handleDetails(activeHero)}
-                    scaleFocused={1.05}
                     style={s.btnDetails}
                     focusedStyle={s.btnDetailsFocused}
                   >
@@ -1014,14 +1012,15 @@ const s = StyleSheet.create({
   // ── Hero Selector (Cards inferiores dentro del Hero) ──
   heroSelectorWrapper: {
     marginTop: scale(10),
-    paddingTop: scale(4),
+    paddingTop: scale(10),
+    overflow: "visible",
   },
   heroSelectorTrack: {
     paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
-    paddingVertical: scale(6),
+    paddingVertical: scale(14),
     gap: CARD_GAP,
-    alignItems: "flex-end",
+    alignItems: "center",
   },
   hsCard: {
     width: HS_CARD_W,
@@ -1092,7 +1091,7 @@ const s = StyleSheet.create({
   rowTrack: {
     paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
-    paddingVertical: scale(6),
+    paddingVertical: scale(14),
     gap: CARD_GAP,
   },
 

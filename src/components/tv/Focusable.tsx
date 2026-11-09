@@ -72,10 +72,10 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
     onFocus,
     onBlur,
     disabled,
-    animateScale = true,
-    scaleValue = 1.05,
+    animateScale = false,
+    scaleValue = 1.02,
     scaleFocused,
-    showFocusRing,
+    showFocusRing = false,
     focusRingColor,
     focusBorderWidth = scale(2.5),
     borderRadius,
@@ -92,6 +92,7 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
 
   React.useImperativeHandle(ref, () => innerRef.current);
 
+  const isScaleEnabled = animateScale || scaleFocused !== undefined;
   const targetScale = scaleFocused ?? scaleValue;
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -136,7 +137,7 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
     // Animación suave y ágil de escala (60/120fps nativos)
     Animated.parallel([
       Animated.timing(scaleAnim, {
-        toValue: animateScale ? targetScale : 1,
+        toValue: isScaleEnabled ? targetScale : 1,
         duration: 130,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
@@ -209,21 +210,21 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
     flatFocused.borderColor ??
     C.accent;
 
-  // Si no se especificó showFocusRing, solo se muestra si NO hay focusedStyle explícito
+  // Solo se muestra focusRing si se solicita explícitamente (default: false)
   // para evitar duplicar bordes o sobreponer cuadros molestos en elementos estilizados
-  const shouldShowFocusRing = showFocusRing ?? !focusedStyle;
+  const shouldShowFocusRing = showFocusRing === true;
 
   // Combinar transforms existentes evitando duplicar scale
   const baseTransforms = Array.isArray(flatStyle.transform)
-    ? flatStyle.transform.filter((t: any) => !animateScale || typeof t?.scale !== "number")
+    ? flatStyle.transform.filter((t: any) => !isScaleEnabled || typeof t?.scale !== "number")
     : [];
   const focusedTransforms = (focused && Array.isArray(flatFocused.transform))
-    ? flatFocused.transform.filter((t: any) => !animateScale || typeof t?.scale !== "number")
+    ? flatFocused.transform.filter((t: any) => !isScaleEnabled || typeof t?.scale !== "number")
     : [];
   const combinedTransforms = [
     ...baseTransforms,
     ...focusedTransforms,
-    ...(animateScale ? [{ scale: scaleAnim }] : []),
+    ...(isScaleEnabled ? [{ scale: scaleAnim }] : []),
   ];
 
   const resolvedNextFocusRight =

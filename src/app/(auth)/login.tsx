@@ -15,6 +15,7 @@ import {
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -221,6 +222,47 @@ export default function LoginScreen() {
 
   const userInputRef = useRef<TextInput>(null);
   const passInputRef = useRef<TextInput>(null);
+  const cardShift = useRef(new Animated.Value(0)).current;
+
+  // Elevar la tarjeta cuando un input esté enfocado o el teclado de la TV aparezca,
+  // garantizando que el campo de contraseña quede siempre visible en la mitad superior
+  const isInputActive = userFocused || passFocused;
+  useEffect(() => {
+    Animated.timing(cardShift, {
+      toValue: isInputActive ? -scale(115) : 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [isInputActive, cardShift]);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === "android" ? "keyboardDidShow" : "keyboardWillShow",
+      () => {
+        Animated.timing(cardShift, {
+          toValue: -scale(115),
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "android" ? "keyboardDidHide" : "keyboardWillHide",
+      () => {
+        if (!userFocused && !passFocused) {
+          Animated.timing(cardShift, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }).start();
+        }
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [cardShift, userFocused, passFocused]);
 
   const handleLogin = useCallback(async () => {
     if (loading) return;
@@ -300,7 +342,7 @@ export default function LoginScreen() {
         style={s.centerWrap}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={s.card}>
+        <Animated.View style={[s.card, { transform: [{ translateY: cardShift }] }]}>
           {/* Línea superior luminosa estilo nubaTV-web */}
           <LinearGradient
             colors={["transparent", "#ffb703", "#ff5500", "#ff4d80", "transparent"]}
@@ -348,7 +390,10 @@ export default function LoginScreen() {
                   onPress={() => userInputRef.current?.focus()}
                   onFocus={() => setUserFocused(true)}
                   onBlur={() => setUserFocused(false)}
+                  animateScale={false}
+                  showFocusRing={false}
                   style={[s.inputRow, userFocused && s.inputRowFocused]}
+                  focusedStyle={s.inputRowFocused}
                 >
                   <UserIcon
                     size={scale(16)}
@@ -375,12 +420,15 @@ export default function LoginScreen() {
               {/* Campo Contraseña */}
               <View style={s.fieldGroup}>
                 <Text style={s.fieldLabel}>CONTRASEÑA</Text>
-                <View style={[s.inputRow, passFocused && s.inputRowFocused]}>
+                <View style={s.passContainer}>
                   <Focusable
                     onPress={() => passInputRef.current?.focus()}
                     onFocus={() => setPassFocused(true)}
                     onBlur={() => setPassFocused(false)}
-                    style={s.passInputFlex}
+                    animateScale={false}
+                    showFocusRing={false}
+                    style={[s.passInputRow, passFocused && s.inputRowFocused]}
+                    focusedStyle={s.inputRowFocused}
                   >
                     <Lock
                       size={scale(16)}
@@ -405,6 +453,8 @@ export default function LoginScreen() {
 
                   <Focusable
                     onPress={toggleShowPass}
+                    animateScale={false}
+                    showFocusRing={false}
                     style={s.eyeBtn}
                     focusedStyle={s.eyeBtnFocused}
                     hitSlop={8}
@@ -430,6 +480,8 @@ export default function LoginScreen() {
               <Focusable
                 onPress={handleLogin}
                 disabled={loading}
+                animateScale={false}
+                showFocusRing={false}
                 style={[s.ctaWrap, loading && s.ctaDisabled]}
                 focusedStyle={s.ctaWrapFocused}
               >
@@ -460,7 +512,7 @@ export default function LoginScreen() {
               </Focusable>
             </View>
           </View>
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </View>
   );
@@ -736,20 +788,30 @@ const s = StyleSheet.create({
     height: scale(46),
     paddingHorizontal: scale(14),
     borderRadius: scale(13),
-    backgroundColor: "#191922",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.11)",
+    backgroundColor: "#16161f",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.12)",
   },
   inputRowFocused: {
-    backgroundColor: "#211f1c",
+    backgroundColor: "#1f1d19",
     borderColor: C.accent,
   },
-  passInputFlex: {
+  passContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(8),
+  },
+  passInputRow: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: scale(10),
-    height: "100%",
+    height: scale(46),
+    paddingHorizontal: scale(14),
+    borderRadius: scale(13),
+    backgroundColor: "#16161f",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.12)",
   },
   textInput: {
     flex: 1,
@@ -761,14 +823,14 @@ const s = StyleSheet.create({
     ...webInputReset,
   },
   eyeBtn: {
-    width: scale(30),
-    height: scale(30),
-    borderRadius: scale(8),
+    width: scale(46),
+    height: scale(46),
+    borderRadius: scale(13),
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1.5,
-    borderColor: "transparent",
+    borderColor: "rgba(255,255,255,0.12)",
   },
   eyeBtnFocused: {
     backgroundColor: C.accent,

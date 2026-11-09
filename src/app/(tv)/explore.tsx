@@ -22,7 +22,9 @@ import {
 import {
   ActivityIndicator,
   Dimensions,
+  findNodeHandle,
   FlatList,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -104,19 +106,22 @@ const TYPE_LABEL_MAP: Record<string, string> = {
 const VodCard = memo(function VodCard({
   item,
   onPress,
+  nextFocusLeft,
   trapFocusRight,
 }: {
   item: NexoContentItem;
   onPress: (item: NexoContentItem) => void;
+  nextFocusLeft?: number;
   trapFocusRight?: boolean;
 }) {
   return (
     <Focusable
       onPress={() => onPress(item)}
+      nextFocusLeft={nextFocusLeft}
       trapFocusRight={trapFocusRight}
       style={s.vodCard}
       focusedStyle={s.vodCardFocused}
-      scaleFocused={1.05}
+      scaleFocused={1.02}
     >
       <RemoteImage
         uri={item.posterUrl || item.backdropUrl}
@@ -176,6 +181,24 @@ export default function ExploreTvScreen() {
   const [appliedQuery, setAppliedQuery] = useState(initialQuery);
   const [searchFocused, setSearchFocused] = useState(false);
   const searchRef = useRef<TextInput>(null);
+  const firstFilterRef = useRef<any>(null);
+  const [firstFilterHandle, setFirstFilterHandle] = useState<number | null>(null);
+
+  const updateFirstFilterHandle = useCallback(() => {
+    if (Platform.OS === "web") return;
+    if (firstFilterRef.current) {
+      const h = findNodeHandle(firstFilterRef.current);
+      if (typeof h === "number" && h > 0) {
+        setFirstFilterHandle(h);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    updateFirstFilterHandle();
+    const t = setTimeout(updateFirstFilterHandle, 120);
+    return () => clearTimeout(t);
+  }, [updateFirstFilterHandle, filtersOpen]);
 
   // Filtros
   const [contentType, setContentType] = useState<ContentType>(initialType);
@@ -312,6 +335,7 @@ export default function ExploreTvScreen() {
 
           {/* Buscador grande y legible */}
           <Focusable
+            ref={firstFilterRef}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => setSearchFocused(false)}
             style={[s.sideSearchBox, searchFocused && s.sideSearchBoxFocused]}
@@ -328,6 +352,7 @@ export default function ExploreTvScreen() {
               onSubmitEditing={submitSearch}
               onFocus={() => setSearchFocused(true)}
               onBlur={() => setSearchFocused(false)}
+              {...({ nextFocusLeft: sidebarHandle ?? undefined } as any)}
               placeholder="Buscar películas, series..."
               placeholderTextColor={
                 searchFocused ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.4)"
@@ -358,7 +383,7 @@ export default function ExploreTvScreen() {
               onPress={clearAllFilters}
               style={s.clearBtn}
               focusedStyle={s.clearBtnFocused}
-              nextFocusLeft={sidebarHandle ?? undefined}
+              {...({ nextFocusLeft: sidebarHandle ?? undefined } as any)}
             >
               <X size={scale(13)} color={C.accent} />
               <Text style={s.clearBtnTxt}>Limpiar todos los filtros</Text>
@@ -371,7 +396,7 @@ export default function ExploreTvScreen() {
             <Text style={s.sideSectionTitle}>TIPO DE CONTENIDO</Text>
           </View>
           <View style={s.typeGrid}>
-            {TYPE_ITEMS.map((t) => {
+            {TYPE_ITEMS.map((t, idx) => {
               const isSelected = contentType === t.value;
               const Icon = t.icon;
               return (
@@ -380,7 +405,7 @@ export default function ExploreTvScreen() {
                   onPress={() => setContentType(t.value)}
                   style={[s.typeChip, isSelected && s.typeChipActive]}
                   focusedStyle={s.typeChipFocused}
-                  nextFocusLeft={sidebarHandle ?? undefined}
+                  nextFocusLeft={idx % 3 === 0 ? (sidebarHandle ?? undefined) : undefined}
                 >
                   <Icon
                     size={scale(14)}
@@ -408,7 +433,7 @@ export default function ExploreTvScreen() {
             <Text style={s.sideSectionTitle}>ORDENAR POR</Text>
           </View>
           <View style={s.sortRow}>
-            {SORT_OPTS.map((opt) => {
+            {SORT_OPTS.map((opt, idx) => {
               const isSelected = sort === opt.value;
               const Icon = opt.icon;
               return (
@@ -417,7 +442,7 @@ export default function ExploreTvScreen() {
                   onPress={() => setSort(opt.value)}
                   style={[s.sortChip, isSelected && s.sortChipActive]}
                   focusedStyle={s.sortChipFocused}
-                  nextFocusLeft={sidebarHandle ?? undefined}
+                  nextFocusLeft={idx === 0 ? (sidebarHandle ?? undefined) : undefined}
                 >
                   <Icon
                     size={scale(13)}
@@ -445,7 +470,7 @@ export default function ExploreTvScreen() {
             <Text style={s.sideSectionTitle}>GÉNERO</Text>
           </View>
           <View style={s.genreGrid2Cols}>
-            {GENRES.map((g) => {
+            {GENRES.map((g, idx) => {
               const isSelected =
                 g.value === "" ? genre === "" : genre === g.value;
               return (
@@ -457,7 +482,7 @@ export default function ExploreTvScreen() {
                     isSelected && s.genreChip2Active,
                   ]}
                   focusedStyle={s.genreChip2Focused}
-                  nextFocusLeft={sidebarHandle ?? undefined}
+                  nextFocusLeft={idx % 2 === 0 ? (sidebarHandle ?? undefined) : undefined}
                 >
                   <Text
                     style={[
@@ -511,15 +536,22 @@ export default function ExploreTvScreen() {
             windowSize={6}
             onEndReached={loadMore}
             onEndReachedThreshold={0.4}
-            renderItem={({ item, index }) => (
-              <View style={s.cardWrapper}>
-                <VodCard
-                  item={item}
-                  onPress={handleVodPress}
-                  trapFocusRight={index % cols === cols - 1 || index === items.length - 1}
-                />
-              </View>
-            )}
+            renderItem={({ item, index }) => {
+              const isCol0 = index % cols === 0;
+              const leftHandle = isCol0
+                ? (filtersOpen ? (firstFilterHandle ?? sidebarHandle ?? undefined) : (sidebarHandle ?? undefined))
+                : undefined;
+              return (
+                <View style={s.cardWrapper}>
+                  <VodCard
+                    item={item}
+                    onPress={handleVodPress}
+                    nextFocusLeft={leftHandle}
+                    trapFocusRight={index % cols === cols - 1 || index === items.length - 1}
+                  />
+                </View>
+              );
+            }}
             ListFooterComponent={
               hasMore && loading ? (
                 <View style={s.footer}>

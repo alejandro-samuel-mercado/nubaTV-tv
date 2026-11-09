@@ -201,7 +201,6 @@ const FilterPill = memo(function FilterPill({
       onPress={onPress}
       nextFocusLeft={nextFocusLeft}
       trapFocusRight={trapFocusRight}
-      scaleFocused={1.05}
       style={[
         s.filterPill,
         isActive && {
@@ -279,7 +278,7 @@ const LiveChannelCard = memo(function LiveChannelCard({
       onPress={handlePress}
       nextFocusLeft={nextFocusLeft}
       trapFocusRight={trapFocusRight}
-      scaleFocused={1.06}
+      scaleFocused={1.02}
       style={[
         s.channelCard,
         isActive && {
@@ -827,7 +826,6 @@ export default function ChannelsScreen() {
                     hasTVPreferredFocus
                     onPress={() => handleOpenFullscreen()}
                     nextFocusLeft={sidebarHandle ?? undefined}
-                    scaleFocused={1.06}
                     style={[s.btnFullscreen, { backgroundColor: activeTheme.color }]}
                     focusedStyle={s.btnFullscreenFocused}
                   >
@@ -837,7 +835,6 @@ export default function ChannelsScreen() {
 
                   <Focusable
                     onPress={handleToggleFav}
-                    scaleFocused={1.06}
                     style={[
                       s.btnHeroSecondary,
                       isCurrentFav && {
@@ -862,7 +859,6 @@ export default function ChannelsScreen() {
 
                   <Focusable
                     onPress={handlePrevChannel}
-                    scaleFocused={1.06}
                     style={s.btnHeroIcon}
                     focusedStyle={s.btnHeroIconFocused}
                   >
@@ -871,7 +867,6 @@ export default function ChannelsScreen() {
 
                   <Focusable
                     onPress={handleNextChannel}
-                    scaleFocused={1.06}
                     style={s.btnHeroIcon}
                     focusedStyle={s.btnHeroIconFocused}
                   >
@@ -890,7 +885,7 @@ export default function ChannelsScreen() {
                     key={item.id}
                     onPress={() => handleHeroGridPress(item)}
                     trapFocusRight={idx % 2 === 1}
-                    scaleFocused={1.06}
+                    scaleFocused={1.02}
                     style={s.gridCard}
                     focusedStyle={[
                       s.gridCardFocused,
@@ -1550,7 +1545,7 @@ const s = StyleSheet.create({
   rowTrack: {
     flexDirection: "row",
     gap: CARD_GAP,
-    paddingVertical: scale(6),
+    paddingVertical: scale(14),
   },
 
   // ── Tarjeta de Canal Individual ──

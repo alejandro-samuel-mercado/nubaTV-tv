@@ -7,12 +7,14 @@ import { searchContent, NexoContentItem } from '../../services/nexoplay';
 import { LinearGradient } from 'expo-linear-gradient';
 import PosterCard from '../../components/tv/PosterCard';
 import { Search as SearchIcon } from 'lucide-react-native';
+import { useSidebarHandle } from '../../hooks/useNavThrottle';
 
 const CARD_W = scale(130);
 const CARD_H = scale(185);
 
 export default function SearchScreen() {
   const router = useRouter();
+  const sidebarHandle = useSidebarHandle();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NexoContentItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -34,6 +36,7 @@ export default function SearchScreen() {
           placeholder="Buscar peliculas, series, canales..."
           placeholderTextColor={C.textMuted}
           value={query}
+          {...({ nextFocusLeft: sidebarHandle ?? undefined } as any)}
           onChangeText={q => { setQuery(q); doSearch(q); }}
           autoFocus
         />
@@ -52,6 +55,7 @@ export default function SearchScreen() {
               item={item}
               width={CARD_W}
               height={CARD_H}
+              nextFocusLeft={index % 7 === 0 ? sidebarHandle ?? undefined : undefined}
               trapFocusRight={index % 7 === 6 || index === results.length - 1}
               onPressItem={(it) => router.push({ pathname: '/detail', params: { slug: it.slug } } as any)}
             />
@@ -71,7 +75,7 @@ export default function SearchScreen() {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#080808' },
+  root: { flex: 1, backgroundColor: '#080808', paddingLeft: scale(64) },
   searchBar: {
     flexDirection: 'row', alignItems: 'center', gap: scale(12),
     margin: scale(32), backgroundColor: 'rgba(255,255,255,0.07)',

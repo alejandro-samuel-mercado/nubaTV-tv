@@ -85,7 +85,7 @@ const CurvedPosterCard = memo(function CurvedPosterCard({
       onPress={() => onPress(item)}
       style={s.card}
       focusedStyle={[s.cardFocused, { borderColor: accentColor, shadowColor: accentColor }]}
-      scaleFocused={1.06}
+      scaleFocused={1.02}
     >
       <RemoteImage
         uri={item.posterUrl || item.backdropUrl}
@@ -125,7 +125,7 @@ const CastAvatarCard = memo(function CastAvatarCard({ actor }: { actor: any }) {
     <Focusable
       style={s.castCard}
       focusedStyle={s.castCardFocused}
-      scaleFocused={1.08}
+      scaleFocused={1.02}
     >
       <View style={s.castAvatarRing}>
         {photo ? (
@@ -167,7 +167,7 @@ const EpisodeCard = memo(function EpisodeCard({
       onPress={() => onPlay(ep.id)}
       style={s.epCard}
       focusedStyle={s.epCardFocused}
-      scaleFocused={1.04}
+      scaleFocused={1.02}
     >
       <View style={s.epThumbWrap}>
         <RemoteImage
@@ -620,7 +620,6 @@ export default function DetailScreen() {
                 onPress={() => play(isSeries ? firstEpisode?.id : undefined)}
                 style={s.btnPlay}
                 focusedStyle={s.btnPlayFocused}
-                scaleFocused={1.05}
                 nextFocusLeft={sidebarHandle ?? undefined}
               >
                 <Play size={scale(16)} color="#000" fill="#000" />
@@ -635,7 +634,6 @@ export default function DetailScreen() {
                   onPress={handleTrailer}
                   style={s.btnTrailer}
                   focusedStyle={s.btnTrailerFocused}
-                  scaleFocused={1.05}
                 >
                   <MonitorPlay size={scale(16)} color="#ffffff" />
                   <Text style={s.btnTrailerTxt}>Tráiler</Text>
@@ -647,7 +645,6 @@ export default function DetailScreen() {
                 onPress={toggleFavorite}
                 style={[s.btnIcon, inMyList && s.btnIconActive]}
                 focusedStyle={s.btnIconFocused}
-                scaleFocused={1.06}
               >
                 <Heart
                   size={scale(18)}
@@ -1550,6 +1547,7 @@ const s = StyleSheet.create({
   // ── FILAS DE CONTENIDO (CARRUSELES) ────────────────────────────────────────
   rowTrack: {
     gap: CARD_GAP,
+    paddingVertical: scale(14),
     paddingRight: scale(36),
   },
   card: {

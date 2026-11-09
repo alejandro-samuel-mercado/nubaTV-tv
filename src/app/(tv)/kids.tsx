@@ -105,7 +105,7 @@ const KidsCard = memo(function KidsCard({
       trapFocusRight={trapFocusRight}
       style={s.card}
       focusedStyle={[s.cardFocused, { borderColor: accentColor }]}
-      scaleFocused={1.06}
+      scaleFocused={1.02}
     >
       <RemoteImage
         uri={item.posterUrl || item.backdropUrl}
@@ -449,7 +449,6 @@ export default function KidsScreen() {
                     hasTVPreferredFocus
                     onPress={() => handlePlay(activeHero)}
                     nextFocusLeft={sidebarHandle ?? undefined}
-                    scaleFocused={1.06}
                     style={s.btnPlay}
                     focusedStyle={s.btnPlayFocused}
                   >
@@ -459,7 +458,6 @@ export default function KidsScreen() {
 
                   <Focusable
                     onPress={() => handleOpenDetail(activeHero)}
-                    scaleFocused={1.06}
                     style={s.btnDetail}
                     focusedStyle={s.btnDetailFocused}
                   >
@@ -478,7 +476,7 @@ export default function KidsScreen() {
                     key={item.id || idx}
                     onPress={() => handleOpenDetail(item)}
                     trapFocusRight={idx % 2 === 1}
-                    scaleFocused={1.06}
+                    scaleFocused={1.02}
                     style={s.gridCard}
                     focusedStyle={s.gridCardFocused}
                   >
@@ -896,7 +894,7 @@ const s = StyleSheet.create({
     marginLeft: scale(12),
   },
   rowTrack: {
-    paddingVertical: scale(6),
+    paddingVertical: scale(14),
     gap: CARD_GAP,
   },
 

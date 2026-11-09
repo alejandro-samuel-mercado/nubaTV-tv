@@ -11,7 +11,7 @@ import {
       Tv,
 } from "lucide-react-native";
 
-import { forwardRef, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
 
 import {
       ActivityIndicator,
@@ -32,6 +32,7 @@ import { C } from "../../lib/tvColors";
 
 const TVFocusGuide: any =
   (require("react-native") as any).TVFocusGuideView ?? View;
+const TVPressable = Pressable as any;
 
 // usePathname() devuelve la ruta sin el grupo "(tv)".
 const routeToPath = (route: string) =>
@@ -92,11 +93,25 @@ const SidebarButton = forwardRef<
     item: (typeof NAV_ITEMS)[0];
     isActive: boolean;
     isExpanded: boolean;
+    nextFocusUp?: number;
+    nextFocusDown?: number;
+    nextFocusLeft?: number;
+    nextFocusRight?: number;
     onItemFocus?: (key: string) => void;
     onItemBlur?: (key: string) => void;
   }
 >(function SidebarButton(
-  { item, isActive, isExpanded, onItemFocus, onItemBlur },
+  {
+    item,
+    isActive,
+    isExpanded,
+    nextFocusUp,
+    nextFocusDown,
+    nextFocusLeft,
+    nextFocusRight,
+    onItemFocus,
+    onItemBlur,
+  },
   ref,
 ) {
   const router = useRouter();
@@ -114,13 +129,17 @@ const SidebarButton = forwardRef<
   };
 
   return (
-    <Pressable
+    <TVPressable
       ref={ref}
       focusable
       accessibilityRole="button"
       accessibilityLabel={item.label}
       onFocus={handleFocus}
       onBlur={handleBlur}
+      nextFocusUp={nextFocusUp}
+      nextFocusDown={nextFocusDown}
+      nextFocusLeft={nextFocusLeft}
+      nextFocusRight={nextFocusRight}
       // replace: no apila pantallas y el botón Atrás no recorre el menú.
       onPress={() => {
         if (!isActive) router.replace(item.route as any);
@@ -182,7 +201,7 @@ const SidebarButton = forwardRef<
           ]}
         />
       )}
-    </Pressable>
+    </TVPressable>
   );
 });
 
@@ -201,34 +220,50 @@ export default function TVLayout() {
   const sidebarBg = useRef(new Animated.Value(0)).current;
 
   const navRefs = useRef<Record<string, any>>({});
+  const [navHandles, setNavHandles] = useState<Record<string, number>>({});
 
   const isSidebarExpanded = focusedSidebarKey !== null;
 
-  // Registra el nodo del ítem activo para recuperar el foco
-  // al volver desde el contenido hacia la barra lateral.
-  useEffect(() => {
+  // Actualiza y registra los handles de los botones del sidebar para
+  // atrapar la navegación dentro de la barra y vincular el foco desde el contenido
+  const updateHandles = useCallback(() => {
     if (Platform.OS === "web") return;
+    const handles: Record<string, number> = {};
+    for (const item of NAV_ITEMS) {
+      const node = navRefs.current[item.key];
+      if (node) {
+        const h = findNodeHandle(node);
+        if (typeof h === "number" && h > 0) {
+          handles[item.key] = h;
+        }
+      }
+    }
+    setNavHandles(handles);
 
     const active = NAV_ITEMS.find((item) => {
       const path = routeToPath(item.route);
       return pathname === path || pathname === `${path}/`;
     });
+    const targetKey = focusedSidebarKey ?? active?.key ?? NAV_ITEMS[0].key;
+    const handle = handles[targetKey];
+    if (handle) {
+      setGlobalSidebarNodeHandle(handle);
+    }
+  }, [pathname, focusedSidebarKey]);
 
-    const timeout = setTimeout(() => {
-      try {
-        const ref =
-          navRefs.current[active?.key ?? NAV_ITEMS[0].key];
+  useEffect(() => {
+    updateHandles();
+    const t = setTimeout(updateHandles, 80);
+    return () => clearTimeout(t);
+  }, [updateHandles, isSidebarExpanded]);
 
-        setGlobalSidebarNodeHandle(
-          ref ? findNodeHandle(ref) : null,
-        );
-      } catch {}
-    }, 350);
+  const handleItemFocus = useCallback((key: string) => {
+    setFocusedSidebarKey(key);
+    const h = navHandles[key];
+    if (h) setGlobalSidebarNodeHandle(h);
+  }, [navHandles]);
 
-    return () => clearTimeout(timeout);
-  }, [pathname]);
-
-  // Se conservan las animaciones originales de ancho y fondo.
+  // Se conservan las animaciones de ancho y fondo.
   useEffect(() => {
     Animated.parallel([
       Animated.timing(sidebarWidth, {
@@ -246,11 +281,12 @@ export default function TVLayout() {
     ]).start();
   }, [isSidebarExpanded, sidebarWidth, sidebarBg]);
 
+  // Barra lateral más oscura y un 10% menos traslúcida (rica, nítida y sólida)
   const bgColor = sidebarBg.interpolate({
     inputRange: [0, 1],
     outputRange: [
-      "rgba(8, 8, 8, 0.03)",
-      "rgba(8, 8, 8, 0.84)",
+      "rgba(6, 6, 8, 0.65)",
+      "rgba(6, 6, 8, 0.94)",
     ],
   });
 
@@ -313,25 +349,33 @@ export default function TVLayout() {
           </View>
 
           <TVFocusGuide style={s.navList}>
-            {NAV_ITEMS.map((item) => (
-              <SidebarButton
-                key={item.key}
-                ref={(node: any) => {
-                  navRefs.current[item.key] = node;
-                }}
-                item={item}
-                isActive={getIsActive(item)}
-                isExpanded={isSidebarExpanded}
-                onItemFocus={(key) =>
-                  setFocusedSidebarKey(key)
-                }
-                onItemBlur={(key) =>
-                  setFocusedSidebarKey((current) =>
-                    current === key ? null : current,
-                  )
-                }
-              />
-            ))}
+            {NAV_ITEMS.map((item, i) => {
+              const selfHandle = navHandles[item.key];
+              const upHandle = i > 0 ? navHandles[NAV_ITEMS[i - 1].key] : selfHandle;
+              const downHandle =
+                i < NAV_ITEMS.length - 1 ? navHandles[NAV_ITEMS[i + 1].key] : selfHandle;
+
+              return (
+                <SidebarButton
+                  key={item.key}
+                  ref={(node: any) => {
+                    navRefs.current[item.key] = node;
+                  }}
+                  item={item}
+                  isActive={getIsActive(item)}
+                  isExpanded={isSidebarExpanded}
+                  nextFocusUp={upHandle ?? selfHandle}
+                  nextFocusDown={downHandle ?? selfHandle}
+                  nextFocusLeft={selfHandle}
+                  onItemFocus={handleItemFocus}
+                  onItemBlur={(key) =>
+                    setFocusedSidebarKey((current) =>
+                      current === key ? null : current,
+                    )
+                  }
+                />
+              );
+            })}
           </TVFocusGuide>
         </Animated.View>
       )}
