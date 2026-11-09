@@ -1,37 +1,69 @@
-import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { View, Text, ActivityIndicator, BackHandler, Platform, StyleSheet, Pressable, ScrollView, FlatList, Image, TextInput, KeyboardAvoidingView } from 'react-native';
-import Video, { VideoRef } from 'react-native-video';
-import { useGlobal, API_URL, Channel } from '../contexts/GlobalContext';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import VodPlayer from '../components/tv/VodPlayer';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import {
+  ArrowLeft,
+  Check,
+  Clapperboard,
+  Clock,
+  Compass,
+  Film,
+  Globe,
+  Heart,
+  Languages,
+  List,
+  MapPin,
+  Maximize2,
+  Minimize,
+  Music,
+  Pause,
+  Play,
+  Radio,
+  RotateCcw,
+  Search,
+  SkipBack,
+  SkipForward,
+  Smile,
+  Sparkles,
+  Star,
+  Trophy,
+  Tv,
+  Volume1,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Animated,
+  BackHandler,
+  Dimensions,
+  findNodeHandle,
+  FlatList,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import Video, { VideoRef } from 'react-native-video';
+import Focusable from '../components/tv/Focusable';
+import RemoteImage from '../components/tv/RemoteImage';
+import VodPlayer from '../components/tv/VodPlayer';
+import WebPlayer from '../components/tv/WebPlayer';
+import { API_URL, Channel, useGlobal } from '../contexts/GlobalContext';
 import { scale } from '../lib/scale';
 import { C } from '../lib/tvColors';
-import { SkipBack, SkipForward, Clock, List, Minimize, X, Tv } from 'lucide-react-native';
+
+const TVFocusGuide: any =
+  (require('react-native') as any).TVFocusGuideView ?? View;
 
 const useTVEventHandlerSafe: (handler: (evt: any) => void) => void =
   Platform.OS !== 'web'
     ? (require('react-native') as any).useTVEventHandler ?? (() => {})
     : () => {};
-
-import WebPlayer from '../components/tv/WebPlayer';
-
-// ── OSD Button Component ──
-function OSDButton({ icon: Icon, label, onPress, onFocus, onBlur }: any) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <Pressable
-      focusable
-      onPress={onPress}
-      onFocus={() => { setFocused(true); onFocus?.(); }}
-      onBlur={() => { setFocused(false); onBlur?.(); }}
-      style={[s.osdBtn, focused && s.osdBtnFocused]}
-    >
-      <Icon size={scale(20)} color={focused ? '#000' : '#fff'} />
-      {focused && <Text style={s.osdBtnLabel}>{label}</Text>}
-    </Pressable>
-  );
-}
 
 export default function PlayerScreen() {
   const { slug, episodeId, channelId, channelUrl } = useLocalSearchParams<{
@@ -53,6 +85,75 @@ export default function PlayerScreen() {
   );
 }
 
+// ── Interfaz de Categoría Inteligente para la Guía ────────────────────────────
+interface GuideCategory {
+  key: string;
+  label: string;
+  icon: any;
+  color: string;
+  filter: (ch: Channel) => boolean;
+}
+
+// ── Botón de Acción del OSD ──────────────────────────────────────────────────
+function OSDActionButton({
+  icon: Icon,
+  label,
+  onPress,
+  onFocus,
+  active,
+  accentColor,
+  hasPreferredFocus,
+}: {
+  icon: any;
+  label: string;
+  onPress: () => void;
+  onFocus?: () => void;
+  active?: boolean;
+  accentColor?: string;
+  hasPreferredFocus?: boolean;
+}) {
+  return (
+    <Focusable
+      hasTVPreferredFocus={hasPreferredFocus}
+      onPress={onPress}
+      onFocus={onFocus}
+      animateScale={false}
+      showFocusRing={false}
+      style={[
+        s.osdActionBtn,
+        active && {
+          backgroundColor: accentColor || C.accent,
+          borderColor: accentColor || C.accent,
+        },
+      ]}
+      focusedStyle={[
+        s.osdActionBtnFocused,
+        accentColor ? { borderColor: accentColor } : undefined,
+      ]}
+    >
+      {({ focused }) => (
+        <>
+          <Icon
+            size={scale(18)}
+            color={focused ? '#000000' : active ? (accentColor ? '#ffffff' : '#000000') : '#ffffff'}
+            strokeWidth={focused ? 2.5 : 2}
+          />
+          <Text
+            style={[
+              s.osdActionBtnText,
+              focused && s.osdActionBtnTextFocused,
+              active && !focused && s.osdActionBtnTextActive,
+            ]}
+          >
+            {label}
+          </Text>
+        </>
+      )}
+    </Focusable>
+  );
+}
+
+// ── Reproductor de Canales de TV en Vivo ─────────────────────────────────────
 function ChannelPlayer({
   initialChannelId,
   initialChannelUrl,
@@ -60,10 +161,11 @@ function ChannelPlayer({
   initialChannelId?: string;
   initialChannelUrl?: string;
 }) {
-  const { activeChannel, setActiveChannel, channels } = useGlobal();
+  const { activeChannel, setActiveChannel, channels, favorites, toggleFavorite } = useGlobal();
   const router = useRouter();
   const videoRef = useRef<VideoRef | null>(null);
 
+  // Inicializar canal desde parámetros si corresponde
   useEffect(() => {
     if (initialChannelId || initialChannelUrl) {
       if (!activeChannel || (initialChannelId && activeChannel.id !== initialChannelId)) {
@@ -81,111 +183,425 @@ function ChannelPlayer({
     }
   }, [initialChannelId, initialChannelUrl, channels]);
 
+  // Estados de reproducción y video
+  const [isPaused, setIsPaused] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [volume, setVolume] = useState(1.0);
+  const [resizeMode, setResizeMode] = useState<'contain' | 'cover'>('contain');
   const [isNativeBuffering, setIsNativeBuffering] = useState(true);
   const [isNativeError, setIsNativeError] = useState(false);
   const [webError, setWebError] = useState<string | null>(null);
-  const [showOSD, setShowOSD] = useState(true);
-  const [showPanel, setShowPanel] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchFocused, setSearchFocused] = useState(false);
-  
-  // For forcing a reload when "Sincronizar directo" is pressed
   const [reloadKey, setReloadKey] = useState(0);
 
-  const osdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Estados de interfaz OSD y Guía Dual
+  const [showOSD, setShowOSD] = useState(true);
+  const [showGuide, setShowGuide] = useState(false);
+  const [guidePane, setGuidePane] = useState<'categories' | 'channels'>('categories');
+  const [selectedCategoryKey, setSelectedCategoryKey] = useState('all');
+  const [guideSearch, setGuideSearch] = useState('');
+  const [currentTime, setCurrentTime] = useState('');
 
-  const currentList = useMemo(() => {
-    if (!activeChannel) return channels;
-    return channels.filter(c => c.category?.name === activeChannel.category?.name);
-  }, [activeChannel, channels]);
+  // HUD de notificación flotante rápida (Volumen, Silencio, Sincronizado, etc.)
+  const [hud, setHud] = useState<{ text: string; icon?: any } | null>(null);
+  const hudTimerRef = useRef<any>(null);
+  const osdTimerRef = useRef<any>(null);
 
-  const activeIndex = useMemo(
-    () => currentList.findIndex(c => c.id === activeChannel?.id),
-    [activeChannel, currentList],
-  );
+  // Refs y Handles para sincronizar foco entre Ventana 1 y Ventana 2 de la Guía
+  const catRefs = useRef<Record<string, any>>({});
+  const [catHandles, setCatHandles] = useState<Record<string, number>>({});
+  const firstChannelRef = useRef<any>(null);
+  const [firstChannelHandle, setFirstChannelHandle] = useState<number | undefined>(undefined);
 
-  const filteredChannels = useMemo(() => {
-    if (!searchQuery) return channels;
-    const q = searchQuery.toLowerCase();
-    return channels.filter(c => c.name.toLowerCase().includes(q) || c.category?.name?.toLowerCase().includes(q));
-  }, [channels, searchQuery]);
+  // Reloj digital en vivo en el OSD
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      setCurrentTime(`${h}:${m}`);
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
+  const favSet = useMemo(() => new Set(favorites), [favorites]);
+  const isCurrentFav = !!activeChannel && favSet.has(activeChannel.id);
+
+  // Disparar mensaje HUD flotante
+  const showHudMessage = useCallback((text: string, icon?: any) => {
+    if (hudTimerRef.current) clearTimeout(hudTimerRef.current);
+    setHud({ text, icon });
+    hudTimerRef.current = setTimeout(() => {
+      setHud(null);
+    }, 2400);
+  }, []);
+
+  // Mostrar OSD con temporizador de auto-ocultado (5.5s)
   const triggerOSD = useCallback(() => {
     setShowOSD(true);
     if (osdTimerRef.current) clearTimeout(osdTimerRef.current);
-    // Auto hide after 5s only if panel is closed
-    if (!showPanel) {
-      osdTimerRef.current = setTimeout(() => setShowOSD(false), 5000);
+    if (!showGuide) {
+      osdTimerRef.current = setTimeout(() => {
+        setShowOSD(false);
+      }, 5500);
     }
-  }, [showPanel]);
+  }, [showGuide]);
 
+  // Al cambiar de canal activo, reabrir OSD brevemente y resetear errores
   useEffect(() => {
     setWebError(null);
+    setIsNativeError(false);
+    setIsNativeBuffering(true);
     triggerOSD();
-    return () => { if (osdTimerRef.current) clearTimeout(osdTimerRef.current); };
   }, [activeChannel, triggerOSD]);
 
-  // Keep OSD visible while panel is open
+  // Mantener OSD abierto si la guía está abierta, o manejar temporizador
   useEffect(() => {
-    if (showPanel) {
+    if (showGuide) {
       if (osdTimerRef.current) clearTimeout(osdTimerRef.current);
-      setShowOSD(true);
+      setShowOSD(false); // Ocultar OSD inferior para dejar libre la vista de la Guía dual
     } else {
       triggerOSD();
     }
-  }, [showPanel, triggerOSD]);
+  }, [showGuide, triggerOSD]);
 
+  // ── Controles de Reproducción ──────────────────────────────────────────────
+  const togglePlayPause = useCallback(() => {
+    setIsPaused((prev) => {
+      const next = !prev;
+      showHudMessage(next ? 'Pausado' : 'Reanudando señal en vivo', next ? Pause : Play);
+      return next;
+    });
+    triggerOSD();
+  }, [showHudMessage, triggerOSD]);
+
+  const syncLive = useCallback(() => {
+    setIsPaused(false);
+    setReloadKey((prev) => prev + 1);
+    showHudMessage('Señal en vivo sincronizada', RotateCcw);
+    triggerOSD();
+  }, [showHudMessage, triggerOSD]);
+
+  const toggleMute = useCallback(() => {
+    setIsMuted((prev) => {
+      const next = !prev;
+      showHudMessage(next ? 'Silenciado' : `Sonido: ${Math.round(volume * 100)}%`, next ? VolumeX : Volume2);
+      return next;
+    });
+    triggerOSD();
+  }, [volume, showHudMessage, triggerOSD]);
+
+  const volumeUp = useCallback(() => {
+    setIsMuted(false);
+    setVolume((prev) => {
+      const next = Math.min(1.0, +(prev + 0.1).toFixed(1));
+      showHudMessage(`Volumen: ${Math.round(next * 100)}%`, Volume2);
+      return next;
+    });
+    triggerOSD();
+  }, [showHudMessage, triggerOSD]);
+
+  const volumeDown = useCallback(() => {
+    setIsMuted(false);
+    setVolume((prev) => {
+      const next = Math.max(0.0, +(prev - 0.1).toFixed(1));
+      showHudMessage(`Volumen: ${Math.round(next * 100)}%`, Volume1);
+      return next;
+    });
+    triggerOSD();
+  }, [showHudMessage, triggerOSD]);
+
+  const toggleResizeMode = useCallback(() => {
+    setResizeMode((prev) => {
+      const next = prev === 'contain' ? 'cover' : 'contain';
+      showHudMessage(next === 'cover' ? 'Ajuste: Llenar Pantalla' : 'Ajuste: Contener Original (16:9)', Maximize2);
+      return next;
+    });
+    triggerOSD();
+  }, [showHudMessage, triggerOSD]);
+
+  const handleToggleFav = useCallback(() => {
+    if (!activeChannel) return;
+    toggleFavorite(activeChannel.id);
+    const willBeFav = !favSet.has(activeChannel.id);
+    showHudMessage(willBeFav ? 'Guardado en Favoritos' : 'Eliminado de Favoritos', Star);
+    triggerOSD();
+  }, [activeChannel, favSet, toggleFavorite, showHudMessage, triggerOSD]);
+
+  // Zapping: Canal Siguiente
   const nextChannel = useCallback(() => {
-    if (currentList.length === 0) return;
-    const nextIdx = (activeIndex + 1) % currentList.length;
-    setActiveChannel(currentList[nextIdx]);
-  }, [activeIndex, currentList, setActiveChannel]);
+    if (channels.length === 0 || !activeChannel) return;
+    const idx = channels.findIndex((c) => c.id === activeChannel.id);
+    const nextIdx = (idx + 1) % channels.length;
+    const target = channels[nextIdx];
+    setActiveChannel(target);
+    showHudMessage(`Siguiente: ${target.name}`, SkipForward);
+  }, [channels, activeChannel, setActiveChannel, showHudMessage]);
 
+  // Zapping: Canal Anterior
   const prevChannel = useCallback(() => {
-    if (currentList.length === 0) return;
-    const prevIdx = (activeIndex - 1 + currentList.length) % currentList.length;
-    setActiveChannel(currentList[prevIdx]);
-  }, [activeIndex, currentList, setActiveChannel]);
+    if (channels.length === 0 || !activeChannel) return;
+    const idx = channels.findIndex((c) => c.id === activeChannel.id);
+    const prevIdx = (idx - 1 + channels.length) % channels.length;
+    const target = channels[prevIdx];
+    setActiveChannel(target);
+    showHudMessage(`Anterior: ${target.name}`, SkipBack);
+  }, [channels, activeChannel, setActiveChannel, showHudMessage]);
 
-  const syncLive = () => {
-    // Faking jump to live by reloading the stream
-    setReloadKey(prev => prev + 1);
-  };
+  // Abrir / Cerrar Guía de dos ventanas
+  const openGuide = useCallback(() => {
+    setShowOSD(false);
+    setShowGuide(true);
+    setGuidePane('categories');
+  }, []);
 
-  const lastZapRef = useRef(0);
+  const closeGuide = useCallback(() => {
+    setShowGuide(false);
+    triggerOSD();
+  }, [triggerOSD]);
 
-  // TV remote zapping (only active if panel is closed so it doesn't interfere)
+  // ── Motor Inteligente de Clasificaciones para Ventana 1 ───────────────────
+  const categories: GuideCategory[] = useMemo(() => {
+    const list: GuideCategory[] = [];
+
+    // 1. Favoritos
+    const favCount = channels.filter((c) => favSet.has(c.id)).length;
+    list.push({
+      key: 'fav',
+      label: 'Favoritos',
+      icon: Star,
+      color: '#ffb703',
+      filter: (c) => favSet.has(c.id),
+    });
+
+    // 2. Todos los canales
+    list.push({
+      key: 'all',
+      label: 'Todos los canales',
+      icon: Tv,
+      color: '#ffffff',
+      filter: () => true,
+    });
+
+    // 3. Géneros Temáticos Inteligentes
+    const themes = [
+      {
+        key: 'theme_sports',
+        label: 'Deportes en Vivo',
+        icon: Trophy,
+        color: '#00f59b',
+        kws: ['sport', 'deport', 'futbol', 'fútbol', 'soccer', 'espn', 'tyc', 'fox', 'dazn', 'nba', 'racing', 'tnt sports', 'dsports', 'gol', 'laliga'],
+      },
+      {
+        key: 'theme_movies',
+        label: 'Cine & Películas',
+        icon: Film,
+        color: '#ffbe0b',
+        kws: ['movie', 'cine', 'pelicul', 'film', 'hbo', 'star', 'cinema', 'max', 'action', 'paramount', 'amc', 'space', 'tnt', 'golden', 'studio'],
+      },
+      {
+        key: 'theme_series',
+        label: 'Series & Ficción',
+        icon: Clapperboard,
+        color: '#8338ec',
+        kws: ['series', 'serie', 'ficcion', 'ficción', 'drama', 'warner', 'sony', 'universal', 'axn', 'fx', 'comedy', 'a&e'],
+      },
+      {
+        key: 'theme_news',
+        label: 'Noticias & Directos',
+        icon: Globe,
+        color: '#00f0ff',
+        kws: ['news', 'noticia', 'actualidad', 'cnn', 'tn', 'c5n', 'bbc', 'al jazeera', 'ln+', 'cronica', 'a24', 'canal 26', 'telefe', 'eltrece', 'tv publica', 'america', 'rt'],
+      },
+      {
+        key: 'theme_kids',
+        label: 'Infantil & Animación',
+        icon: Smile,
+        color: '#ff007f',
+        kws: ['kid', 'infantil', 'family', 'familiar', 'cartoon', 'disney', 'nick', 'junior', 'animacion', 'anime', 'toon', 'boomerang', 'discovery kids', 'cartoonito'],
+      },
+      {
+        key: 'theme_entertainment',
+        label: 'Entretenimiento & Shows',
+        icon: Sparkles,
+        color: '#ff5400',
+        kws: ['entertain', 'entretenimiento', 'comedia', 'humor', 'variety', 'e!', 'tbs', 'tlc', 'glitz', 'telenovela'],
+      },
+      {
+        key: 'theme_docs',
+        label: 'Cultura & Documentales',
+        icon: Compass,
+        color: '#06d6a0',
+        kws: ['docu', 'cultur', 'educat', 'ciencia', 'discovery', 'natgeo', 'national geographic', 'history', 'animal', 'investigation'],
+      },
+      {
+        key: 'theme_music',
+        label: 'Música & Recitales',
+        icon: Music,
+        color: '#e040fb',
+        kws: ['music', 'musica', 'música', 'mtv', 'vh1', 'radio', 'hit', 'pop', 'rock', 'urbano', 'htv', 'cm', 'quiero'],
+      },
+    ];
+
+    for (const t of themes) {
+      const fn = (ch: Channel) => {
+        const target = `${ch.name} ${ch.category?.name || ''} ${ch.groupTitle || ''}`.toLowerCase();
+        return t.kws.some((kw) => target.includes(kw));
+      };
+      if (channels.some(fn)) {
+        list.push({
+          key: t.key,
+          label: t.label,
+          icon: t.icon,
+          color: t.color,
+          filter: fn,
+        });
+      }
+    }
+
+    // 4. Agrupación Dinámica por Países
+    const countryMap = new Map<string, number>();
+    for (const ch of channels) {
+      const c = (ch.country || '').trim();
+      if (c && c.toLowerCase() !== 'internacional' && c.toLowerCase() !== 'mundo') {
+        const norm = c.charAt(0).toUpperCase() + c.slice(1);
+        countryMap.set(norm, (countryMap.get(norm) || 0) + 1);
+      }
+    }
+    const sortedCountries = Array.from(countryMap.entries())
+      .filter(([_, count]) => count >= 2)
+      .sort((a, b) => b[1] - a[1]);
+
+    for (const [countryName] of sortedCountries.slice(0, 8)) {
+      list.push({
+        key: `country_${countryName.toLowerCase()}`,
+        label: countryName,
+        icon: MapPin,
+        color: '#38bdf8',
+        filter: (ch: Channel) => (ch.country || '').toLowerCase() === countryName.toLowerCase(),
+      });
+    }
+
+    // 5. Agrupación por Idiomas
+    const langMap = new Map<string, number>();
+    for (const ch of channels) {
+      const l = (ch.language || '').trim();
+      if (l) {
+        const norm = l.charAt(0).toUpperCase() + l.slice(1);
+        langMap.set(norm, (langMap.get(norm) || 0) + 1);
+      }
+    }
+    for (const [langName, count] of langMap.entries()) {
+      if (count >= 5) {
+        list.push({
+          key: `lang_${langName.toLowerCase()}`,
+          label: `Idioma: ${langName}`,
+          icon: Languages,
+          color: '#a78bfa',
+          filter: (ch: Channel) => (ch.language || '').toLowerCase() === langName.toLowerCase(),
+        });
+      }
+    }
+
+    return list;
+  }, [channels, favSet]);
+
+  // Actualizar handles de nodos en categorías
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const handles: Record<string, number> = {};
+    for (const cat of categories) {
+      const node = catRefs.current[cat.key];
+      if (node) {
+        const h = findNodeHandle(node);
+        if (typeof h === 'number' && h > 0) handles[cat.key] = h;
+      }
+    }
+    setCatHandles(handles);
+  }, [categories, showGuide]);
+
+  // Canales filtrados por la categoría activa en Ventana 1
+  const categoryChannels = useMemo(() => {
+    const cat = categories.find((c) => c.key === selectedCategoryKey) || categories[1] || categories[0];
+    return channels.filter(cat.filter);
+  }, [categories, selectedCategoryKey, channels]);
+
+  // Canales de Ventana 2 filtrados además por el buscador interno
+  const displayedChannels = useMemo(() => {
+    if (!guideSearch.trim()) return categoryChannels;
+    const q = guideSearch.toLowerCase().trim();
+    return categoryChannels.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.country || '').toLowerCase().includes(q) ||
+        (c.category?.name || '').toLowerCase().includes(q),
+    );
+  }, [categoryChannels, guideSearch]);
+
+  const activeCategoryObj = useMemo(() => {
+    return categories.find((c) => c.key === selectedCategoryKey) || categories[0];
+  }, [categories, selectedCategoryKey]);
+
+  // Actualizar handle del primer canal para nextFocusRight
+  const updateFirstChannelHandle = useCallback(() => {
+    if (Platform.OS === 'web') return;
+    if (firstChannelRef.current) {
+      const h = findNodeHandle(firstChannelRef.current);
+      if (typeof h === 'number' && h > 0) setFirstChannelHandle(h);
+    }
+  }, []);
+
+  useEffect(() => {
+    updateFirstChannelHandle();
+    const t = setTimeout(updateFirstChannelHandle, 100);
+    return () => clearTimeout(t);
+  }, [displayedChannels, showGuide, updateFirstChannelHandle]);
+
+  // ── Eventos de Control Remoto / Teclado TV ──────────────────────────────────
   useTVEventHandlerSafe((evt: any) => {
-    if (showPanel) return;
-    if (showOSD) {
-      if (evt.eventType === 'select') triggerOSD();
+    if (!evt || !evt.eventType) return;
+    const t = evt.eventType;
+
+    // Si la guía dual está abierta:
+    if (showGuide) {
+      if (t === 'playPause') {
+        togglePlayPause();
+      }
       return;
     }
-    
-    const now = Date.now();
-    if (evt.eventType === 'up') {
-      if (now - lastZapRef.current > 250) {
-        lastZapRef.current = now;
-        nextChannel();
-      }
-    } else if (evt.eventType === 'down') {
-      if (now - lastZapRef.current > 250) {
-        lastZapRef.current = now;
-        prevChannel();
-      }
-    } else if (evt.eventType === 'right') {
-      setShowPanel(true);
-    } else if (evt.eventType === 'select') {
+
+    // Si el OSD está abierto:
+    if (showOSD) {
       triggerOSD();
+      if (t === 'playPause') {
+        togglePlayPause();
+      }
+      return;
+    }
+
+    // Cuando la pantalla está limpia (sin OSD ni Guía):
+    if (t === 'select' || t === 'up' || t === 'down') {
+      // "debe aparecer al presionar las teclas del okey, o de arriba o abajo del control"
+      triggerOSD();
+    } else if (t === 'left' || t === 'right') {
+      // "al presionar la tecla izquierda o derecha, abra dos ventanas unidas semi transparentes"
+      openGuide();
+    } else if (t === 'playPause') {
+      togglePlayPause();
     }
   });
 
-  // Hardware back button
+  // Botón Atrás del control remoto
   useEffect(() => {
     if (Platform.OS === 'web') return;
     const backAction = () => {
-      if (showPanel) {
-        setShowPanel(false);
+      if (showGuide) {
+        if (guidePane === 'channels') {
+          setGuidePane('categories');
+          return true;
+        }
+        closeGuide();
         return true;
       }
       if (showOSD) {
@@ -195,44 +611,53 @@ function ChannelPlayer({
       router.back();
       return true;
     };
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
-    return () => backHandler.remove();
-  }, [showPanel, showOSD]);
+    const sub = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => sub.remove();
+  }, [showGuide, guidePane, showOSD, router, closeGuide]);
 
   if (!activeChannel) {
     return (
       <View style={s.center}>
         <ActivityIndicator size="large" color={C.accent} />
+        <Text style={s.loadingText}>Conectando con la señal en vivo...</Text>
       </View>
     );
   }
 
-  const proxyUrl = Platform.OS === 'web' 
-    ? `${API_URL}/proxy?url=${encodeURIComponent(activeChannel.url)}` 
-    : activeChannel.url;
+  const proxyUrl =
+    Platform.OS === 'web'
+      ? `${API_URL}/proxy?url=${encodeURIComponent(activeChannel.url)}`
+      : activeChannel.url;
   const isError = Platform.OS === 'web' ? Boolean(webError) : isNativeError;
   const isBuffering = Platform.OS === 'web' ? false : isNativeBuffering;
 
+  const currentCategoryHandle = catHandles[selectedCategoryKey] || catHandles[categories[0]?.key];
+
   return (
     <View style={s.root}>
-
-      {/* ── Video ── */}
+      {/* ── 1. CAPA DE VIDEO (REPRODUCCIÓN CONTINUA A PANTALLA COMPLETA) ── */}
       {Platform.OS === 'web' ? (
         <WebPlayer
-          key={reloadKey}
+          key={`${activeChannel.id}-${reloadKey}`}
           uri={proxyUrl}
           fallbackUri={activeChannel.url}
+          paused={isPaused}
+          muted={isMuted}
+          volume={isMuted ? 0 : volume}
+          resizeMode={resizeMode}
           onError={(msg: string) => setWebError(msg)}
         />
       ) : (
         <Video
-          key={reloadKey}
+          key={`${activeChannel.id}-${reloadKey}`}
           ref={videoRef}
           style={s.videoAbsolute}
           source={{ uri: proxyUrl }}
           controls={false}
-          resizeMode="contain"
-          paused={false}
+          resizeMode={resizeMode}
+          paused={isPaused}
+          muted={isMuted}
+          volume={isMuted ? 0 : volume}
           onLoad={() => {
             setIsNativeBuffering(false);
             setIsNativeError(false);
@@ -241,158 +666,531 @@ function ChannelPlayer({
             setIsNativeBuffering(b);
           }}
           onError={(err: any) => {
-            console.warn('[ChannelPlayer] Playback error:', err);
+            console.warn('[ChannelPlayer] Error de reproducción:', err);
             setIsNativeError(true);
             setIsNativeBuffering(false);
           }}
         />
       )}
 
-      {/* ── Native loading / error states ── */}
-      {Platform.OS !== 'web' && !isError && isBuffering && (
-        <View style={s.overlay} pointerEvents="none">
+      {/* Indicadores de Carga y Error de Señal */}
+      {!isError && isBuffering && (
+        <View style={s.bufferOverlay} pointerEvents="none">
           <ActivityIndicator size="large" color={C.accent} />
-        </View>
-      )}
-      {Platform.OS !== 'web' && isError && (
-        <View style={[s.overlay, { backgroundColor: 'rgba(0,0,0,0.85)' }]} pointerEvents="none">
-          <Text style={s.errorTitle}>Error al cargar la señal</Text>
+          <Text style={s.bufferText}>Sintonizando transmisión en directo…</Text>
         </View>
       )}
 
-      {/* ── Web error ── */}
-      {Platform.OS === 'web' && webError && (
-        <View style={[s.overlay, { backgroundColor: 'rgba(0,0,0,0.85)' }]} pointerEvents="none">
-          <Text style={s.errorTitle}>Error al cargar la señal</Text>
-          <Text style={s.errorSub}>{webError}</Text>
+      {isError && (
+        <View style={s.errorOverlay} pointerEvents="box-none">
+          <View style={s.errorCard}>
+            <Tv size={scale(36)} color="#f87171" />
+            <Text style={s.errorTitle}>Señal momentáneamente no disponible</Text>
+            <Text style={s.errorSub}>
+              {webError || 'No se pudo recibir la transmisión en vivo. Puedes intentar sincronizar o cambiar de canal.'}
+            </Text>
+            <View style={s.errorActions}>
+              <Focusable
+                hasTVPreferredFocus
+                onPress={syncLive}
+                animateScale={false}
+                showFocusRing={false}
+                style={s.errorBtn}
+                focusedStyle={s.errorBtnFocused}
+              >
+                <RotateCcw size={scale(16)} color="#000" />
+                <Text style={s.errorBtnTxt}>Reintentar conexión</Text>
+              </Focusable>
+              <Focusable
+                onPress={nextChannel}
+                animateScale={false}
+                showFocusRing={false}
+                style={s.errorBtnSecondary}
+                focusedStyle={s.errorBtnSecondaryFocused}
+              >
+                <SkipForward size={scale(16)} color="#fff" />
+                <Text style={s.errorBtnSecondaryTxt}>Canal siguiente</Text>
+              </Focusable>
+            </View>
+          </View>
         </View>
       )}
 
-      {/* ── INTERACTIVE OSD ── */}
-      {showOSD && (
-        <View style={s.osd} pointerEvents="box-none">
+      {/* ── 2. HUD DE NOTIFICACIÓN RÁPIDA (VOLUMEN, VIVO, ZAPPING) ── */}
+      {hud && (
+        <View style={s.hudToast} pointerEvents="none">
+          {hud.icon && <hud.icon size={scale(18)} color={C.accent} />}
+          <Text style={s.hudToastText}>{hud.text}</Text>
+        </View>
+      )}
+
+      {/* ── 3. GUÍA DUAL: DOS VENTANAS UNIDAS SEMI-TRANSPARENTES ── */}
+      {showGuide && (
+        <View style={s.guideBackdrop} pointerEvents="box-none">
+          {/* Sombra de viñeta suave lateral para no oscurecer el video que sigue de fondo */}
           <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.95)']}
-            style={StyleSheet.absoluteFill}
+            colors={['rgba(5, 5, 8, 0.94)', 'rgba(5, 5, 8, 0.65)', 'transparent']}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={s.guideBackdropGrad}
             pointerEvents="none"
           />
-          <View style={s.osdContent} pointerEvents="box-none">
-            
-            {/* Metadata (Left) */}
-            <View style={s.osdLeft} pointerEvents="none">
-              {activeChannel.category?.name ? (
-                <View style={s.osdCatBadge}>
-                  <Text style={s.osdCatText}>
-                    {activeChannel.category.name.toUpperCase()}
+
+          <TVFocusGuide style={s.dualContainer}>
+            {/* ── VENTANA 1: CATEGORÍAS & CLASIFICACIONES INTELIGENTES ── */}
+            <View style={s.windowCategories}>
+              <View style={s.guideHead}>
+                <View style={s.guideHeadRow}>
+                  <Compass size={scale(18)} color={C.accent} />
+                  <Text style={s.guideHeadTitle}>EXPLORAR GUÍA</Text>
+                </View>
+                <Text style={s.guideHeadSub}>Categorías y Géneros</Text>
+              </View>
+
+              <ScrollView
+                style={s.catScroll}
+                contentContainerStyle={s.catScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {categories.map((cat, idx) => {
+                  const isSelected = cat.key === selectedCategoryKey;
+                  const Icon = cat.icon;
+                  const chCount = channels.filter(cat.filter).length;
+
+                  return (
+                    <Focusable
+                      key={cat.key}
+                      ref={(node: any) => {
+                        catRefs.current[cat.key] = node;
+                      }}
+                      hasTVPreferredFocus={isSelected && guidePane === 'categories'}
+                      onFocus={() => {
+                        setSelectedCategoryKey(cat.key);
+                        setGuidePane('categories');
+                      }}
+                      onPress={() => {
+                        setSelectedCategoryKey(cat.key);
+                        setGuidePane('channels');
+                      }}
+                      nextFocusRight={firstChannelHandle}
+                      animateScale={false}
+                      showFocusRing={false}
+                      style={[s.catPill, isSelected && s.catPillActive]}
+                      focusedStyle={s.catPillFocused}
+                    >
+                      {({ focused }) => (
+                        <>
+                          <View
+                            style={[
+                              s.catIconWrap,
+                              { backgroundColor: isSelected ? 'rgba(255, 183, 3, 0.2)' : 'rgba(255,255,255,0.06)' },
+                              focused && { backgroundColor: '#000000' },
+                            ]}
+                          >
+                            <Icon
+                              size={scale(15)}
+                              color={focused ? '#000000' : isSelected ? C.accent : cat.color}
+                            />
+                          </View>
+
+                          <Text
+                            style={[
+                              s.catLabel,
+                              isSelected && s.catLabelActive,
+                              focused && s.catLabelFocused,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {cat.label}
+                          </Text>
+
+                          <View
+                            style={[
+                              s.catCountBadge,
+                              isSelected && s.catCountBadgeActive,
+                              focused && s.catCountBadgeFocused,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                s.catCountTxt,
+                                isSelected && s.catCountTxtActive,
+                                focused && s.catCountTxtFocused,
+                              ]}
+                            >
+                              {chCount}
+                            </Text>
+                          </View>
+                        </>
+                      )}
+                    </Focusable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            {/* ── VENTANA 2: CANALES EN VIVO DE LA SELECCIÓN ACTIVA ── */}
+            <View style={s.windowChannels}>
+              <View style={s.chHeader}>
+                <View style={s.chHeaderTop}>
+                  <View style={s.chHeaderTitleWrap}>
+                    <activeCategoryObj.icon size={scale(18)} color={activeCategoryObj.color} />
+                    <Text style={s.chHeaderTitle} numberOfLines={1}>
+                      {activeCategoryObj.label.toUpperCase()}
+                    </Text>
+                  </View>
+                  <Text style={s.chHeaderCount}>
+                    {displayedChannels.length} {displayedChannels.length === 1 ? 'canal' : 'canales'}
                   </Text>
                 </View>
-              ) : null}
-              <Text style={s.osdChannelName} numberOfLines={1}>{activeChannel.name}</Text>
-              <Text style={s.osdMeta}>
-                {activeChannel.country || 'Internacional'}
-                {activeChannel.language ? ` • ${activeChannel.language}` : ''}
-              </Text>
-            </View>
 
-            {/* Controls (Right) */}
-            <View style={s.osdControls} pointerEvents="box-none">
-              <OSDButton icon={SkipBack} label="Anterior" onPress={prevChannel} onFocus={triggerOSD} />
-              <OSDButton icon={Clock} label="Sincronizar Vivo" onPress={syncLive} onFocus={triggerOSD} />
-              <OSDButton icon={SkipForward} label="Siguiente" onPress={nextChannel} onFocus={triggerOSD} />
-              <OSDButton icon={List} label="Canales" onPress={() => setShowPanel(!showPanel)} onFocus={triggerOSD} />
-              <OSDButton icon={Minimize} label="Salir" onPress={() => router.back()} onFocus={triggerOSD} />
-            </View>
+                {/* Buscador Rápido integrado en Ventana 2 */}
+                <View style={s.searchWrap}>
+                  <Search size={scale(14)} color="rgba(255,255,255,0.5)" />
+                  <TextInput
+                    value={guideSearch}
+                    onChangeText={setGuideSearch}
+                    placeholder="Filtrar canal por nombre o país…"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    style={s.searchInput}
+                  />
+                  {guideSearch.length > 0 && (
+                    <Pressable onPress={() => setGuideSearch('')} style={s.searchClear}>
+                      <X size={scale(13)} color="#fff" />
+                    </Pressable>
+                  )}
+                </View>
+              </View>
 
-          </View>
+              <FlatList
+                data={displayedChannels}
+                keyExtractor={(item) => item.id}
+                style={s.chList}
+                contentContainerStyle={s.chListContent}
+                initialNumToRender={14}
+                maxToRenderPerBatch={10}
+                windowSize={7}
+                renderItem={({ item, index }) => {
+                  const isCurrent = item.id === activeChannel.id;
+                  const isFav = favSet.has(item.id);
+
+                  return (
+                    <Focusable
+                      ref={index === 0 ? firstChannelRef : undefined}
+                      hasTVPreferredFocus={index === 0 && guidePane === 'channels'}
+                      onFocus={() => {
+                        setGuidePane('channels');
+                      }}
+                      onPress={() => {
+                        setActiveChannel(item);
+                        showHudMessage(`Sintonizando: ${item.name}`, Tv);
+                      }}
+                      nextFocusLeft={currentCategoryHandle}
+                      animateScale={false}
+                      showFocusRing={false}
+                      style={[s.chItem, isCurrent && s.chItemCurrent]}
+                      focusedStyle={s.chItemFocused}
+                    >
+                      {({ focused }) => (
+                        <>
+                          {/* Logo del Canal */}
+                          <View style={[s.chLogoBox, focused && s.chLogoBoxFocused]}>
+                            {item.logo ? (
+                              <RemoteImage
+                                uri={item.logo}
+                                style={s.chLogoImg as any}
+                                contentFit="contain"
+                                transition={150}
+                              />
+                            ) : (
+                              <Tv
+                                size={scale(18)}
+                                color={focused ? '#000000' : 'rgba(255,255,255,0.7)'}
+                              />
+                            )}
+                          </View>
+
+                          {/* Info del Canal */}
+                          <View style={s.chInfoBox}>
+                            <Text
+                              style={[
+                                s.chName,
+                                isCurrent && s.chNameCurrent,
+                                focused && s.chNameFocused,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {item.name}
+                            </Text>
+
+                            <View style={s.chMetaRow}>
+                              {item.country ? (
+                                <Text
+                                  style={[s.chMetaTxt, focused && s.chMetaTxtFocused]}
+                                  numberOfLines={1}
+                                >
+                                  {item.country}
+                                </Text>
+                              ) : null}
+                              {item.language ? (
+                                <Text
+                                  style={[s.chMetaTxt, focused && s.chMetaTxtFocused]}
+                                  numberOfLines={1}
+                                >
+                                  {item.country ? ' • ' : ''}
+                                  {item.language}
+                                </Text>
+                              ) : null}
+                            </View>
+                          </View>
+
+                          {/* Indicadores de En Pantalla o Favorito */}
+                          <View style={s.chBadgesWrap}>
+                            {isCurrent && (
+                              <View style={[s.badgeLiveOn, focused && s.badgeLiveOnFocused]}>
+                                <View style={s.liveOnDot} />
+                                <Text
+                                  style={[s.liveOnTxt, focused && s.liveOnTxtFocused]}
+                                >
+                                  EN PANTALLA
+                                </Text>
+                              </View>
+                            )}
+
+                            {isFav && (
+                              <Heart
+                                size={scale(14)}
+                                color={focused ? '#ff0055' : '#ff4d80'}
+                                fill={focused ? '#ff0055' : '#ff4d80'}
+                              />
+                            )}
+                          </View>
+                        </>
+                      )}
+                    </Focusable>
+                  );
+                }}
+                ListEmptyComponent={
+                  <View style={s.emptyWrap}>
+                    <Tv size={scale(28)} color="rgba(255,255,255,0.3)" />
+                    <Text style={s.emptyTitle}>No hay canales en esta sección</Text>
+                    <Text style={s.emptySub}>Prueba seleccionando otra categoría o limpiando la búsqueda.</Text>
+                  </View>
+                }
+              />
+            </View>
+          </TVFocusGuide>
         </View>
       )}
 
-      {/* ── SIDE PANEL (Half Screen Channels) ── */}
-      {showPanel && (
-        <KeyboardAvoidingView 
-          style={s.panelContainer} 
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
+      {/* ── 4. OSD PROFESIONAL (CONTROLES COMPLETOS + INFORMACIÓN EN CABECERA) ── */}
+      {showOSD && !showGuide && (
+        <View style={s.osdRoot} pointerEvents="box-none">
+          {/* Degradado Cinematográfico Superior */}
           <LinearGradient
-            colors={['rgba(9,9,11,0.95)', 'rgba(9,9,11,1)']}
-            start={{x: 0, y:0}}
-            end={{x: 1, y:0}}
-            style={StyleSheet.absoluteFill}
+            colors={['rgba(5, 5, 8, 0.92)', 'rgba(5, 5, 8, 0.45)', 'transparent']}
+            style={s.osdTopGrad}
+            pointerEvents="none"
           />
-          <View style={s.panelHeader}>
-            <Text style={s.panelTitle}>CANALES</Text>
-            <Pressable focusable onPress={() => setShowPanel(false)} style={({focused}: any) => [s.panelClose, focused && s.panelCloseFocused]}>
-              <X size={scale(24)} color="#fff" />
-            </Pressable>
+
+          {/* Degradado Cinematográfico Inferior */}
+          <LinearGradient
+            colors={['transparent', 'rgba(5, 5, 8, 0.65)', 'rgba(4, 4, 7, 0.98)']}
+            locations={[0, 0.35, 1]}
+            style={s.osdBottomGrad}
+            pointerEvents="none"
+          />
+
+          {/* ── Cabecera Superior con Metadatos del Canal en Reproducción ── */}
+          <View style={s.osdTopBar} pointerEvents="box-none">
+            <View style={s.osdChannelLockup} pointerEvents="none">
+              {activeChannel.logo ? (
+                <View style={s.osdLogoBox}>
+                  <RemoteImage
+                    uri={activeChannel.logo}
+                    style={s.osdLogoImg as any}
+                    contentFit="contain"
+                  />
+                </View>
+              ) : null}
+
+              <View style={s.osdChannelDetails}>
+                <View style={s.osdBadgeRow}>
+                  <View style={s.badgeLive}>
+                    <View style={s.badgeLiveDot} />
+                    <Text style={s.badgeLiveText}>EN VIVO</Text>
+                  </View>
+
+                  {activeChannel.category?.name ? (
+                    <View style={s.osdTagBadge}>
+                      <Text style={s.osdTagBadgeTxt}>
+                        {activeChannel.category.name.toUpperCase()}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {activeChannel.country ? (
+                    <View style={s.osdCountryBadge}>
+                      <MapPin size={scale(10)} color="#fff" />
+                      <Text style={s.osdCountryBadgeTxt}>
+                        {activeChannel.country.toUpperCase()}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  <View style={s.badgeResolution}>
+                    <Text style={s.badgeResolutionTxt}>HD</Text>
+                  </View>
+                </View>
+
+                <Text style={s.osdChannelName} numberOfLines={1}>
+                  {activeChannel.name}
+                </Text>
+              </View>
+            </View>
+
+            {/* Reloj y Estado de Audio en la Esquina Superior Derecha */}
+            <View style={s.osdTopRight} pointerEvents="none">
+              {isMuted ? (
+                <View style={s.mutedBadge}>
+                  <VolumeX size={scale(13)} color="#f87171" />
+                  <Text style={s.mutedBadgeTxt}>MUTED</Text>
+                </View>
+              ) : (
+                <View style={s.volumeBadge}>
+                  <Volume2 size={scale(13)} color={C.accent} />
+                  <Text style={s.volumeBadgeTxt}>{Math.round(volume * 100)}%</Text>
+                </View>
+              )}
+
+              <View style={s.clockWrap}>
+                <Clock size={scale(13)} color="rgba(255,255,255,0.7)" />
+                <Text style={s.clockTxt}>{currentTime}</Text>
+              </View>
+            </View>
           </View>
 
-          <View style={s.panelSearchContainer}>
-            <TextInput
-              style={[s.panelSearchInput, searchFocused && s.panelSearchInputFocused]}
-              placeholder="Buscar canal..."
-              placeholderTextColor="rgba(255,255,255,0.4)"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              onFocus={() => {
-                setSearchFocused(true);
-                triggerOSD();
-              }}
-              onBlur={() => setSearchFocused(false)}
-            />
+          {/* ── Barra de Botones Convencional Completa e Interactiva (Inferior) ── */}
+          <View style={s.osdBottomBar} pointerEvents="box-none">
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.osdControlsTrack}
+            >
+              {/* 1. Canal Anterior */}
+              <OSDActionButton
+                icon={SkipBack}
+                label="Anterior"
+                onPress={prevChannel}
+                onFocus={triggerOSD}
+              />
+
+              {/* 2. Pausar / Reanudar (Funcional de Verdad) */}
+              <OSDActionButton
+                hasPreferredFocus
+                icon={isPaused ? Play : Pause}
+                label={isPaused ? 'Reanudar' : 'Pausar'}
+                onPress={togglePlayPause}
+                onFocus={triggerOSD}
+                active={isPaused}
+                accentColor="#f59e0b"
+              />
+
+              {/* 3. Sincronizar Vivo */}
+              <OSDActionButton
+                icon={RotateCcw}
+                label="Sincronizar Vivo"
+                onPress={syncLive}
+                onFocus={triggerOSD}
+              />
+
+              {/* 4. Canal Siguiente */}
+              <OSDActionButton
+                icon={SkipForward}
+                label="Siguiente"
+                onPress={nextChannel}
+                onFocus={triggerOSD}
+              />
+
+              {/* 5. Silenciar / Desilenciar */}
+              <OSDActionButton
+                icon={isMuted ? VolumeX : Volume2}
+                label={isMuted ? 'Desilenciar' : 'Silenciar'}
+                onPress={toggleMute}
+                onFocus={triggerOSD}
+                active={isMuted}
+                accentColor="#ef4444"
+              />
+
+              {/* 6. Bajar Volumen */}
+              <OSDActionButton
+                icon={Volume1}
+                label="Volumen -"
+                onPress={volumeDown}
+                onFocus={triggerOSD}
+              />
+
+              {/* 7. Subir Volumen */}
+              <OSDActionButton
+                icon={Volume2}
+                label="Volumen +"
+                onPress={volumeUp}
+                onFocus={triggerOSD}
+              />
+
+              {/* 8. Guía de Canales (Abre las dos ventanas unidas) */}
+              <OSDActionButton
+                icon={List}
+                label="Guía de Canales"
+                onPress={openGuide}
+                onFocus={triggerOSD}
+                active={true}
+                accentColor={C.accent}
+              />
+
+              {/* 9. Favorito */}
+              <OSDActionButton
+                icon={Heart}
+                label={isCurrentFav ? 'En Favoritos' : 'Favorito'}
+                onPress={handleToggleFav}
+                onFocus={triggerOSD}
+                active={isCurrentFav}
+                accentColor="#ff0055"
+              />
+
+              {/* 10. Ajuste de Pantalla */}
+              <OSDActionButton
+                icon={Maximize2}
+                label={resizeMode === 'cover' ? 'Ajuste: Llenar' : 'Ajuste: Contener'}
+                onPress={toggleResizeMode}
+                onFocus={triggerOSD}
+              />
+
+              {/* 11. Salir a la lista de canales */}
+              <OSDActionButton
+                icon={ArrowLeft}
+                label="Salir"
+                onPress={() => router.back()}
+                onFocus={triggerOSD}
+              />
+            </ScrollView>
           </View>
-          
-          <FlatList
-            data={filteredChannels}
-            keyExtractor={ch => ch.id}
-            style={s.panelList}
-            contentContainerStyle={{ paddingBottom: scale(100) }}
-            initialNumToRender={10}
-            windowSize={5}
-            removeClippedSubviews={true}
-            renderItem={({ item: ch }) => {
-              const isActive = ch.id === activeChannel.id;
-              return (
-                <Pressable
-                  focusable
-                  onPress={() => {
-                    setActiveChannel(ch);
-                    setShowPanel(false);
-                  }}
-                  style={({focused}: any) => [
-                    s.panelItem,
-                    isActive && s.panelItemActive,
-                    focused && s.panelItemFocused
-                  ]}
-                >
-                  <View style={s.panelItemIcon}>
-                    {ch.logo ? (
-                      <Image source={{ uri: ch.logo }} style={s.panelItemLogo} resizeMode="contain" />
-                    ) : (
-                      <Tv size={scale(16)} color={C.textSecondary} />
-                    )}
-                  </View>
-                  <View style={s.panelItemInfo}>
-                    <Text style={[s.panelItemName, isActive && s.panelItemNameActive]} numberOfLines={1}>{ch.name}</Text>
-                    {ch.groupTitle && <Text style={s.panelItemCat} numberOfLines={1}>{ch.groupTitle}</Text>}
-                  </View>
-                </Pressable>
-              );
-            }}
-          />
-        </KeyboardAvoidingView>
+        </View>
       )}
-
     </View>
   );
 }
 
+// ── Estilos Cinematográficos y Optimizados para TV ────────────────────────────
 const s = StyleSheet.create({
   root: {
     flex: 1,
     width: '100%',
     height: '100%',
-    backgroundColor: '#000',
-    ...(Platform.OS === 'web' ? { width: '100vw' as any, height: '100vh' as any, position: 'fixed' as any, top: 0, left: 0 } : {}),
+    backgroundColor: '#000000',
+    ...(Platform.OS === 'web'
+      ? ({ width: '100vw' as any, height: '100vh' as any, position: 'fixed' as any, top: 0, left: 0 } as any)
+      : {}),
   },
   videoAbsolute: {
     position: 'absolute',
@@ -405,215 +1203,657 @@ const s = StyleSheet.create({
   },
   center: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#07070a',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: scale(14),
   },
-  overlay: {
-    ...StyleSheet.absoluteFill as any,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  errorTitle: {
-    fontSize: scale(28),
-    fontWeight: '800',
-    color: '#f87171',
-    marginBottom: scale(10),
-  },
-  errorSub: {
-    fontSize: scale(16),
-    color: 'rgba(255,255,255,0.4)',
-    textAlign: 'center',
-    maxWidth: scale(600),
+  loadingText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: scale(14),
+    fontWeight: '600',
   },
 
-  // ── OSD ──
-  osd: {
+  // ── Overlays de Carga y Error ──
+  bufferOverlay: {
+    position: 'absolute',
+    top: scale(40),
+    right: scale(40),
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+    backgroundColor: 'rgba(6, 6, 10, 0.82)',
+    paddingHorizontal: scale(16),
+    paddingVertical: scale(8),
+    borderRadius: scale(999),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  bufferText: {
+    color: '#ffffff',
+    fontSize: scale(12.5),
+    fontWeight: '700',
+  },
+  errorOverlay: {
+    ...(StyleSheet.absoluteFill as any),
+    backgroundColor: 'rgba(0, 0, 0, 0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  errorCard: {
+    width: scale(480),
+    backgroundColor: '#12121a',
+    borderRadius: scale(18),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    padding: scale(28),
+    alignItems: 'center',
+    gap: scale(12),
+  },
+  errorTitle: {
+    color: '#ffffff',
+    fontSize: scale(18),
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  errorSub: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: scale(13),
+    textAlign: 'center',
+    lineHeight: scale(18),
+  },
+  errorActions: {
+    flexDirection: 'row',
+    gap: scale(12),
+    marginTop: scale(8),
+  },
+  errorBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+    backgroundColor: C.accent,
+    paddingHorizontal: scale(16),
+    paddingVertical: scale(10),
+    borderRadius: scale(10),
+  },
+  errorBtnFocused: {
+    backgroundColor: '#ffffff',
+  },
+  errorBtnTxt: {
+    color: '#000000',
+    fontSize: scale(13),
+    fontWeight: '800',
+  },
+  errorBtnSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: scale(16),
+    paddingVertical: scale(10),
+    borderRadius: scale(10),
+  },
+  errorBtnSecondaryFocused: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  errorBtnSecondaryTxt: {
+    color: '#ffffff',
+    fontSize: scale(13),
+    fontWeight: '700',
+  },
+
+  // ── HUD Toast Flotante ──
+  hudToast: {
+    position: 'absolute',
+    top: scale(36),
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+    backgroundColor: 'rgba(9, 9, 14, 0.94)',
+    paddingHorizontal: scale(22),
+    paddingVertical: scale(11),
+    borderRadius: scale(999),
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 183, 3, 0.45)',
+    zIndex: 90,
+    shadowColor: '#000',
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
+    elevation: 20,
+  },
+  hudToastText: {
+    color: '#ffffff',
+    fontSize: scale(14),
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+
+  // ── GUÍA DUAL: DOS VENTANAS UNIDAS SEMI-TRANSPARENTES ──
+  guideBackdrop: {
+    ...(StyleSheet.absoluteFill as any),
+    zIndex: 70,
+  },
+  guideBackdropGrad: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: '75%',
+  },
+  dualContainer: {
+    flexDirection: 'row',
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: scale(650),
+    backgroundColor: 'transparent',
+  },
+
+  // ── Ventana 1: Categorías ──
+  windowCategories: {
+    width: scale(250),
+    height: '100%',
+    backgroundColor: 'rgba(7, 7, 11, 0.88)',
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(255,255,255,0.08)',
+    paddingTop: scale(24),
+  },
+  guideHead: {
+    paddingHorizontal: scale(20),
+    paddingBottom: scale(16),
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  guideHeadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+  },
+  guideHeadTitle: {
+    color: '#ffffff',
+    fontSize: scale(15),
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  guideHeadSub: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: scale(11),
+    fontWeight: '600',
+    marginTop: scale(2),
+  },
+  catScroll: {
+    flex: 1,
+  },
+  catScrollContent: {
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(12),
+    gap: scale(6),
+  },
+  catPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(12),
+    borderRadius: scale(11),
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  catPillActive: {
+    backgroundColor: 'rgba(255, 183, 3, 0.12)',
+    borderColor: 'rgba(255, 183, 3, 0.28)',
+  },
+  catPillFocused: {
+    backgroundColor: C.accent,
+    borderColor: '#ffffff',
+  },
+  catIconWrap: {
+    width: scale(28),
+    height: scale(28),
+    borderRadius: scale(7),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  catLabel: {
+    flex: 1,
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: scale(13),
+    fontWeight: '700',
+  },
+  catLabelActive: {
+    color: C.accentLight,
+    fontWeight: '900',
+  },
+  catLabelFocused: {
+    color: '#000000',
+    fontWeight: '900',
+  },
+  catCountBadge: {
+    paddingHorizontal: scale(6),
+    paddingVertical: scale(2),
+    borderRadius: scale(6),
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  catCountBadgeActive: {
+    backgroundColor: 'rgba(255, 183, 3, 0.25)',
+  },
+  catCountBadgeFocused: {
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  catCountTxt: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: scale(10.5),
+    fontWeight: '800',
+  },
+  catCountTxtActive: {
+    color: C.accent,
+  },
+  catCountTxtFocused: {
+    color: '#000000',
+  },
+
+  // ── Ventana 2: Canales en Vivo ──
+  windowChannels: {
+    width: scale(400),
+    height: '100%',
+    backgroundColor: 'rgba(12, 12, 18, 0.92)',
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(255,255,255,0.08)',
+    paddingTop: scale(24),
+  },
+  chHeader: {
+    paddingHorizontal: scale(20),
+    paddingBottom: scale(14),
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    gap: scale(10),
+  },
+  chHeaderTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  chHeaderTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+    flex: 1,
+  },
+  chHeaderTitle: {
+    color: '#ffffff',
+    fontSize: scale(15),
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  chHeaderCount: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: scale(11.5),
+    fontWeight: '700',
+  },
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    paddingHorizontal: scale(12),
+    height: scale(36),
+    borderRadius: scale(8),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  searchInput: {
+    flex: 1,
+    color: '#ffffff',
+    fontSize: scale(12.5),
+    fontWeight: '600',
+    paddingVertical: 0,
+  },
+  searchClear: {
+    padding: scale(4),
+  },
+  chList: {
+    flex: 1,
+  },
+  chListContent: {
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(14),
+    gap: scale(6),
+  },
+  chItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(12),
+    paddingVertical: scale(8),
+    paddingHorizontal: scale(10),
+    borderRadius: scale(12),
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  chItemCurrent: {
+    backgroundColor: 'rgba(255, 183, 3, 0.1)',
+    borderColor: 'rgba(255, 183, 3, 0.3)',
+  },
+  chItemFocused: {
+    backgroundColor: C.accent,
+    borderColor: '#ffffff',
+  },
+  chLogoBox: {
+    width: scale(44),
+    height: scale(44),
+    borderRadius: scale(10),
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  chLogoBoxFocused: {
+    backgroundColor: '#ffffff',
+  },
+  chLogoImg: {
+    width: '80%',
+    height: '80%',
+  },
+  chInfoBox: {
+    flex: 1,
+  },
+  chName: {
+    color: '#ffffff',
+    fontSize: scale(14),
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  chNameCurrent: {
+    color: C.accentLight,
+  },
+  chNameFocused: {
+    color: '#000000',
+  },
+  chMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: scale(2),
+  },
+  chMetaTxt: {
+    color: 'rgba(255,255,255,0.48)',
+    fontSize: scale(11),
+    fontWeight: '600',
+  },
+  chMetaTxtFocused: {
+    color: 'rgba(0,0,0,0.7)',
+  },
+  chBadgesWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+  },
+  badgeLiveOn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(5),
+    backgroundColor: 'rgba(255, 0, 85, 0.2)',
+    paddingHorizontal: scale(7),
+    paddingVertical: scale(3),
+    borderRadius: scale(6),
+    borderWidth: 1,
+    borderColor: 'rgba(255, 0, 85, 0.45)',
+  },
+  badgeLiveOnFocused: {
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderColor: '#000000',
+  },
+  liveOnDot: {
+    width: scale(6),
+    height: scale(6),
+    borderRadius: scale(3),
+    backgroundColor: '#ff0055',
+  },
+  liveOnTxt: {
+    color: '#ff80a6',
+    fontSize: scale(9.5),
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  liveOnTxtFocused: {
+    color: '#000000',
+  },
+  emptyWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: scale(40),
+    paddingHorizontal: scale(20),
+    gap: scale(8),
+  },
+  emptyTitle: {
+    color: '#ffffff',
+    fontSize: scale(14),
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  emptySub: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: scale(11.5),
+    textAlign: 'center',
+  },
+
+  // ── OSD PROFESIONAL (CONTROLES Y CABECERA) ──
+  osdRoot: {
+    ...(StyleSheet.absoluteFill as any),
+    justifyContent: 'space-between',
+    zIndex: 50,
+  },
+  osdTopGrad: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: scale(180),
+  },
+  osdBottomGrad: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     height: scale(260),
-    justifyContent: 'flex-end',
-    zIndex: 20,
   },
-  osdContent: {
+
+  // ── Cabecera Superior del OSD ──
+  osdTopBar: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
+    paddingTop: scale(36),
     paddingHorizontal: scale(48),
-    paddingBottom: scale(48),
   },
-  osdLeft: {
-    flex: 1,
-    gap: scale(8),
-    paddingRight: scale(40),
-  },
-  osdCatBadge: {
-    backgroundColor: C.accentGlow,
-    borderWidth: 1,
-    borderColor: C.accentBorder,
-    paddingVertical: scale(4),
-    paddingHorizontal: scale(14),
-    borderRadius: scale(20),
-    alignSelf: 'flex-start',
-  },
-  osdCatText: {
-    fontSize: scale(12),
-    fontWeight: '800',
-    color: C.accentLight,
-    letterSpacing: 1.5,
-  },
-  osdChannelName: {
-    fontSize: scale(44),
-    fontWeight: '900',
-    color: '#fff',
-    letterSpacing: -0.5,
-  },
-  osdMeta: {
-    fontSize: scale(18),
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.55)',
-  },
-
-  // ── OSD Controls ──
-  osdControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(12),
-  },
-  osdBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(8),
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    padding: scale(14),
-    borderRadius: scale(40),
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  osdBtnFocused: {
-    backgroundColor: '#fff',
-    borderColor: C.accent,
-    transform: [{ scale: 1.05 }],
-  },
-  osdBtnLabel: {
-    fontSize: scale(14),
-    fontWeight: '800',
-    color: '#000',
-    marginLeft: scale(4),
-  },
-
-  // ── Side Panel ──
-  panelContainer: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    right: 0,
-    width: '45%',
-    backgroundColor: C.bgPanel,
-    borderLeftWidth: 1,
-    borderLeftColor: 'rgba(255,255,255,0.1)',
-    zIndex: 50,
-    shadowColor: '#000',
-    shadowOffset: { width: -10, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 20,
-  },
-  panelHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: scale(32),
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-  },
-  panelTitle: {
-    fontSize: scale(22),
-    fontWeight: '900',
-    color: '#fff',
-    letterSpacing: 2,
-  },
-  panelClose: {
-    padding: scale(8),
-    borderRadius: scale(20),
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  panelCloseFocused: {
-    backgroundColor: C.accent,
-    transform: [{ scale: 1.1 }],
-  },
-  panelSearchContainer: {
-    paddingHorizontal: scale(24),
-    paddingTop: scale(16),
-  },
-  panelSearchInput: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    color: '#fff',
-    fontSize: scale(16),
-    paddingHorizontal: scale(16),
-    paddingVertical: scale(12),
-    borderRadius: scale(12),
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  panelSearchInputFocused: {
-    borderColor: C.accent,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    transform: [{ scale: 1.02 }],
-  },
-  panelList: {
-    flex: 1,
-    padding: scale(24),
-  },
-  panelItem: {
+  osdChannelLockup: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: scale(16),
-    padding: scale(16),
-    borderRadius: scale(16),
-    marginBottom: scale(8),
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderWidth: 2,
-    borderColor: 'transparent',
   },
-  panelItemActive: {
-    backgroundColor: 'rgba(217, 119, 6, 0.1)',
-    borderColor: 'rgba(217, 119, 6, 0.3)',
-  },
-  panelItemFocused: {
-    backgroundColor: 'rgba(255,183,3,0.18)',
-    borderColor: C.accent,
-    transform: [{ scale: 1.02 }],
-  },
-  panelItemIcon: {
-    width: scale(48),
-    height: scale(48),
-    borderRadius: scale(12),
-    backgroundColor: 'rgba(255,255,255,0.05)',
+  osdLogoBox: {
+    width: scale(64),
+    height: scale(64),
+    borderRadius: scale(14),
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  panelItemLogo: {
-    width: '70%',
-    height: '70%',
+  osdLogoImg: {
+    width: '85%',
+    height: '85%',
   },
-  panelItemInfo: {
-    flex: 1,
+  osdChannelDetails: {
+    gap: scale(4),
   },
-  panelItemName: {
-    fontSize: scale(18),
+  osdBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+  },
+  badgeLive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(5),
+    backgroundColor: '#ff0055',
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(3),
+    borderRadius: scale(4),
+  },
+  badgeLiveDot: {
+    width: scale(6),
+    height: scale(6),
+    borderRadius: scale(3),
+    backgroundColor: '#ffffff',
+  },
+  badgeLiveText: {
+    color: '#ffffff',
+    fontSize: scale(10.5),
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  osdTagBadge: {
+    backgroundColor: 'rgba(255, 183, 3, 0.18)',
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(3),
+    borderRadius: scale(4),
+    borderWidth: 1,
+    borderColor: 'rgba(255, 183, 3, 0.4)',
+  },
+  osdTagBadgeTxt: {
+    color: C.accent,
+    fontSize: scale(10.5),
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  osdCountryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(4),
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(3),
+    borderRadius: scale(4),
+  },
+  osdCountryBadgeTxt: {
+    color: '#ffffff',
+    fontSize: scale(10.5),
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.8)',
-    marginBottom: scale(4),
   },
-  panelItemNameActive: {
-    color: C.accentLight,
+  badgeResolution: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: scale(7),
+    paddingVertical: scale(3),
+    borderRadius: scale(4),
+  },
+  badgeResolutionTxt: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: scale(10),
+    fontWeight: '800',
+  },
+  osdChannelName: {
+    color: '#ffffff',
+    fontSize: scale(28),
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  osdTopRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(14),
+  },
+  volumeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(6),
+    backgroundColor: 'rgba(255, 183, 3, 0.12)',
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(6),
+    borderRadius: scale(8),
+    borderWidth: 1,
+    borderColor: 'rgba(255, 183, 3, 0.3)',
+  },
+  volumeBadgeTxt: {
+    color: C.accent,
+    fontSize: scale(12),
+    fontWeight: '800',
+  },
+  mutedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(6),
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(6),
+    borderRadius: scale(8),
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+  },
+  mutedBadgeTxt: {
+    color: '#f87171',
+    fontSize: scale(12),
+    fontWeight: '800',
+  },
+  clockWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(6),
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: scale(14),
+    paddingVertical: scale(6),
+    borderRadius: scale(8),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  clockTxt: {
+    color: '#ffffff',
+    fontSize: scale(13),
+    fontWeight: '800',
+  },
+
+  // ── Barra de Botones Inferior del OSD ──
+  osdBottomBar: {
+    paddingBottom: scale(36),
+    paddingHorizontal: scale(36),
+  },
+  osdControlsTrack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+    paddingHorizontal: scale(12),
+  },
+  osdActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: scale(16),
+    height: scale(46),
+    borderRadius: scale(23),
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  osdActionBtnFocused: {
+    backgroundColor: '#ffffff',
+    borderColor: '#ffffff',
+  },
+  osdActionBtnText: {
+    color: '#ffffff',
+    fontSize: scale(12.5),
+    fontWeight: '700',
+  },
+  osdActionBtnTextFocused: {
+    color: '#000000',
     fontWeight: '900',
   },
-  panelItemCat: {
-    fontSize: scale(14),
-    color: 'rgba(255,255,255,0.4)',
+  osdActionBtnTextActive: {
+    color: '#000000',
+    fontWeight: '900',
   },
 });

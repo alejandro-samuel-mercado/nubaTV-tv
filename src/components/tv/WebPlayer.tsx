@@ -16,6 +16,10 @@ interface Props {
   uri: string;
   fallbackUri?: string;
   controls?: boolean;
+  paused?: boolean;
+  muted?: boolean;
+  volume?: number;
+  resizeMode?: 'contain' | 'cover';
   onPlaybackStatusUpdate?: (status: {
     isLoaded: boolean;
     isPlaying?: boolean;

@@ -22,6 +22,10 @@ interface Props {
   uri: string;
   fallbackUri?: string;
   controls?: boolean;
+  paused?: boolean;
+  muted?: boolean;
+  volume?: number;
+  resizeMode?: 'contain' | 'cover';
   onPlaybackStatusUpdate?: (status: {
     isLoaded: boolean;
     isPlaying?: boolean;
@@ -65,7 +69,17 @@ async function getHlsClass(): Promise<any> {
 }
 
 const WebPlayer = forwardRef<WebPlayerHandle, Props>(function WebPlayer(
-  { uri, fallbackUri, controls = false, onPlaybackStatusUpdate, onError },
+  {
+    uri,
+    fallbackUri,
+    controls = false,
+    paused,
+    muted,
+    volume,
+    resizeMode = "contain",
+    onPlaybackStatusUpdate,
+    onError,
+  },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -76,6 +90,25 @@ const WebPlayer = forwardRef<WebPlayerHandle, Props>(function WebPlayer(
     setCurrentUri(uri);
     hasFallbackRetried.current = false;
   }, [uri]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (paused) {
+      video.pause();
+    } else if (video.paused && video.readyState >= 2) {
+      video.play().catch(() => {});
+    }
+  }, [paused]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = Boolean(muted);
+    if (typeof volume === "number") {
+      video.volume = Math.max(0, Math.min(1, volume));
+    }
+  }, [muted, volume]);
 
   useImperativeHandle(ref, () => ({
     playAsync: async () => {
@@ -266,7 +299,7 @@ const WebPlayer = forwardRef<WebPlayerHandle, Props>(function WebPlayer(
           left: 0,
           width: '100%',
           height: '100%',
-          objectFit: 'contain',
+          objectFit: resizeMode || 'contain',
           backgroundColor: '#000',
         }}
       />
