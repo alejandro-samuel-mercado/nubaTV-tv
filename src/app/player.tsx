@@ -54,6 +54,7 @@ import RemoteImage from '../components/tv/RemoteImage';
 import VodPlayer from '../components/tv/VodPlayer';
 import WebPlayer from '../components/tv/WebPlayer';
 import { API_URL, Channel, useGlobal } from '../contexts/GlobalContext';
+import { recordRecentChannel } from '../utils/recentChannels';
 import { scale } from '../lib/scale';
 import { C } from '../lib/tvColors';
 
@@ -254,6 +255,9 @@ function ChannelPlayer({
     setIsNativeError(false);
     setIsNativeBuffering(true);
     triggerOSD();
+    if (activeChannel?.id) {
+      recordRecentChannel(activeChannel.id);
+    }
   }, [activeChannel, triggerOSD]);
 
   // Mantener OSD abierto si la guía está abierta, o manejar temporizador
