@@ -1,13 +1,13 @@
 import { LinearGradient } from "expo-linear-gradient";
 import React, { memo } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import RemoteImage from "./RemoteImage";
 
 /**
  * BackdropBackground — Fondo cinematográfico para TV:
- * - Imagen completa de fondo a pantalla completa.
+ * - Capa ambiental difuminada de relleno para no dejar vacíos.
+ * - Imagen principal en alta fidelidad ajustada al tamaño de pantalla sin sobre-escalar ni recortar.
  * - Niebla oscura orgánica multicapa a pantalla completa (SIN cajas ni recortes rectangulares).
- * - Todas las capas usan StyleSheet.absoluteFill para que no exista ninguna línea de corte ni bordes geométricos.
  * - Fundido natural en el lateral izquierdo y la base inferior, manteniendo el tercio superior-derecho
  *   completamente nítido, despejado y brillante.
  */
@@ -21,16 +21,27 @@ function BackdropBackground({
 
   return (
     <View style={s.layer} pointerEvents="none">
-      {/* 1. Imagen completa de fondo */}
+      {/* 1. Capa ambiental difuminada de fondo: llena la pantalla suavemente sin vacíos */}
       <RemoteImage
         uri={uri}
         style={StyleSheet.absoluteFill as any}
         contentFit="cover"
+        blurRadius={Platform.OS === "web" ? 35 : 25}
+        transition={250}
+        priority="low"
+      />
+
+      {/* 2. Imagen principal nítida ajustada exactamente al tamaño de pantalla (contain, sin sobre-escalar) */}
+      <RemoteImage
+        uri={uri}
+        style={StyleSheet.absoluteFill as any}
+        contentFit="contain"
+        contentPosition="right"
         transition={250}
         priority="high"
       />
 
-      {/* 2. Niebla oscura lateral izquierda: profunda en el borde, difuminándose suavemente hacia el centro */}
+      {/* 3. Niebla oscura lateral izquierda: profunda en el borde, difuminándose suavemente hacia el centro */}
       <LinearGradient
         colors={[
           "#080808",
@@ -48,7 +59,7 @@ function BackdropBackground({
         pointerEvents="none"
       />
 
-      {/* 3. Niebla oscura inferior: base densa que acoge las tarjetas y se disipa hacia arriba de forma continua */}
+      {/* 4. Niebla oscura inferior: base densa que acoge las tarjetas y se disipa hacia arriba de forma continua */}
       <LinearGradient
         colors={[
           "#080808",
@@ -66,7 +77,7 @@ function BackdropBackground({
         pointerEvents="none"
       />
 
-      {/* 4. Niebla diagonal orgánica: brota desde la esquina inferior-izquierda difuminándose sin formas rectas */}
+      {/* 5. Niebla diagonal orgánica: brota desde la esquina inferior-izquierda difuminándose sin formas rectas */}
       <LinearGradient
         colors={[
           "#080808",
@@ -83,7 +94,7 @@ function BackdropBackground({
         pointerEvents="none"
       />
 
-      {/* 5. Velo de difusión suave envolvente para textura de humo realista */}
+      {/* 6. Velo de difusión suave envolvente para textura de humo realista */}
       <LinearGradient
         colors={[
           "rgba(8,8,8,0.65)",

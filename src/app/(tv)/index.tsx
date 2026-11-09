@@ -735,10 +735,10 @@ const s = StyleSheet.create({
   },
   loadText: { color: C.textSecondary, fontSize: scale(13) },
 
-  // ── 1. Sector Hero Fijo (Tamaño Majestuoso Reducido Sutilmente) ──
+  // ── 1. Sector Hero Fijo (Tamaño Normal Restaurado) ──
   fixedHeroContainer: {
-    paddingTop: scale(70),
-    paddingBottom: scale(10),
+    paddingTop: scale(88),
+    paddingBottom: scale(20),
     zIndex: 10,
   },
 
@@ -756,26 +756,26 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(255, 183, 3, 0.15)",
     borderWidth: 1,
     borderColor: "rgba(255, 183, 3, 0.35)",
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(4),
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(5),
     borderRadius: scale(14),
     alignSelf: "flex-start",
-    marginBottom: scale(8),
+    marginBottom: scale(12),
   },
   taglineChipText: {
     color: C.accent,
-    fontSize: scale(11.5),
+    fontSize: scale(12),
     fontWeight: "800",
     letterSpacing: 0.8,
   },
 
   heroTitle: {
     fontFamily: "Bangers",
-    fontSize: scale(50),
+    fontSize: scale(56),
     color: C.accent,
     letterSpacing: 1,
-    marginBottom: scale(8),
-    lineHeight: scale(54),
+    marginBottom: scale(10),
+    lineHeight: scale(60),
     textShadowColor: "rgba(0,0,0,0.85)",
     textShadowOffset: { width: 1, height: 2 },
     textShadowRadius: 8,
@@ -785,10 +785,10 @@ const s = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    marginBottom: scale(8),
+    marginBottom: scale(12),
   },
   heroMetaText: {
-    fontSize: scale(14),
+    fontSize: scale(14.5),
     color: "rgba(255,255,255,0.88)",
     fontWeight: "600",
   },
@@ -796,13 +796,13 @@ const s = StyleSheet.create({
   heroBadges: {
     flexDirection: "row",
     gap: scale(8),
-    marginBottom: scale(10),
+    marginBottom: scale(14),
     flexWrap: "wrap",
   },
   badge: {
     backgroundColor: "rgba(40,40,40,0.75)",
     paddingHorizontal: scale(9),
-    paddingVertical: scale(3),
+    paddingVertical: scale(3.5),
     borderRadius: scale(5),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.2)",
@@ -811,27 +811,27 @@ const s = StyleSheet.create({
     borderColor: "rgba(255,183,3,0.45)",
     backgroundColor: "rgba(255,183,3,0.15)",
   },
-  badgeText: { fontSize: scale(11.5), color: "#fff", fontWeight: "700" },
+  badgeText: { fontSize: scale(12), color: "#fff", fontWeight: "700" },
 
   heroDesc: {
-    fontSize: scale(14),
+    fontSize: scale(14.5),
     color: "rgba(255,255,255,0.85)",
-    lineHeight: scale(20),
-    marginBottom: scale(14),
-    maxWidth: scale(680),
+    lineHeight: scale(22),
+    marginBottom: scale(18),
+    maxWidth: scale(720),
   },
 
   heroButtons: {
     flexDirection: "row",
-    gap: scale(12),
+    gap: scale(14),
   },
   btnPlay: {
     flexDirection: "row",
     alignItems: "center",
     gap: scale(10),
     backgroundColor: C.accent,
-    paddingHorizontal: scale(22),
-    height: scale(42),
+    paddingHorizontal: scale(26),
+    height: scale(46),
     borderRadius: scale(10),
     borderWidth: 2,
     borderColor: "transparent",
@@ -840,15 +840,15 @@ const s = StyleSheet.create({
     backgroundColor: "#fff",
     borderColor: "#fff",
   },
-  btnPlayText: { color: "#000", fontSize: scale(14.5), fontWeight: "900" },
+  btnPlayText: { color: "#000", fontSize: scale(15), fontWeight: "900" },
 
   btnDetails: {
     flexDirection: "row",
     alignItems: "center",
     gap: scale(10),
     backgroundColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: scale(20),
-    height: scale(42),
+    paddingHorizontal: scale(24),
+    height: scale(46),
     borderRadius: scale(10),
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.2)",
@@ -857,7 +857,7 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.28)",
     borderColor: "#fff",
   },
-  btnDetailsText: { color: "#fff", fontSize: scale(14), fontWeight: "800" },
+  btnDetailsText: { color: "#fff", fontSize: scale(14.5), fontWeight: "800" },
 
   // ── Hero Selector (Cards de portada integradas al scroll) ──
   heroSelectorWrapper: {

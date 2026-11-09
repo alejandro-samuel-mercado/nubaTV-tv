@@ -1,4 +1,4 @@
-import { Image, ImageContentFit } from "expo-image";
+import { Image, ImageContentFit, ImageContentPosition } from "expo-image";
 import React, { memo } from "react";
 import { StyleProp } from "react-native";
 import type { ImageStyle } from "expo-image";
@@ -7,6 +7,8 @@ interface Props {
   uri?: string | null;
   style?: StyleProp<ImageStyle>;
   contentFit?: ImageContentFit;
+  contentPosition?: ImageContentPosition;
+  blurRadius?: number;
   transition?: number;
   priority?: "low" | "normal" | "high";
 }
@@ -20,6 +22,8 @@ function RemoteImage({
   uri,
   style,
   contentFit = "cover",
+  contentPosition,
+  blurRadius,
   transition = 220,
   priority = "normal",
 }: Props) {
@@ -28,6 +32,8 @@ function RemoteImage({
       source={uri ? { uri } : undefined}
       style={style}
       contentFit={contentFit}
+      contentPosition={contentPosition}
+      blurRadius={blurRadius}
       transition={transition}
       cachePolicy="memory-disk"
       priority={priority}
