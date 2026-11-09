@@ -232,10 +232,12 @@ export default function TVLayout() {
     for (const item of NAV_ITEMS) {
       const node = navRefs.current[item.key];
       if (node) {
-        const h = findNodeHandle(node);
-        if (typeof h === "number" && h > 0) {
-          handles[item.key] = h;
-        }
+        try {
+          const h = findNodeHandle(node);
+          if (typeof h === "number" && h > 0) {
+            handles[item.key] = h;
+          }
+        } catch {}
       }
     }
     setNavHandles(handles);

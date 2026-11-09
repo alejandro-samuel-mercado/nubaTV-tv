@@ -3,6 +3,7 @@ import {
   Animated,
   Easing,
   findNodeHandle,
+  Platform,
   Pressable,
   StyleProp,
   StyleSheet,
@@ -10,6 +11,16 @@ import {
 } from "react-native";
 import { scale } from "../../lib/scale";
 import { C } from "../../lib/tvColors";
+
+const safeFindNodeHandle = (node: any): number | undefined => {
+  if (Platform.OS === "web" || !node) return undefined;
+  try {
+    const handle = findNodeHandle(node);
+    return typeof handle === "number" && handle > 0 ? handle : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 // Pressable con props de foco de Android TV (nextFocus*, hasTVPreferredFocus).
 const TVPressable = Pressable as any;
@@ -99,10 +110,11 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
   const ringAnim = useRef(new Animated.Value(0)).current;
   const throttleTimer = useRef<any>(null);
 
-  // Actualizar handle del nodo nativo para trapFocusRight
+  // Actualizar handle del nodo nativo para trapFocusRight (solo plataformas nativas)
   const updateSelfHandle = useCallback(() => {
+    if (Platform.OS === "web") return;
     if (trapFocusRight && innerRef.current) {
-      const handle = findNodeHandle(innerRef.current);
+      const handle = safeFindNodeHandle(innerRef.current);
       if (typeof handle === "number" && handle > 0) {
         setSelfNodeHandle((prev) => (prev !== handle ? handle : prev));
       }

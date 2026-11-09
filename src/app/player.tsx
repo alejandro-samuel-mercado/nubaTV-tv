@@ -61,6 +61,16 @@ import { C } from '../lib/tvColors';
 const TVFocusGuide: any =
   (require('react-native') as any).TVFocusGuideView ?? View;
 
+const safeFindNodeHandle = (node: any): number | undefined => {
+  if (Platform.OS === 'web' || !node) return undefined;
+  try {
+    const handle = findNodeHandle(node);
+    return typeof handle === 'number' && handle > 0 ? handle : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const useTVEventHandlerSafe: (handler: (evt: any) => void) => void =
   Platform.OS !== 'web'
     ? (require('react-native') as any).useTVEventHandler ?? (() => {})
@@ -518,7 +528,7 @@ function ChannelPlayer({
     for (const cat of categories) {
       const node = catRefs.current[cat.key];
       if (node) {
-        const h = findNodeHandle(node);
+        const h = safeFindNodeHandle(node);
         if (typeof h === 'number' && h > 0) handles[cat.key] = h;
       }
     }
@@ -551,7 +561,7 @@ function ChannelPlayer({
   const updateFirstChannelHandle = useCallback(() => {
     if (Platform.OS === 'web') return;
     if (firstChannelRef.current) {
-      const h = findNodeHandle(firstChannelRef.current);
+      const h = safeFindNodeHandle(firstChannelRef.current);
       if (typeof h === 'number' && h > 0) setFirstChannelHandle(h);
     }
   }, []);
