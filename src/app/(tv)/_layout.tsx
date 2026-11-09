@@ -4,6 +4,7 @@ import {
       Clapperboard,
       Compass,
       Film,
+      Flame,
       Heart,
       Home,
       Settings,
@@ -66,6 +67,12 @@ const NAV_ITEMS = [
     label: "Kids",
     icon: Smile,
     route: "/(tv)/kids",
+  },
+  {
+    key: "anime",
+    label: "Anime",
+    icon: Flame,
+    route: "/(tv)/anime",
   },
   {
     key: "explore",
