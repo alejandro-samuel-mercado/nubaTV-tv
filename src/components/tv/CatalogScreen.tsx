@@ -859,10 +859,8 @@ const s = StyleSheet.create({
 
   // ── Hero Container ──
   heroContainer: {
-    minHeight: HERO_CONTAINER_H,
-    justifyContent: "space-between",
     paddingTop: scale(88),
-    paddingBottom: scale(20),
+    paddingBottom: scale(6),
   },
   heroTopRow: {
     flexDirection: "row",
@@ -870,7 +868,7 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
     paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(40),
-    paddingBottom: scale(14),
+    paddingBottom: scale(6),
   },
   heroLeft: {
     flex: 1,
@@ -1011,8 +1009,8 @@ const s = StyleSheet.create({
 
   // ── Hero Selector (Cards inferiores dentro del Hero) ──
   heroSelectorWrapper: {
-    marginTop: scale(10),
-    paddingTop: scale(10),
+    marginTop: scale(6),
+    paddingTop: scale(4),
     overflow: "visible",
   },
   heroSelectorTrack: {
@@ -1059,7 +1057,7 @@ const s = StyleSheet.create({
 
   // ── Secciones de Catálogo ──
   contentArea: {
-    marginTop: scale(24),
+    marginTop: scale(6),
   },
   contentSection: {
     marginBottom: scale(16),
