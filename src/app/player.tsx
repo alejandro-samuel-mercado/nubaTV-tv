@@ -105,24 +105,27 @@ interface GuideCategory {
   filter: (ch: Channel) => boolean;
 }
 
-// ── Botón de Acción del OSD ──────────────────────────────────────────────────
+// ── Botón de Acción Profesional del OSD (Compacto y Estilizado) ──────────────
 function OSDActionButton({
   icon: Icon,
-  label,
   onPress,
   onFocus,
   active,
   accentColor,
   hasPreferredFocus,
+  isHero,
 }: {
   icon: any;
-  label: string;
+  label?: string;
   onPress: () => void;
   onFocus?: () => void;
   active?: boolean;
   accentColor?: string;
   hasPreferredFocus?: boolean;
+  isHero?: boolean;
 }) {
+  const iconSize = isHero ? scale(24) : scale(18);
+
   return (
     <Focusable
       hasTVPreferredFocus={hasPreferredFocus}
@@ -132,34 +135,35 @@ function OSDActionButton({
       showFocusRing={false}
       style={[
         s.osdActionBtn,
+        isHero && s.osdActionBtnHero,
         active && {
-          backgroundColor: accentColor || C.accent,
           borderColor: accentColor || C.accent,
+          backgroundColor: accentColor ? `${accentColor}25` : 'rgba(255, 183, 3, 0.2)',
         },
       ]}
       focusedStyle={[
         s.osdActionBtnFocused,
+        isHero && s.osdActionBtnHeroFocused,
         accentColor ? { borderColor: accentColor } : undefined,
       ]}
     >
-      {({ focused }) => (
-        <>
+      {({ focused }) => {
+        let iconColor = '#ffffff';
+        if (focused) {
+          iconColor = '#000000';
+        } else if (active) {
+          iconColor = accentColor || C.accent;
+        }
+
+        return (
           <Icon
-            size={scale(18)}
-            color={focused ? '#000000' : active ? (accentColor ? '#ffffff' : '#000000') : '#ffffff'}
+            size={iconSize}
+            color={iconColor}
             strokeWidth={focused ? 2.5 : 2}
+            fill={active && (Icon === Heart || Icon === Play) ? iconColor : 'none'}
           />
-          <Text
-            style={[
-              s.osdActionBtnText,
-              focused && s.osdActionBtnTextFocused,
-              active && !focused && s.osdActionBtnTextActive,
-            ]}
-          >
-            {label}
-          </Text>
-        </>
-      )}
+        );
+      }}
     </Focusable>
   );
 }
@@ -211,6 +215,7 @@ function ChannelPlayer({
   const [selectedCategoryKey, setSelectedCategoryKey] = useState('all');
   const [guideSearch, setGuideSearch] = useState('');
   const [currentTime, setCurrentTime] = useState('');
+  const [focusedAction, setFocusedAction] = useState('Pausar Transmisión');
 
   // HUD de notificación flotante rápida (Volumen, Silencio, Sincronizado, etc.)
   const [hud, setHud] = useState<{ text: string; icon?: any } | null>(null);
@@ -1084,110 +1089,120 @@ function ChannelPlayer({
             </View>
           </View>
 
-          {/* ── Barra de Botones Convencional Completa e Interactiva (Inferior) ── */}
+          {/* ── Barra de Control Profesional Cinematográfica (Inferior) ── */}
           <View style={s.osdBottomBar} pointerEvents="box-none">
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={s.osdControlsTrack}
-            >
+            {/* Tooltip flotante dinámico con el nombre de la acción enfocada */}
+            <View style={s.osdTooltipWrap} pointerEvents="none">
+              <View style={s.osdTooltipPill}>
+                <View style={s.osdTooltipDot} />
+                <Text style={s.osdTooltipText}>{focusedAction}</Text>
+              </View>
+            </View>
+
+            {/* Dock de Control Compacto, Centrado y de Alta Fidelidad */}
+            <View style={s.osdDock}>
               {/* 1. Canal Anterior */}
               <OSDActionButton
                 icon={SkipBack}
-                label="Anterior"
                 onPress={prevChannel}
-                onFocus={triggerOSD}
+                onFocus={() => {
+                  triggerOSD();
+                  setFocusedAction('Canal Anterior');
+                }}
               />
 
-              {/* 2. Pausar / Reanudar (Funcional de Verdad) */}
+              {/* 2. Pausar / Reanudar (Botón Central Hero) */}
               <OSDActionButton
                 hasPreferredFocus
+                isHero
                 icon={isPaused ? Play : Pause}
-                label={isPaused ? 'Reanudar' : 'Pausar'}
                 onPress={togglePlayPause}
-                onFocus={triggerOSD}
+                onFocus={() => {
+                  triggerOSD();
+                  setFocusedAction(isPaused ? 'Reanudar Transmisión' : 'Pausar Transmisión');
+                }}
                 active={isPaused}
                 accentColor="#f59e0b"
               />
 
-              {/* 3. Sincronizar Vivo */}
-              <OSDActionButton
-                icon={RotateCcw}
-                label="Sincronizar Vivo"
-                onPress={syncLive}
-                onFocus={triggerOSD}
-              />
-
-              {/* 4. Canal Siguiente */}
+              {/* 3. Canal Siguiente */}
               <OSDActionButton
                 icon={SkipForward}
-                label="Siguiente"
                 onPress={nextChannel}
-                onFocus={triggerOSD}
+                onFocus={() => {
+                  triggerOSD();
+                  setFocusedAction('Siguiente Canal');
+                }}
               />
 
-              {/* 5. Silenciar / Desilenciar */}
+              {/* Separador sutil */}
+              <View style={s.osdDockDivider} />
+
+              {/* 4. Sincronizar Vivo */}
+              <OSDActionButton
+                icon={RotateCcw}
+                onPress={syncLive}
+                onFocus={() => {
+                  triggerOSD();
+                  setFocusedAction('Sincronizar en Vivo');
+                }}
+              />
+
+              {/* 5. Guía de Canales (Abre las dos ventanas unidas) */}
+              <OSDActionButton
+                icon={List}
+                onPress={openGuide}
+                onFocus={() => {
+                  triggerOSD();
+                  setFocusedAction('Guía de Canales');
+                }}
+                accentColor={C.accent}
+              />
+
+              {/* 6. Silenciar / Reactivar Audio */}
               <OSDActionButton
                 icon={isMuted ? VolumeX : Volume2}
-                label={isMuted ? 'Desilenciar' : 'Silenciar'}
                 onPress={toggleMute}
-                onFocus={triggerOSD}
+                onFocus={() => {
+                  triggerOSD();
+                  setFocusedAction(isMuted ? 'Reactivar Sonido' : 'Silenciar Audio');
+                }}
                 active={isMuted}
                 accentColor="#ef4444"
               />
 
-              {/* 6. Bajar Volumen */}
-              <OSDActionButton
-                icon={Volume1}
-                label="Volumen -"
-                onPress={volumeDown}
-                onFocus={triggerOSD}
-              />
-
-              {/* 7. Subir Volumen */}
-              <OSDActionButton
-                icon={Volume2}
-                label="Volumen +"
-                onPress={volumeUp}
-                onFocus={triggerOSD}
-              />
-
-              {/* 8. Guía de Canales (Abre las dos ventanas unidas) */}
-              <OSDActionButton
-                icon={List}
-                label="Guía de Canales"
-                onPress={openGuide}
-                onFocus={triggerOSD}
-                active={true}
-                accentColor={C.accent}
-              />
-
-              {/* 9. Favorito */}
+              {/* 7. Favorito */}
               <OSDActionButton
                 icon={Heart}
-                label={isCurrentFav ? 'En Favoritos' : 'Favorito'}
                 onPress={handleToggleFav}
-                onFocus={triggerOSD}
+                onFocus={() => {
+                  triggerOSD();
+                  setFocusedAction(isCurrentFav ? 'Quitar de Favoritos' : 'Guardar en Favoritos');
+                }}
                 active={isCurrentFav}
                 accentColor="#ff0055"
               />
 
-              {/* 10. Ajuste de Pantalla */}
+              {/* 8. Ajuste de Pantalla */}
               <OSDActionButton
                 icon={Maximize2}
-                label={resizeMode === 'cover' ? 'Ajuste: Llenar' : 'Ajuste: Contener'}
                 onPress={toggleResizeMode}
-                onFocus={triggerOSD}
+                onFocus={() => {
+                  triggerOSD();
+                  setFocusedAction(resizeMode === 'cover' ? 'Ajuste: Llenar Pantalla' : 'Ajuste: Proporción Original');
+                }}
               />
 
-              {/* 11. Salir a la lista de canales */}
+              {/* 9. Salir a la lista de canales */}
               <OSDActionButton
                 icon={ArrowLeft}
-                label="Salir"
                 onPress={() => router.back()}
-                onFocus={triggerOSD}
+                onFocus={() => {
+                  triggerOSD();
+                  setFocusedAction('Salir del Reproductor');
+                }}
               />
-            </ScrollView>
+            </View>
           </View>
         </View>
       )}
@@ -1831,43 +1846,94 @@ const s = StyleSheet.create({
     fontWeight: '800',
   },
 
-  // ── Barra de Botones Inferior del OSD ──
+  // ── Barra de Botones Inferior del OSD Profesional ──
   osdBottomBar: {
-    paddingBottom: scale(36),
+    paddingBottom: scale(28),
     paddingHorizontal: scale(36),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  osdControlsTrack: {
+  osdTooltipWrap: {
+    alignItems: 'center',
+    marginBottom: scale(10),
+  },
+  osdTooltipPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(6),
+    backgroundColor: 'rgba(12, 12, 18, 0.90)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.16)',
+    paddingHorizontal: scale(14),
+    paddingVertical: scale(5),
+    borderRadius: scale(999),
+  },
+  osdTooltipDot: {
+    width: scale(6),
+    height: scale(6),
+    borderRadius: scale(3),
+    backgroundColor: C.accent,
+  },
+  osdTooltipText: {
+    color: '#ffffff',
+    fontSize: scale(12),
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  osdDock: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: scale(10),
-    paddingHorizontal: scale(12),
+    backgroundColor: 'rgba(12, 12, 18, 0.85)',
+    paddingHorizontal: scale(16),
+    paddingVertical: scale(8),
+    borderRadius: scale(999),
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    shadowColor: '#000000',
+    shadowOpacity: 0.6,
+    shadowRadius: scale(12),
+    elevation: 10,
+  },
+  osdDockDivider: {
+    width: 1,
+    height: scale(24),
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    marginHorizontal: scale(4),
   },
   osdActionBtn: {
-    flexDirection: 'row',
+    width: scale(42),
+    height: scale(42),
+    borderRadius: scale(21),
     alignItems: 'center',
-    gap: scale(8),
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: scale(16),
-    height: scale(46),
-    borderRadius: scale(23),
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+  },
+  osdActionBtnHero: {
+    width: scale(52),
+    height: scale(52),
+    borderRadius: scale(26),
+    backgroundColor: 'rgba(255, 183, 3, 0.18)',
+    borderColor: 'rgba(255, 183, 3, 0.45)',
   },
   osdActionBtnFocused: {
     backgroundColor: '#ffffff',
     borderColor: '#ffffff',
+    transform: [{ scale: 1.08 }],
+    shadowColor: '#ffffff',
+    shadowOpacity: 0.4,
+    shadowRadius: scale(8),
+    elevation: 8,
   },
-  osdActionBtnText: {
-    color: '#ffffff',
-    fontSize: scale(12.5),
-    fontWeight: '700',
-  },
-  osdActionBtnTextFocused: {
-    color: '#000000',
-    fontWeight: '900',
-  },
-  osdActionBtnTextActive: {
-    color: '#000000',
-    fontWeight: '900',
+  osdActionBtnHeroFocused: {
+    backgroundColor: C.accent,
+    borderColor: '#ffffff',
+    transform: [{ scale: 1.1 }],
+    shadowColor: C.accent,
+    shadowOpacity: 0.65,
+    shadowRadius: scale(12),
+    elevation: 12,
   },
 });
