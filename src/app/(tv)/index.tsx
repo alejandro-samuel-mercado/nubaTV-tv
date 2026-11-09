@@ -601,7 +601,7 @@ export default function HomeTvScreen() {
         variant="home"
       />
 
-      {/* ── 1. SECTOR HERO FIJO (PERMANECE ESTÁTICO EN LA PARTE SUPERIOR) ── */}
+      {/* ── 1. SECTOR HERO FIJO (INFO, TÍTULO, SINOPSIS Y BOTÓN REPRODUCIR) ── */}
       <View style={s.fixedHeroContainer}>
         {currentHero && (
           <HeroInfo
@@ -610,18 +610,9 @@ export default function HomeTvScreen() {
             onDetails={handleContentPress}
           />
         )}
-
-        {/* Cards de portadas del Hero */}
-        {heroItems.length > 0 && (
-          <HeroSelector
-            items={heroItems}
-            activeIdx={heroIdx}
-            onSelectHero={handleSelectHero}
-          />
-        )}
       </View>
 
-      {/* ── 2. SECTOR INFERIOR SCROLLABLE (SE DESPLAZA SÓLO EN ESTA ÁREA) ── */}
+      {/* ── 2. SECTOR INFERIOR SCROLLABLE (PORTADAS DEL HERO + SECCIONES DE CATÁLOGO) ── */}
       <View style={s.bottomSectorContainer}>
         {/* Máscara de fundido superior para transición suave hacia el Hero */}
         <LinearGradient
@@ -638,6 +629,15 @@ export default function HomeTvScreen() {
           scrollEventThrottle={16}
           nestedScrollEnabled={true}
         >
+          {/* Cards de portadas del Hero (incluidas en el scroll con el resto) */}
+          {heroItems.length > 0 && (
+            <HeroSelector
+              items={heroItems}
+              activeIdx={heroIdx}
+              onSelectHero={handleSelectHero}
+            />
+          )}
+
           <View style={s.contentArea}>
             {/* Continuar viendo si existe */}
             {continueWatching.length > 0 && (
@@ -755,8 +755,7 @@ const s = StyleSheet.create({
   // ── 1. Sector Hero Fijo (Tamaño Normal Majestuoso) ──
   fixedHeroContainer: {
     paddingTop: scale(88),
-    paddingBottom: scale(20),
-    justifyContent: "space-between",
+    paddingBottom: scale(14),
     zIndex: 10,
   },
 
@@ -885,10 +884,11 @@ const s = StyleSheet.create({
   },
   btnDetailsText: { color: "#fff", fontSize: scale(14.5), fontWeight: "800" },
 
-  // ── Hero Selector (Cards de portada) ──
+  // ── Hero Selector (Cards de portada integradas al scroll) ──
   heroSelectorWrapper: {
-    marginTop: scale(16),
-    paddingTop: scale(4),
+    marginTop: scale(6),
+    marginBottom: scale(10),
+    paddingTop: scale(2),
   },
   heroSelectorHeading: {
     fontSize: scale(12),
