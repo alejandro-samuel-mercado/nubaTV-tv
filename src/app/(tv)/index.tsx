@@ -1,7 +1,7 @@
 import { Bangers_400Regular, useFonts } from "@expo-google-fonts/bangers";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { ChevronRight, Clapperboard, Play, Sparkles } from "lucide-react-native";
+import { ChevronRight, Clapperboard, Info, Play, Sparkles } from "lucide-react-native";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -45,21 +45,22 @@ const formatDuration = (mins?: number) => {
 
 // ── Escalas adaptadas a pantalla TV (con sidebar a la izquierda) ────────
 const SIDEBAR_OFFSET = scale(64);
-const HERO_CONTAINER_H = Math.max(scale(640), Math.round(SH * 0.90));
+const CONTENT_LEFT_PAD = scale(112);
+const HERO_CONTAINER_H = Math.max(scale(400), Math.round(SH * 0.56));
 
 // Cards del selector de portadas dentro del Hero
-const HS_CARD_W = scale(115);
-const HS_CARD_ACTIVE_W = scale(250);
-const HS_CARD_H = scale(155);
+const HS_CARD_W = scale(105);
+const HS_CARD_ACTIVE_W = scale(215);
+const HS_CARD_H = scale(120);
 
 // Cards de secciones de catálogo (filas inferiores)
-const POSTER_W = scale(130);
-const POSTER_H = scale(185);
+const POSTER_W = scale(115);
+const POSTER_H = scale(165);
 const CARD_GAP = scale(14);
-const TREND_W = scale(230);
-const TREND_H = scale(140);
-const CONT_CARD_W = scale(200);
-const CONT_CARD_H = scale(125);
+const TREND_W = scale(215);
+const TREND_H = scale(130);
+const CONT_CARD_W = scale(185);
+const CONT_CARD_H = scale(115);
 const CHANNEL_CARD_W = scale(115);
 
 const keyById = (i: any) => i.id;
@@ -164,6 +165,7 @@ const HeroSelector = memo(function HeroSelector({
 const HeroInfo = memo(function HeroInfo({
   item,
   onPlay,
+  onDetails,
 }: {
   item: NexoContentItem;
   onPlay: (item: NexoContentItem) => void;
@@ -223,7 +225,7 @@ const HeroInfo = memo(function HeroInfo({
 
       {/* Sinopsis */}
       {item.description ? (
-        <Text style={s.heroDesc} numberOfLines={3}>
+        <Text style={s.heroDesc} numberOfLines={2}>
           {item.description}
         </Text>
       ) : null}
@@ -241,6 +243,18 @@ const HeroInfo = memo(function HeroInfo({
           <Play size={scale(15)} color="#000" fill="#000" />
           <Text style={s.btnPlayText}>Reproducir</Text>
         </Focusable>
+
+        {onDetails ? (
+          <Focusable
+            onPress={() => onDetails(item)}
+            scaleFocused={1.05}
+            style={s.btnDetails}
+            focusedStyle={s.btnDetailsFocused}
+          >
+            <Info size={scale(15)} color="#ffffff" />
+            <Text style={s.btnDetailsText}>Detalles</Text>
+          </Focusable>
+        ) : null}
       </View>
     </View>
   );
@@ -588,122 +602,140 @@ export default function HomeTvScreen() {
         variant="home"
       />
 
-      <ScrollView
-        style={s.sectionsScroll}
-        contentContainerStyle={s.sectionsContent}
-        showsVerticalScrollIndicator={false}
-        scrollEventThrottle={16}
-      >
-        {/* ── SECCIÓN HERO: Info arriba + Portadas abajo ── */}
-        <View style={s.heroSectionContainer}>
-          {currentHero && (
-            <HeroInfo
-              item={currentHero}
-              onPlay={handlePlay}
-              onDetails={handleContentPress}
-            />
-          )}
-
-          {/* Cards de portadas del Hero */}
-          {heroItems.length > 0 && (
-            <HeroSelector
-              items={heroItems}
-              activeIdx={heroIdx}
-              onSelectHero={handleSelectHero}
-            />
-          )}
-        </View>
-
-        {/* ── CONTENIDO INFERIOR CON SEPARACIÓN FLUIDA Y COMPACTA ── */}
-        <View style={s.contentArea}>
-          {/* Continuar viendo si existe */}
-          {continueWatching.length > 0 && (
-            <ContinueWatchingRow
-              items={continueWatching}
-              onPress={handleContentPress}
-            />
-          )}
-
-          {/* 1. Tendencia */}
-          {trending.length > 0 && (
-            <TrendingRow
-              items={trending}
-              onPress={handleContentPress}
-              onViewAll={() =>
-                router.push({
-                  pathname: "/(tv)/explore",
-                  params: { sort: "popular" },
-                } as any)
-              }
-            />
-          )}
-
-
-          {/* 3. Películas recién agregadas */}
-          <ContentRow
-            title="Películas recién agregadas"
-            items={movies}
-            onPress={handleContentPress}
-            accentColor={C.accentOrange}
-            viewAllSublabel="Todas las películas"
-            onViewAll={() =>
-              router.push({
-                pathname: "/(tv)/explore",
-                params: { type: "MOVIE", sort: "recent" },
-              } as any)
-            }
+      {/* ── 1. SECTOR HERO FIJO (PERMANECE ESTÁTICO EN LA PARTE SUPERIOR) ── */}
+      <View style={s.fixedHeroContainer}>
+        {currentHero && (
+          <HeroInfo
+            item={currentHero}
+            onPlay={handlePlay}
+            onDetails={handleContentPress}
           />
+        )}
 
-          {/* 4. Series recién agregadas */}
-          <ContentRow
-            title="Series recién agregadas"
-            items={series}
-            onPress={handleContentPress}
-            accentColor={C.accentFire}
-            viewAllSublabel="Todas las series"
-            onViewAll={() =>
-              router.push({
-                pathname: "/(tv)/explore",
-                params: { type: "SERIES", sort: "recent" },
-              } as any)
-            }
+        {/* Cards de portadas del Hero */}
+        {heroItems.length > 0 && (
+          <HeroSelector
+            items={heroItems}
+            activeIdx={heroIdx}
+            onSelectHero={handleSelectHero}
           />
+        )}
+      </View>
 
-          {/* 5. Agregados recientemente */}
-          <ContentRow
-            title="Agregados recientemente"
-            items={recent}
-            onPress={handleContentPress}
-            accentColor={C.accent}
-            viewAllSublabel="Todos los estrenos"
-            onViewAll={() =>
-              router.push({
-                pathname: "/(tv)/explore",
-                params: { sort: "recent" },
-              } as any)
-            }
-          />
+      {/* ── 2. SECTOR INFERIOR SCROLLABLE (SE DESPLAZA SÓLO EN ESTA ÁREA) ── */}
+      <View style={s.bottomSectorContainer}>
+        {/* Máscara de fundido superior para transición suave hacia el Hero */}
+        <LinearGradient
+          colors={["#080808", "rgba(8,8,8,0.75)", "rgba(8,8,8,0.2)", "transparent"]}
+          locations={[0, 0.3, 0.7, 1]}
+          style={s.bottomSectorTopFade}
+          pointerEvents="none"
+        />
 
-          {/* 6. Anime y Animación */}
-          {anime.length > 0 && (
+        <ScrollView
+          style={s.bottomScroll}
+          contentContainerStyle={s.bottomScrollContent}
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          nestedScrollEnabled={true}
+        >
+          <View style={s.contentArea}>
+            {/* Continuar viendo si existe */}
+            {continueWatching.length > 0 && (
+              <ContinueWatchingRow
+                items={continueWatching}
+                onPress={handleContentPress}
+              />
+            )}
+
+            {/* 1. Tendencia */}
+            {trending.length > 0 && (
+              <TrendingRow
+                items={trending}
+                onPress={handleContentPress}
+                onViewAll={() =>
+                  router.push({
+                    pathname: "/(tv)/explore",
+                    params: { sort: "popular" },
+                  } as any)
+                }
+              />
+            )}
+
+            {/* 2. Películas recién agregadas */}
             <ContentRow
-              title="Anime y Animación"
-              items={anime}
+              title="Películas recién agregadas"
+              items={movies}
               onPress={handleContentPress}
-              accentColor="#e11d63"
-              viewAllSublabel="Todo el anime"
+              accentColor={C.accentOrange}
+              viewAllSublabel="Todas las películas"
               onViewAll={() =>
                 router.push({
                   pathname: "/(tv)/explore",
-                  params: { type: "ANIME" },
+                  params: { type: "MOVIE", sort: "recent" },
                 } as any)
               }
             />
-          )}
 
-          <View style={{ height: scale(60) }} />
-        </View>
-      </ScrollView>
+            {/* 3. Series recién agregadas */}
+            <ContentRow
+              title="Series recién agregadas"
+              items={series}
+              onPress={handleContentPress}
+              accentColor={C.accentFire}
+              viewAllSublabel="Todas las series"
+              onViewAll={() =>
+                router.push({
+                  pathname: "/(tv)/explore",
+                  params: { type: "SERIES", sort: "recent" },
+                } as any)
+              }
+            />
+
+            {/* 4. Agregados recientemente */}
+            <ContentRow
+              title="Agregados recientemente"
+              items={recent}
+              onPress={handleContentPress}
+              accentColor={C.accent}
+              viewAllSublabel="Todos los estrenos"
+              onViewAll={() =>
+                router.push({
+                  pathname: "/(tv)/explore",
+                  params: { sort: "recent" },
+                } as any)
+              }
+            />
+
+            {/* 5. Anime y Animación */}
+            {anime.length > 0 && (
+              <ContentRow
+                title="Anime y Animación"
+                items={anime}
+                onPress={handleContentPress}
+                accentColor="#e11d63"
+                viewAllSublabel="Todo el anime"
+                onViewAll={() =>
+                  router.push({
+                    pathname: "/(tv)/explore",
+                    params: { type: "ANIME" },
+                  } as any)
+                }
+              />
+            )}
+
+            <View style={{ height: scale(40) }} />
+          </View>
+        </ScrollView>
+
+        {/* Máscara de fundido inferior suave */}
+        <LinearGradient
+          colors={["transparent", "rgba(8,8,8,0.5)", "#080808"]}
+          locations={[0, 0.5, 1]}
+          style={s.bottomSectorBottomFade}
+          pointerEvents="none"
+        />
+      </View>
     </View>
   );
 }
@@ -721,26 +753,17 @@ const s = StyleSheet.create({
   },
   loadText: { color: C.textSecondary, fontSize: scale(13) },
 
-  sectionsScroll: {
-    flex: 1,
-    backgroundColor: "transparent",
-    zIndex: 1,
-  },
-  sectionsContent: {
-    paddingLeft: SIDEBAR_OFFSET + scale(16),
-    paddingBottom: scale(20),
-  },
-
-  // ── Contenedor Hero Espacioso y Majestuoso ──
-  heroSectionContainer: {
-    minHeight: HERO_CONTAINER_H,
+  // ── 1. Sector Hero Fijo ──
+  fixedHeroContainer: {
+    height: HERO_CONTAINER_H,
     justifyContent: "space-between",
-    paddingTop: scale(88),
-    paddingBottom: scale(28),
+    paddingTop: scale(40),
+    paddingBottom: scale(6),
+    zIndex: 10,
   },
 
   heroInfo: {
-    paddingLeft: scale(32),
+    paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
     maxWidth: scale(720),
     zIndex: 2,
@@ -753,26 +776,26 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(255, 183, 3, 0.15)",
     borderWidth: 1,
     borderColor: "rgba(255, 183, 3, 0.35)",
-    paddingHorizontal: scale(12),
-    paddingVertical: scale(5),
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(4),
     borderRadius: scale(14),
     alignSelf: "flex-start",
-    marginBottom: scale(12),
+    marginBottom: scale(8),
   },
   taglineChipText: {
     color: C.accent,
-    fontSize: scale(12),
+    fontSize: scale(11),
     fontWeight: "800",
     letterSpacing: 0.8,
   },
 
   heroTitle: {
     fontFamily: "Bangers",
-    fontSize: scale(56),
+    fontSize: scale(46),
     color: C.accent,
     letterSpacing: 1,
-    marginBottom: scale(10),
-    lineHeight: scale(60),
+    marginBottom: scale(6),
+    lineHeight: scale(50),
     textShadowColor: "rgba(0,0,0,0.85)",
     textShadowOffset: { width: 1, height: 2 },
     textShadowRadius: 8,
@@ -782,10 +805,10 @@ const s = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    marginBottom: scale(12),
+    marginBottom: scale(8),
   },
   heroMetaText: {
-    fontSize: scale(14.5),
+    fontSize: scale(13.5),
     color: "rgba(255,255,255,0.88)",
     fontWeight: "600",
   },
@@ -793,13 +816,13 @@ const s = StyleSheet.create({
   heroBadges: {
     flexDirection: "row",
     gap: scale(8),
-    marginBottom: scale(14),
+    marginBottom: scale(10),
     flexWrap: "wrap",
   },
   badge: {
     backgroundColor: "rgba(40,40,40,0.75)",
-    paddingHorizontal: scale(9),
-    paddingVertical: scale(3.5),
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(3),
     borderRadius: scale(5),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.2)",
@@ -808,27 +831,27 @@ const s = StyleSheet.create({
     borderColor: "rgba(255,183,3,0.45)",
     backgroundColor: "rgba(255,183,3,0.15)",
   },
-  badgeText: { fontSize: scale(12), color: "#fff", fontWeight: "700" },
+  badgeText: { fontSize: scale(11), color: "#fff", fontWeight: "700" },
 
   heroDesc: {
-    fontSize: scale(14.5),
+    fontSize: scale(13),
     color: "rgba(255,255,255,0.85)",
-    lineHeight: scale(22),
-    marginBottom: scale(18),
+    lineHeight: scale(18),
+    marginBottom: scale(12),
     maxWidth: scale(680),
   },
 
   heroButtons: {
     flexDirection: "row",
-    gap: scale(14),
+    gap: scale(12),
   },
   btnPlay: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(10),
+    gap: scale(8),
     backgroundColor: C.accent,
-    paddingHorizontal: scale(26),
-    height: scale(46),
+    paddingHorizontal: scale(22),
+    height: scale(38),
     borderRadius: scale(10),
     borderWidth: 2,
     borderColor: "transparent",
@@ -841,23 +864,44 @@ const s = StyleSheet.create({
     shadowRadius: scale(8),
     elevation: 8,
   },
-  btnPlayText: { color: "#000", fontSize: scale(15), fontWeight: "900" },
+  btnPlayText: { color: "#000", fontSize: scale(14), fontWeight: "900" },
+
+  btnDetails: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(8),
+    backgroundColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: scale(20),
+    height: scale(38),
+    borderRadius: scale(10),
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  btnDetailsFocused: {
+    backgroundColor: "rgba(255,255,255,0.28)",
+    borderColor: "#fff",
+    shadowColor: "#fff",
+    shadowOpacity: 0.4,
+    shadowRadius: scale(8),
+    elevation: 8,
+  },
+  btnDetailsText: { color: "#fff", fontSize: scale(14), fontWeight: "800" },
 
   // ── Hero Selector (Cards de portada) ──
   heroSelectorWrapper: {
-    marginTop: scale(16),
-    paddingTop: scale(4),
+    marginTop: scale(8),
+    paddingTop: scale(2),
   },
   heroSelectorHeading: {
     fontSize: scale(12),
     fontWeight: "900",
     color: "rgba(255,255,255,0.6)",
     letterSpacing: 1.5,
-    marginLeft: scale(32),
+    marginLeft: CONTENT_LEFT_PAD,
     marginBottom: scale(10),
   },
   heroSelectorTrack: {
-    paddingLeft: scale(32),
+    paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
     paddingVertical: scale(6),
     gap: CARD_GAP,
@@ -907,21 +951,48 @@ const s = StyleSheet.create({
     marginTop: scale(2),
   },
 
-  // ── Contenedor de Secciones Inferiores ──
+  // ── 2. Sector Inferior Scrollable ──
+  bottomSectorContainer: {
+    flex: 1,
+    position: "relative",
+    zIndex: 5,
+  },
+  bottomSectorTopFade: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: scale(22),
+    zIndex: 20,
+  },
+  bottomSectorBottomFade: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: scale(16),
+    zIndex: 20,
+  },
+  bottomScroll: {
+    flex: 1,
+  },
+  bottomScrollContent: {
+    paddingBottom: scale(28),
+  },
   contentArea: {
-    marginTop: scale(32),
+    paddingTop: scale(8),
   },
 
   contentSection: {
-    marginBottom: scale(15),
+    marginBottom: scale(16),
   },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingLeft: scale(28),
-    paddingRight: scale(36) + SIDEBAR_OFFSET,
-    marginBottom: scale(2),
+    paddingLeft: CONTENT_LEFT_PAD,
+    paddingRight: scale(36),
+    marginBottom: scale(4),
   },
   sectionTitleGroup: {
     flexDirection: "row",
@@ -934,7 +1005,7 @@ const s = StyleSheet.create({
     marginRight: scale(10),
   },
   sectionTitle: {
-    fontSize: scale(17),
+    fontSize: scale(16.5),
     fontWeight: "800",
     color: C.textPrimary,
     letterSpacing: 0.3,
@@ -968,7 +1039,7 @@ const s = StyleSheet.create({
   },
 
   rowTrack: {
-    paddingLeft: scale(28),
+    paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
     paddingVertical: scale(6),
     gap: CARD_GAP,

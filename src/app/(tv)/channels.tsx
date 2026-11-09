@@ -24,6 +24,7 @@ import {
   ActivityIndicator,
   Dimensions,
   FlatList,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -151,14 +152,25 @@ const CATEGORY_THEMES: CategoryTheme[] = [
   },
 ];
 
-// Helper para clasificar canal en una categoría temática
+// Helper para clasificar canal en una categoría temática con caché para alto rendimiento
+const channelThemeCache = new Map<string, CategoryTheme | null>();
+
 function getChannelCategory(ch: Channel): CategoryTheme | null {
+  const cached = channelThemeCache.get(ch.id);
+  if (cached !== undefined) return cached;
+
   const target = `${ch.name} ${ch.category?.name || ""} ${ch.groupTitle || ""}`.toLowerCase();
-  for (const theme of CATEGORY_THEMES) {
-    if (theme.keywords.some((kw) => target.includes(kw))) {
-      return theme;
+  for (let i = 0; i < CATEGORY_THEMES.length; i++) {
+    const theme = CATEGORY_THEMES[i];
+    const kws = theme.keywords;
+    for (let j = 0; j < kws.length; j++) {
+      if (target.includes(kws[j])) {
+        channelThemeCache.set(ch.id, theme);
+        return theme;
+      }
     }
   }
+  channelThemeCache.set(ch.id, null);
   return null;
 }
 
@@ -241,7 +253,7 @@ const FilterPill = memo(function FilterPill({
   );
 });
 
-// ── Tarjeta Panorámica de Canal (Uso en Filas y Grilla) ──────────────────────
+// ── Tarjeta Panorámica de Canal Ultra-Optimizada (GPU-efficient, 60fps) ───────
 const LiveChannelCard = memo(function LiveChannelCard({
   channel,
   isActive,
@@ -254,12 +266,16 @@ const LiveChannelCard = memo(function LiveChannelCard({
   isActive: boolean;
   isFav: boolean;
   themeColor: string;
-  onPress: () => void;
+  onPress: (ch: Channel) => void;
   nextFocusLeft?: number;
 }) {
+  const handlePress = useCallback(() => {
+    onPress(channel);
+  }, [onPress, channel]);
+
   return (
     <Focusable
-      onPress={onPress}
+      onPress={handlePress}
       nextFocusLeft={nextFocusLeft}
       scaleFocused={1.06}
       style={[
@@ -277,85 +293,57 @@ const LiveChannelCard = memo(function LiveChannelCard({
         },
       ]}
     >
-      {({ focused }) => (
-        <>
-          {/* Fondo de tarjeta con degradado oscuro suave */}
-          <LinearGradient
-            colors={[
-              "rgba(255,255,255,0.05)",
-              "rgba(18, 14, 36, 0.8)",
-              "rgba(7, 5, 18, 0.98)",
-            ]}
-            style={StyleSheet.absoluteFill}
+      {/* Indicador superior derecho: En Pantalla o Favorito */}
+      <View style={s.cardTopRow}>
+        {isActive ? (
+          <View style={[s.cardLiveBadge, { backgroundColor: themeColor }]}>
+            <View style={s.cardLiveDot} />
+            <Text style={s.cardLiveTxt}>EN PANTALLA</Text>
+          </View>
+        ) : (
+          <View style={s.cardLivePill}>
+            <View style={[s.cardLiveDot, { backgroundColor: LIVE_COLORS.neonRed }]} />
+            <Text style={s.cardLiveTxt}>VIVO</Text>
+          </View>
+        )}
+
+        {isFav ? (
+          <View style={s.cardFavBadge}>
+            <Heart size={scale(10)} color="#fff" fill={LIVE_COLORS.favHeart} />
+          </View>
+        ) : null}
+      </View>
+
+      {/* Logo Central del Canal */}
+      <View style={s.cardLogoContainer}>
+        {channel.logo ? (
+          <RemoteImage
+            uri={channel.logo}
+            style={s.cardLogo as any}
+            contentFit="contain"
+            transition={100}
           />
-
-          {/* Indicador superior derecho: En Pantalla o Favorito */}
-          <View style={s.cardTopRow}>
-            {isActive ? (
-              <View style={[s.cardLiveBadge, { backgroundColor: themeColor }]}>
-                <View style={s.cardLiveDot} />
-                <Text style={s.cardLiveTxt}>EN PANTALLA</Text>
-              </View>
-            ) : (
-              <View style={s.cardLivePill}>
-                <View style={[s.cardLiveDot, { backgroundColor: LIVE_COLORS.neonRed }]} />
-                <Text style={s.cardLiveTxt}>VIVO</Text>
-              </View>
-            )}
-
-            {isFav ? (
-              <View style={s.cardFavBadge}>
-                <Heart size={scale(10)} color="#fff" fill={LIVE_COLORS.favHeart} />
-              </View>
-            ) : null}
+        ) : (
+          <View style={[s.cardFallbackIcon, { borderColor: `${themeColor}40` }]}>
+            <Tv2 size={scale(24)} color={themeColor} />
           </View>
+        )}
+      </View>
 
-          {/* Logo Central del Canal en cápsula glassmorphism */}
-          <View style={s.cardLogoContainer}>
-            {channel.logo ? (
-              <RemoteImage
-                uri={channel.logo}
-                style={s.cardLogo as any}
-                contentFit="contain"
-                transition={150}
-              />
-            ) : (
-              <View style={[s.cardFallbackIcon, { borderColor: `${themeColor}40` }]}>
-                <Tv2 size={scale(24)} color={themeColor} />
-              </View>
-            )}
-
-            {/* Overlay interactivo con botón Play al hacer foco con el control remoto */}
-            {focused && (
-              <View style={s.cardPlayOverlay}>
-                <View style={[s.cardPlayBtn, { backgroundColor: themeColor }]}>
-                  <Play
-                    size={scale(16)}
-                    color="#000000"
-                    fill="#000000"
-                    style={{ marginLeft: scale(2) }}
-                  />
-                </View>
-              </View>
-            )}
-          </View>
-
-          {/* Información inferior de canal */}
-          <View style={s.cardBottomInfo}>
-            <Text style={s.cardTitle} numberOfLines={1}>
-              {channel.name}
-            </Text>
-            <View style={s.cardMetaRow}>
-              <Text style={[s.cardCategoryTxt, { color: themeColor }]} numberOfLines={1}>
-                {channel.category?.name || channel.groupTitle || "General"}
-              </Text>
-              {channel.country ? (
-                <Text style={s.cardCountryTxt}> • {channel.country}</Text>
-              ) : null}
-            </View>
-          </View>
-        </>
-      )}
+      {/* Información inferior de canal */}
+      <View style={s.cardBottomInfo}>
+        <Text style={s.cardTitle} numberOfLines={1}>
+          {channel.name}
+        </Text>
+        <View style={s.cardMetaRow}>
+          <Text style={[s.cardCategoryTxt, { color: themeColor }]} numberOfLines={1}>
+            {channel.category?.name || channel.groupTitle || "General"}
+          </Text>
+          {channel.country ? (
+            <Text style={s.cardCountryTxt}> • {channel.country}</Text>
+          ) : null}
+        </View>
+      </View>
     </Focusable>
   );
 });
@@ -365,14 +353,14 @@ const ThemedChannelRow = memo(function ThemedChannelRow({
   theme,
   channels,
   activeChannelId,
-  favorites,
+  favSet,
   onPressChannel,
   onViewAll,
 }: {
   theme: CategoryTheme;
   channels: Channel[];
   activeChannelId?: string;
-  favorites: string[];
+  favSet: Set<string>;
   onPressChannel: (ch: Channel) => void;
   onViewAll?: () => void;
 }) {
@@ -389,6 +377,20 @@ const ThemedChannelRow = memo(function ThemedChannelRow({
       index,
     }),
     [],
+  );
+
+  const renderItem = useCallback(
+    ({ item, index }: { item: Channel; index: number }) => (
+      <LiveChannelCard
+        channel={item}
+        isActive={item.id === activeChannelId}
+        isFav={favSet.has(item.id)}
+        themeColor={theme.color}
+        onPress={onPressChannel}
+        nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
+      />
+    ),
+    [activeChannelId, favSet, theme.color, onPressChannel, sidebarHandle],
   );
 
   return (
@@ -419,20 +421,12 @@ const ThemedChannelRow = memo(function ThemedChannelRow({
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowTrack}
-        initialNumToRender={6}
-        maxToRenderPerBatch={8}
-        windowSize={5}
+        initialNumToRender={4}
+        maxToRenderPerBatch={4}
+        windowSize={3}
         getItemLayout={getItemLayout}
-        renderItem={({ item, index }) => (
-          <LiveChannelCard
-            channel={item}
-            isActive={item.id === activeChannelId}
-            isFav={favorites.includes(item.id)}
-            themeColor={theme.color}
-            onPress={() => onPressChannel(item)}
-            nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
-          />
-        )}
+        removeClippedSubviews={Platform.OS === "android"}
+        renderItem={renderItem}
         ListFooterComponent={
           onViewAll ? (
             <View style={{ marginLeft: CARD_GAP }}>
@@ -505,48 +499,37 @@ export default function ChannelsScreen() {
     );
   }, [channels, settings]);
 
-  // ── Reproducción Aleatoria al entrar y Apagado Inmediato al cambiar de sección ──
+  // Apagar inmediatamente el video al cambiar de ruta para liberar recursos
   useFocusEffect(
     useCallback(() => {
       setIsScreenFocused(true);
 
-      // Reproducción automática aleatoria apenas entra a la pantalla
-      if (allowedChannels.length > 0 && !initialRandomDoneRef.current) {
-        initialRandomDoneRef.current = true;
+      return () => {
+        setIsScreenFocused(false);
+        setPreviewUrl(null);
+        setVideoLoading(false);
+      };
+    }, []),
+  );
+
+  // Seleccionar canal inicial sólo una vez al cargar si no hay ninguno activo
+  useEffect(() => {
+    if (!initialRandomDoneRef.current && allowedChannels.length > 0) {
+      initialRandomDoneRef.current = true;
+      if (!activeChannel) {
         const randomIdx = Math.floor(Math.random() * allowedChannels.length);
         const randomCh = allowedChannels[randomIdx];
         if (randomCh) {
           setActiveChannel(randomCh);
         }
       }
-
-      return () => {
-        // Al cambiar de sección, APAGAR el video y liberar recursos inmediatamente
-        setIsScreenFocused(false);
-        setPreviewUrl(null);
-        setVideoLoading(false);
-        initialRandomDoneRef.current = false;
-      };
-    }, [allowedChannels, setActiveChannel]),
-  );
-
-  // Si los canales aún estaban cargando cuando se montó la pantalla, elegir aleatorio en cuanto terminen
-  useEffect(() => {
-    if (!initialRandomDoneRef.current && allowedChannels.length > 0 && isScreenFocused && isChannelsRoute) {
-      initialRandomDoneRef.current = true;
-      const randomIdx = Math.floor(Math.random() * allowedChannels.length);
-      const randomCh = allowedChannels[randomIdx];
-      if (randomCh) {
-        setActiveChannel(randomCh);
-      }
     }
-  }, [allowedChannels, isScreenFocused, isChannelsRoute, setActiveChannel]);
+  }, [allowedChannels, activeChannel, setActiveChannel]);
 
-  // Debounce para cargar la vista previa del video en el Hero
+  // Debounce optimizado (650ms) para cargar vista previa: permite zapping rápido sin congelar la UI
   useEffect(() => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
-    // Si la pantalla no está enfocada, no está en la sección channels o no hay URL, APAGAR video
     if (!isScreenFocused || !isChannelsRoute || !activeChannel?.url) {
       setPreviewUrl(null);
       setVideoLoading(false);
@@ -558,7 +541,7 @@ export default function ChannelsScreen() {
 
     debounceTimerRef.current = setTimeout(() => {
       setPreviewUrl(activeChannel.url);
-    }, 200);
+    }, 650);
 
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -590,17 +573,18 @@ export default function ChannelsScreen() {
     return { map, others };
   }, [allowedChannels]);
 
-  // Canales Favoritos
-  const favChannels = useMemo(() => {
-    return allowedChannels.filter((c) => favorites.includes(c.id));
-  }, [allowedChannels, favorites]);
+  // Canales Favoritos con Set O(1)
+  const favSet = useMemo(() => new Set(favorites), [favorites]);
 
-  // 4 Canales alternativos para la cuadrícula 2x2 rápida en el Hero (estilo Kids)
+  const favChannels = useMemo(() => {
+    return allowedChannels.filter((c) => favSet.has(c.id));
+  }, [allowedChannels, favSet]);
+
+  // 4 Canales alternativos estables para la cuadrícula 2x2 rápida en el Hero
   const candidateChannels = useMemo(() => {
     if (allowedChannels.length <= 1) return [];
-    const list = allowedChannels.filter((c) => !activeChannel || c.id !== activeChannel.id);
-    return list.slice(0, 4);
-  }, [allowedChannels, activeChannel]);
+    return allowedChannels.slice(0, 4);
+  }, [allowedChannels]);
 
   // Navegar a Pantalla Completa
   const handleOpenFullscreen = useCallback(
@@ -627,7 +611,7 @@ export default function ChannelsScreen() {
     [router, setActiveChannel],
   );
 
-  // Zapping rápido en la rejilla 2x2 del Hero: primer click sintoniza vista previa, segundo click abre pantalla completa
+  // Zapping rápido en la rejilla 2x2 del Hero
   const handleHeroGridPress = useCallback(
     (item: Channel) => {
       if (activeChannel?.id === item.id) {
@@ -662,7 +646,7 @@ export default function ChannelsScreen() {
     }
   }, [activeChannel, toggleFavorite]);
 
-  const isCurrentFav = !!activeChannel && favorites.includes(activeChannel.id);
+  const isCurrentFav = !!activeChannel && favSet.has(activeChannel.id);
 
   // ── Pantalla de Carga ──────────────────────────────────────────────────────
   if (channelsLoading && allowedChannels.length === 0) {
@@ -701,7 +685,7 @@ export default function ChannelsScreen() {
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
-        removeClippedSubviews={false}
+        removeClippedSubviews={Platform.OS === "android"}
       >
         {/* ════════════════════════════════════════════════════════════════════
             1. MASTER BROADCAST HERO STAGE (70% Player + 30% 2x2 Quick Grid)
@@ -895,7 +879,7 @@ export default function ChannelsScreen() {
               </View>
             </View>
 
-            {/* Lado Derecho (30%): Rejilla 2x2 Zapping Rápido (Inspirado en Kids) */}
+            {/* Lado Derecho (30%): Rejilla 2x2 Zapping Rápido */}
             <View style={s.heroRightGrid}>
               {candidateChannels.map((item) => {
                 const itemTheme = getChannelCategory(item) || CATEGORY_THEMES[0];
@@ -913,15 +897,6 @@ export default function ChannelsScreen() {
                       },
                     ]}
                   >
-                    <LinearGradient
-                      colors={[
-                        "rgba(255,255,255,0.06)",
-                        "rgba(18,14,36,0.85)",
-                        "rgba(7,5,18,0.98)",
-                      ]}
-                      style={StyleSheet.absoluteFill}
-                    />
-
                     {/* Badge VIVO superior */}
                     <View style={s.gridCardLive}>
                       <View style={s.gridCardLiveDot} />
@@ -1034,7 +1009,7 @@ export default function ChannelsScreen() {
                   }}
                   channels={favChannels}
                   activeChannelId={activeChannel?.id}
-                  favorites={favorites}
+                  favSet={favSet}
                   onPressChannel={handleChannelPress}
                 />
               )}
@@ -1049,7 +1024,7 @@ export default function ChannelsScreen() {
                     theme={theme}
                     channels={list}
                     activeChannelId={activeChannel?.id}
-                    favorites={favorites}
+                    favSet={favSet}
                     onPressChannel={handleChannelPress}
                     onViewAll={() => setSelectedCatId(theme.id)}
                   />
@@ -1069,7 +1044,7 @@ export default function ChannelsScreen() {
                   }}
                   channels={themedGroups.others}
                   activeChannelId={activeChannel?.id}
-                  favorites={favorites}
+                  favSet={favSet}
                   onPressChannel={handleChannelPress}
                 />
               )}
@@ -1092,7 +1067,7 @@ export default function ChannelsScreen() {
                       isActive={item.id === activeChannel?.id}
                       isFav={true}
                       themeColor={LIVE_COLORS.favHeart}
-                      onPress={() => handleChannelPress(item)}
+                      onPress={handleChannelPress}
                       nextFocusLeft={idx % 4 === 0 ? sidebarHandle ?? undefined : undefined}
                     />
                   </View>
@@ -1123,9 +1098,9 @@ export default function ChannelsScreen() {
                         <LiveChannelCard
                           channel={item}
                           isActive={item.id === activeChannel?.id}
-                          isFav={favorites.includes(item.id)}
+                          isFav={favSet.has(item.id)}
                           themeColor={theme.color}
-                          onPress={() => handleChannelPress(item)}
+                          onPress={handleChannelPress}
                           nextFocusLeft={idx % 4 === 0 ? sidebarHandle ?? undefined : undefined}
                         />
                       </View>
