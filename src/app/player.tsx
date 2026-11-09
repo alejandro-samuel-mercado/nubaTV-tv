@@ -584,6 +584,10 @@ function ChannelPlayer({
 
     // Si la guía dual está abierta:
     if (showGuide) {
+      if (t === 'right' && guidePane === 'channels') {
+        closeGuide();
+        return;
+      }
       if (t === 'playPause') {
         togglePlayPause();
       }
@@ -601,25 +605,19 @@ function ChannelPlayer({
 
     // Cuando la pantalla está limpia (sin OSD ni Guía):
     if (t === 'select' || t === 'up' || t === 'down') {
-      // "debe aparecer al presionar las teclas del okey, o de arriba o abajo del control"
       triggerOSD();
     } else if (t === 'left' || t === 'right') {
-      // "al presionar la tecla izquierda o derecha, abra dos ventanas unidas semi transparentes"
       openGuide();
     } else if (t === 'playPause') {
       togglePlayPause();
     }
   });
 
-  // Botón Atrás del control remoto
+  // Botón Atrás del control remoto: cierra la guía de UNA sola vez
   useEffect(() => {
     if (Platform.OS === 'web') return;
     const backAction = () => {
       if (showGuide) {
-        if (guidePane === 'channels') {
-          setGuidePane('categories');
-          return true;
-        }
         closeGuide();
         return true;
       }
@@ -632,7 +630,72 @@ function ChannelPlayer({
     };
     const sub = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => sub.remove();
-  }, [showGuide, guidePane, showOSD, router, closeGuide]);
+  }, [showGuide, showOSD, router, closeGuide]);
+
+  // Eventos de Teclado y Click en Navegador Web
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      const isInput = targetTag === 'input' || targetTag === 'textarea';
+
+      // Tecla Atrás / Escape / Backspace: cierra de UNA sola vez
+      if (e.key === 'Escape' || (!isInput && e.key === 'Backspace')) {
+        e.preventDefault();
+        if (showGuide) {
+          closeGuide();
+          return;
+        }
+        if (showOSD) {
+          setShowOSD(false);
+          return;
+        }
+        router.back();
+        return;
+      }
+
+      if (showGuide) {
+        if (!isInput && e.key === 'ArrowRight' && guidePane === 'channels') {
+          e.preventDefault();
+          closeGuide();
+          return;
+        }
+        if (!isInput && (e.key === ' ' || e.key === 'MediaPlayPause')) {
+          e.preventDefault();
+          togglePlayPause();
+        }
+        return;
+      }
+
+      // Si el OSD está abierto:
+      if (showOSD) {
+        triggerOSD();
+        if (e.key === ' ' || e.key === 'MediaPlayPause') {
+          e.preventDefault();
+          togglePlayPause();
+        }
+        return;
+      }
+
+      // Cuando la pantalla está limpia:
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        triggerOSD();
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        openGuide();
+      } else if (e.key === 'MediaPlayPause') {
+        e.preventDefault();
+        togglePlayPause();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showGuide, guidePane, showOSD, triggerOSD, openGuide, closeGuide, togglePlayPause, router]);
 
   if (!activeChannel) {
     return (
@@ -735,6 +798,17 @@ function ChannelPlayer({
         </View>
       )}
 
+      {/* ── Capa interactiva a pantalla completa para capturar Click y Foco cuando no hay OSD ni Guía ── */}
+      {!showGuide && !showOSD && (
+        <Focusable
+          hasTVPreferredFocus
+          onPress={() => triggerOSD()}
+          style={StyleSheet.absoluteFill}
+          animateScale={false}
+          showFocusRing={false}
+        />
+      )}
+
       {/* ── 2. HUD DE NOTIFICACIÓN RÁPIDA (VOLUMEN, VIVO, ZAPPING) ── */}
       {hud && (
         <View style={s.hudToast} pointerEvents="none">
@@ -746,6 +820,12 @@ function ChannelPlayer({
       {/* ── 3. GUÍA DUAL: DOS VENTANAS UNIDAS SEMI-TRANSPARENTES ── */}
       {showGuide && (
         <View style={s.guideBackdrop} pointerEvents="box-none">
+          {/* Backdrop clickeable: click afuera ("en otro lado") cierra la guía inmediatamente */}
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={closeGuide}
+          />
+
           {/* Sombra de viñeta suave lateral para no oscurecer el video que sigue de fondo */}
           <LinearGradient
             colors={['rgba(5, 5, 8, 0.94)', 'rgba(5, 5, 8, 0.65)', 'transparent']}
@@ -1005,6 +1085,12 @@ function ChannelPlayer({
       {/* ── 4. OSD PROFESIONAL (CONTROLES COMPLETOS + INFORMACIÓN EN CABECERA) ── */}
       {showOSD && !showGuide && (
         <View style={s.osdRoot} pointerEvents="box-none">
+          {/* Click en cualquier parte libre del reproductor oculta el OSD */}
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setShowOSD(false)}
+          />
+
           {/* Degradado Cinematográfico Superior */}
           <LinearGradient
             colors={['rgba(5, 5, 8, 0.92)', 'rgba(5, 5, 8, 0.45)', 'transparent']}
