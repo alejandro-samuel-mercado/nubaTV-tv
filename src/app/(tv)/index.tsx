@@ -47,20 +47,19 @@ const formatDuration = (mins?: number) => {
 const SIDEBAR_OFFSET = scale(64);
 const CONTENT_LEFT_PAD = scale(112);
 
-// Cards del selector de portadas dentro del Hero (diseño original dinámico: vertical inactivo, horizontal expandido activo 16:9)
-const HS_CARD_W = scale(115);
-const HS_CARD_ACTIVE_W = scale(275);
-const HS_CARD_H = scale(155);
+// Cards del selector de portadas dentro del Hero (diseño dinámico: vertical inactivo, horizontal expandido activo 16:9)
+const HS_CARD_W = scale(105);
+const HS_CARD_ACTIVE_W = scale(250);
+const HS_CARD_H = scale(135);
 
 // Cards de secciones de catálogo (filas inferiores)
-const POSTER_W = scale(130);
-const POSTER_H = scale(185);
-const CARD_GAP = scale(14);
-const TREND_W = scale(230);
-const TREND_H = scale(140);
-const CONT_CARD_W = scale(200);
-const CONT_CARD_H = scale(125);
-const CHANNEL_CARD_W = scale(115);
+const POSTER_W = scale(112);
+const POSTER_H = scale(160);
+const CARD_GAP = scale(12);
+const TREND_W = scale(215);
+const TREND_H = scale(122);
+const CONT_CARD_W = scale(190);
+const CONT_CARD_H = scale(115);
 
 const keyById = (i: any) => i.id;
 
@@ -69,10 +68,12 @@ const HeroSelector = memo(function HeroSelector({
   items,
   activeIdx,
   onSelectHero,
+  onSectionFocus,
 }: {
   items: NexoContentItem[];
   activeIdx: number;
   onSelectHero: (idx: number, item: NexoContentItem, immediate?: boolean) => void;
+  onSectionFocus?: (key: string) => void;
 }) {
   const sidebarHandle = useSidebarHandle();
   const listRef = useRef<FlatList>(null);
@@ -122,11 +123,14 @@ const HeroSelector = memo(function HeroSelector({
 
           return (
             <Focusable
-              onFocus={() => onSelectHero(index, item, false)}
+              onFocus={() => {
+                onSelectHero(index, item, false);
+                onSectionFocus?.("hero_selector");
+              }}
               onPress={() => onSelectHero(index, item, true)}
               nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
               trapFocusRight={index === items.length - 1}
-              scaleFocused={1.03}
+              scaleFocused={1.02}
               style={[
                 s.hsCard,
                 isActive && s.hsCardActive,
@@ -191,15 +195,17 @@ const HeroSelector = memo(function HeroSelector({
   );
 });
 
-// ── Hero Info (Textos, rating, sinopsis y botón Reproducir) ─────────
+// ── HeroInfo: Título, Metadatos y Botones de Reproducción en el Hero ──────────
 const HeroInfo = memo(function HeroInfo({
   item,
   onPlay,
   onDetails,
+  onHeroFocus,
 }: {
   item: NexoContentItem;
   onPlay: (item: NexoContentItem) => void;
   onDetails?: (item: NexoContentItem) => void;
+  onHeroFocus?: () => void;
 }) {
   const sidebarHandle = useSidebarHandle();
 
@@ -207,7 +213,7 @@ const HeroInfo = memo(function HeroInfo({
     <View style={s.heroInfo} pointerEvents="box-none">
       {/* Tagline / Tipo Chip */}
       <View style={s.taglineChip}>
-        <Sparkles size={scale(10)} color="#f59e0b" />
+        <Sparkles size={scale(8.5)} color="#f59e0b" />
         <Text style={s.taglineChipText}>
           {item.tagline || (TYPE_LABEL[item.type] || item.type).toUpperCase()}
         </Text>
@@ -253,9 +259,9 @@ const HeroInfo = memo(function HeroInfo({
         ) : null}
       </View>
 
-      {/* Sinopsis */}
+      {/* Sinopsis concisa (2 líneas para dejar espacio limpio al catálogo inferior) */}
       {item.description ? (
-        <Text style={s.heroDesc} numberOfLines={3}>
+        <Text style={s.heroDesc} numberOfLines={2}>
           {item.description}
         </Text>
       ) : null}
@@ -265,21 +271,23 @@ const HeroInfo = memo(function HeroInfo({
         <Focusable
           hasTVPreferredFocus
           onPress={() => onPlay(item)}
+          onFocus={onHeroFocus}
           nextFocusLeft={sidebarHandle ?? undefined}
           style={s.btnPlay}
           focusedStyle={s.btnPlayFocused}
         >
-          <Play size={scale(15)} color="#000" fill="#000" />
+          <Play size={scale(12)} color="#000" fill="#000" />
           <Text style={s.btnPlayText}>Reproducir</Text>
         </Focusable>
 
         {onDetails ? (
           <Focusable
             onPress={() => onDetails(item)}
+            onFocus={onHeroFocus}
             style={s.btnDetails}
             focusedStyle={s.btnDetailsFocused}
           >
-            <Info size={scale(15)} color="#ffffff" />
+            <Info size={scale(12)} color="#ffffff" />
             <Text style={s.btnDetailsText}>Detalles</Text>
           </Focusable>
         ) : null}
@@ -293,12 +301,18 @@ const TrendingRow = memo(function TrendingRow({
   items,
   onPress,
   onViewAll,
+  onSectionFocus,
 }: {
   items: NexoContentItem[];
   onPress: (item: NexoContentItem) => void;
   onViewAll?: () => void;
+  onSectionFocus?: (key: string) => void;
 }) {
   const sidebarHandle = useSidebarHandle();
+
+  const handleCardFocus = useCallback(() => {
+    onSectionFocus?.("trending");
+  }, [onSectionFocus]);
 
   return (
     <View style={s.contentSection}>
@@ -314,9 +328,11 @@ const TrendingRow = memo(function TrendingRow({
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowTrack}
+        style={{ overflow: "visible" }}
         renderItem={({ item, index }) => (
           <Focusable
             onPress={() => onPress(item)}
+            onFocus={handleCardFocus}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
             trapFocusRight={!onViewAll && index === items.length - 1}
             scaleFocused={1.02}
@@ -364,26 +380,33 @@ const TrendingRow = memo(function TrendingRow({
   );
 });
 
-
 // ── Fila de Contenido Genérico (Poster Cards) ────────────────────────────────
 const ContentRow = memo(function ContentRow({
+  sectionKey,
   title,
   items,
   onPress,
   accentColor,
   onViewAll,
   viewAllSublabel,
+  onSectionFocus,
 }: {
+  sectionKey: string;
   title: string;
   items: NexoContentItem[];
   onPress: (item: NexoContentItem) => void;
   accentColor?: string;
   onViewAll?: () => void;
   viewAllSublabel?: string;
+  onSectionFocus?: (key: string) => void;
 }) {
   const sidebarHandle = useSidebarHandle();
   if (!items.length) return null;
   const accent = accentColor || C.accent;
+
+  const handleCardFocus = useCallback(() => {
+    onSectionFocus?.(sectionKey);
+  }, [onSectionFocus, sectionKey]);
 
   return (
     <View style={s.contentSection}>
@@ -399,6 +422,7 @@ const ContentRow = memo(function ContentRow({
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowTrack}
+        style={{ overflow: "visible" }}
         initialNumToRender={8}
         maxToRenderPerBatch={6}
         renderItem={({ item, index }) => (
@@ -407,6 +431,7 @@ const ContentRow = memo(function ContentRow({
             width={POSTER_W}
             height={POSTER_H}
             onPressItem={onPress}
+            onFocusItem={handleCardFocus}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
             trapFocusRight={!onViewAll && index === items.length - 1}
           />
@@ -434,12 +459,18 @@ const ContentRow = memo(function ContentRow({
 const ContinueWatchingRow = memo(function ContinueWatchingRow({
   items,
   onPress,
+  onSectionFocus,
 }: {
   items: any[];
   onPress: (item: any) => void;
+  onSectionFocus?: (key: string) => void;
 }) {
   const sidebarHandle = useSidebarHandle();
   if (!items || !items.length) return null;
+
+  const handleCardFocus = useCallback(() => {
+    onSectionFocus?.("continue");
+  }, [onSectionFocus]);
 
   return (
     <View style={s.contentSection}>
@@ -453,9 +484,11 @@ const ContinueWatchingRow = memo(function ContinueWatchingRow({
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowTrack}
+        style={{ overflow: "visible" }}
         renderItem={({ item, index }) => (
           <Focusable
             onPress={() => onPress(item)}
+            onFocus={handleCardFocus}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
             trapFocusRight={index === items.length - 1}
             scaleFocused={1.02}
@@ -520,6 +553,44 @@ export default function HomeTvScreen() {
   const activeHeroRaw = heroItems[heroIdx] ?? null;
   const currentHero = useDebouncedValue(activeHeroRaw, 200);
 
+  // ── Control de Scroll y Alineación Perfecta de Secciones al Navegar ───────────
+  const scrollRef = useRef<ScrollView>(null);
+  const sectionLayouts = useRef<Record<string, number>>({});
+  const activeSectionRef = useRef<string | null>(null);
+  const scrollAnimationTimer = useRef<any>(null);
+
+  const handleSectionFocus = useCallback((sectionKey: string) => {
+    if (activeSectionRef.current === sectionKey) return;
+    activeSectionRef.current = sectionKey;
+
+    if (scrollAnimationTimer.current) clearTimeout(scrollAnimationTimer.current);
+
+    scrollAnimationTimer.current = setTimeout(() => {
+      const targetY = sectionLayouts.current[sectionKey];
+      if (typeof targetY === "number" && scrollRef.current) {
+        // Offset de scale(10) para dejar margen superior de respiro y encuadrar título + cards
+        const scrollY = Math.max(0, targetY - scale(10));
+        scrollRef.current.scrollTo({
+          y: scrollY,
+          animated: true,
+        });
+      }
+    }, 40);
+  }, []);
+
+  const handleHeroFocus = useCallback(() => {
+    if (activeSectionRef.current === "hero") return;
+    activeSectionRef.current = "hero";
+
+    if (scrollAnimationTimer.current) clearTimeout(scrollAnimationTimer.current);
+    scrollAnimationTimer.current = setTimeout(() => {
+      scrollRef.current?.scrollTo({
+        y: 0,
+        animated: true,
+      });
+    }, 40);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -578,8 +649,10 @@ export default function HomeTvScreen() {
   useEffect(() => {
     return () => {
       if (selectHeroTimer.current) clearTimeout(selectHeroTimer.current);
+      if (scrollAnimationTimer.current) clearTimeout(scrollAnimationTimer.current);
     };
   }, []);
+
   const handleSelectHero = useCallback(
     (idx: number, _item?: NexoContentItem, immediate = false) => {
       setUserInteracted(true);
@@ -641,6 +714,7 @@ export default function HomeTvScreen() {
             item={currentHero}
             onPlay={handlePlay}
             onDetails={handleContentPress}
+            onHeroFocus={handleHeroFocus}
           />
         )}
       </View>
@@ -648,35 +722,55 @@ export default function HomeTvScreen() {
       {/* ── 2. SECTOR INFERIOR SCROLLABLE (PORTADAS DEL HERO + SECCIONES DE CATÁLOGO) ── */}
       <View style={s.bottomSectorContainer}>
         <ScrollView
+          ref={scrollRef}
           style={s.bottomScroll}
           contentContainerStyle={s.bottomScrollContent}
           showsVerticalScrollIndicator={false}
           scrollEventThrottle={16}
           nestedScrollEnabled={true}
         >
-          {/* Cards de portadas del Hero (incluidas en el scroll con el resto) */}
+          {/* Cards de portadas del Hero (sección 0 en el scroll) */}
           {heroItems.length > 0 && (
-            <HeroSelector
-              items={heroItems}
-              activeIdx={heroIdx}
-              onSelectHero={handleSelectHero}
-            />
+            <View
+              onLayout={(e) => {
+                sectionLayouts.current["hero_selector"] = e.nativeEvent.layout.y;
+              }}
+            >
+              <HeroSelector
+                items={heroItems}
+                activeIdx={heroIdx}
+                onSelectHero={handleSelectHero}
+                onSectionFocus={handleSectionFocus}
+              />
+            </View>
           )}
 
-          <View style={s.contentArea}>
-            {/* Continuar viendo si existe */}
-            {continueWatching.length > 0 && (
+          {/* Continuar viendo si existe */}
+          {continueWatching.length > 0 && (
+            <View
+              onLayout={(e) => {
+                sectionLayouts.current["continue"] = e.nativeEvent.layout.y;
+              }}
+            >
               <ContinueWatchingRow
                 items={continueWatching}
                 onPress={handleContentPress}
+                onSectionFocus={handleSectionFocus}
               />
-            )}
+            </View>
+          )}
 
-            {/* 1. Tendencia */}
-            {trending.length > 0 && (
+          {/* 1. Tendencia */}
+          {trending.length > 0 && (
+            <View
+              onLayout={(e) => {
+                sectionLayouts.current["trending"] = e.nativeEvent.layout.y;
+              }}
+            >
               <TrendingRow
                 items={trending}
                 onPress={handleContentPress}
+                onSectionFocus={handleSectionFocus}
                 onViewAll={() =>
                   router.push({
                     pathname: "/(tv)/explore",
@@ -684,15 +778,23 @@ export default function HomeTvScreen() {
                   } as any)
                 }
               />
-            )}
+            </View>
+          )}
 
-            {/* 2. Películas recién agregadas */}
+          {/* 2. Películas recién agregadas */}
+          <View
+            onLayout={(e) => {
+              sectionLayouts.current["movies"] = e.nativeEvent.layout.y;
+            }}
+          >
             <ContentRow
+              sectionKey="movies"
               title="Películas recién agregadas"
               items={movies}
               onPress={handleContentPress}
               accentColor={C.accentOrange}
               viewAllSublabel="Todas las películas"
+              onSectionFocus={handleSectionFocus}
               onViewAll={() =>
                 router.push({
                   pathname: "/(tv)/explore",
@@ -700,14 +802,22 @@ export default function HomeTvScreen() {
                 } as any)
               }
             />
+          </View>
 
-            {/* 3. Series recién agregadas */}
+          {/* 3. Series recién agregadas */}
+          <View
+            onLayout={(e) => {
+              sectionLayouts.current["series"] = e.nativeEvent.layout.y;
+            }}
+          >
             <ContentRow
+              sectionKey="series"
               title="Series recién agregadas"
               items={series}
               onPress={handleContentPress}
               accentColor={C.accentFire}
               viewAllSublabel="Todas las series"
+              onSectionFocus={handleSectionFocus}
               onViewAll={() =>
                 router.push({
                   pathname: "/(tv)/explore",
@@ -715,14 +825,22 @@ export default function HomeTvScreen() {
                 } as any)
               }
             />
+          </View>
 
-            {/* 4. Agregados recientemente */}
+          {/* 4. Agregados recientemente */}
+          <View
+            onLayout={(e) => {
+              sectionLayouts.current["recent"] = e.nativeEvent.layout.y;
+            }}
+          >
             <ContentRow
+              sectionKey="recent"
               title="Agregados recientemente"
               items={recent}
               onPress={handleContentPress}
               accentColor={C.accent}
               viewAllSublabel="Todos los estrenos"
+              onSectionFocus={handleSectionFocus}
               onViewAll={() =>
                 router.push({
                   pathname: "/(tv)/explore",
@@ -730,15 +848,23 @@ export default function HomeTvScreen() {
                 } as any)
               }
             />
+          </View>
 
-            {/* 5. Anime y Animación */}
-            {anime.length > 0 && (
+          {/* 5. Anime y Animación */}
+          {anime.length > 0 && (
+            <View
+              onLayout={(e) => {
+                sectionLayouts.current["anime"] = e.nativeEvent.layout.y;
+              }}
+            >
               <ContentRow
+                sectionKey="anime"
                 title="Anime y Animación"
                 items={anime}
                 onPress={handleContentPress}
                 accentColor="#e11d63"
                 viewAllSublabel="Todo el anime"
+                onSectionFocus={handleSectionFocus}
                 onViewAll={() =>
                   router.push({
                     pathname: "/(tv)/explore",
@@ -746,10 +872,8 @@ export default function HomeTvScreen() {
                   } as any)
                 }
               />
-            )}
-
-            <View style={{ height: scale(40) }} />
-          </View>
+            </View>
+          )}
         </ScrollView>
       </View>
     </View>
@@ -769,75 +893,75 @@ const s = StyleSheet.create({
   },
   loadText: { color: C.textSecondary, fontSize: scale(13) },
 
-  // ── 1. Sector Hero Fijo (Tamaño Normal Majestuoso) ──
+  // ── 1. Sector Hero Fijo (Tamaño Proporcionado y Elegante) ──
   fixedHeroContainer: {
-    paddingTop: scale(112),
-    paddingBottom: scale(20),
+    paddingTop: scale(40),
+    paddingBottom: scale(4),
     zIndex: 10,
   },
 
   heroInfo: {
     paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
-    maxWidth: scale(720),
+    maxWidth: scale(600),
     zIndex: 2,
   },
 
   taglineChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(6),
+    gap: scale(4.5),
     backgroundColor: "rgba(255, 183, 3, 0.15)",
     borderWidth: 1,
     borderColor: "rgba(255, 183, 3, 0.35)",
-    paddingHorizontal: scale(12),
-    paddingVertical: scale(5),
-    borderRadius: scale(14),
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(2),
+    borderRadius: scale(10),
     alignSelf: "flex-start",
-    marginBottom: scale(12),
+    marginBottom: scale(5),
   },
   taglineChipText: {
     color: C.accent,
-    fontSize: scale(12),
+    fontSize: scale(9.5),
     fontWeight: "800",
     letterSpacing: 0.8,
   },
 
   heroTitle: {
     fontFamily: "Bangers",
-    fontSize: scale(56),
+    fontSize: scale(28),
     color: C.accent,
-    letterSpacing: 1,
-    marginBottom: scale(10),
-    lineHeight: scale(60),
+    letterSpacing: 0.8,
+    marginBottom: scale(4),
+    lineHeight: scale(30),
     textShadowColor: "rgba(0,0,0,0.85)",
     textShadowOffset: { width: 1, height: 2 },
-    textShadowRadius: 8,
+    textShadowRadius: 6,
   },
 
   heroMeta: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    marginBottom: scale(12),
+    marginBottom: scale(4),
   },
   heroMetaText: {
-    fontSize: scale(14.5),
+    fontSize: scale(11.5),
     color: "rgba(255,255,255,0.88)",
     fontWeight: "600",
   },
 
   heroBadges: {
     flexDirection: "row",
-    gap: scale(8),
-    marginBottom: scale(14),
+    gap: scale(5),
+    marginBottom: scale(6),
     flexWrap: "wrap",
   },
   badge: {
     backgroundColor: "rgba(40,40,40,0.75)",
-    paddingHorizontal: scale(9),
-    paddingVertical: scale(3.5),
-    borderRadius: scale(5),
+    paddingHorizontal: scale(6),
+    paddingVertical: scale(2),
+    borderRadius: scale(4),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.2)",
   },
@@ -845,28 +969,28 @@ const s = StyleSheet.create({
     borderColor: "rgba(255,183,3,0.45)",
     backgroundColor: "rgba(255,183,3,0.15)",
   },
-  badgeText: { fontSize: scale(12), color: "#fff", fontWeight: "700" },
+  badgeText: { fontSize: scale(9.5), color: "#fff", fontWeight: "700" },
 
   heroDesc: {
-    fontSize: scale(14.5),
+    fontSize: scale(11.5),
     color: "rgba(255,255,255,0.85)",
-    lineHeight: scale(22),
-    marginBottom: scale(18),
-    maxWidth: scale(720),
+    lineHeight: scale(16),
+    marginBottom: scale(10),
+    maxWidth: scale(580),
   },
 
   heroButtons: {
     flexDirection: "row",
-    gap: scale(14),
+    gap: scale(8),
   },
   btnPlay: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(10),
+    gap: scale(6),
     backgroundColor: C.accent,
-    paddingHorizontal: scale(26),
-    height: scale(46),
-    borderRadius: scale(10),
+    paddingHorizontal: scale(16),
+    height: scale(34),
+    borderRadius: scale(7),
     borderWidth: 2,
     borderColor: "transparent",
   },
@@ -874,16 +998,16 @@ const s = StyleSheet.create({
     backgroundColor: "#fff",
     borderColor: "#fff",
   },
-  btnPlayText: { color: "#000", fontSize: scale(15), fontWeight: "900" },
+  btnPlayText: { color: "#000", fontSize: scale(12), fontWeight: "900" },
 
   btnDetails: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(10),
+    gap: scale(6),
     backgroundColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: scale(24),
-    height: scale(46),
-    borderRadius: scale(10),
+    paddingHorizontal: scale(14),
+    height: scale(34),
+    borderRadius: scale(7),
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.2)",
   },
@@ -891,34 +1015,26 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.28)",
     borderColor: "#fff",
   },
-  btnDetailsText: { color: "#fff", fontSize: scale(14.5), fontWeight: "800" },
+  btnDetailsText: { color: "#fff", fontSize: scale(12), fontWeight: "800" },
 
   // ── Hero Selector (Cards de portada integradas al scroll) ──
   heroSelectorWrapper: {
-    marginTop: scale(6),
+    marginTop: scale(2),
     marginBottom: scale(10),
-    paddingTop: scale(10),
+    paddingTop: scale(4),
     overflow: "visible",
-  },
-  heroSelectorHeading: {
-    fontSize: scale(12),
-    fontWeight: "900",
-    color: "rgba(255,255,255,0.6)",
-    letterSpacing: 1.5,
-    marginLeft: CONTENT_LEFT_PAD,
-    marginBottom: scale(10),
   },
   heroSelectorTrack: {
     paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
-    paddingVertical: scale(12),
+    paddingVertical: scale(8),
     gap: CARD_GAP,
     alignItems: "flex-end",
   },
   hsCard: {
     width: HS_CARD_W,
     height: HS_CARD_H,
-    borderRadius: scale(12),
+    borderRadius: scale(10),
     overflow: "hidden",
     backgroundColor: "#161616",
     borderWidth: 2,
@@ -945,18 +1061,18 @@ const s = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    padding: scale(10),
+    padding: scale(8),
   },
   hsCardTitle: {
     color: "#fff",
-    fontSize: scale(12),
+    fontSize: scale(11.5),
     fontWeight: "900",
     letterSpacing: 0.3,
   },
   hsCardSub: {
     color: "rgba(255,255,255,0.75)",
-    fontSize: scale(10),
-    marginTop: scale(2),
+    fontSize: scale(9.5),
+    marginTop: scale(1.5),
   },
 
   // ── 2. Sector Inferior Scrollable ──
@@ -969,14 +1085,11 @@ const s = StyleSheet.create({
     flex: 1,
   },
   bottomScrollContent: {
-    paddingBottom: scale(28),
-  },
-  contentArea: {
-    paddingTop: scale(8),
+    paddingBottom: scale(220),
   },
 
   contentSection: {
-    marginBottom: scale(16),
+    marginBottom: scale(20),
   },
   sectionHeader: {
     flexDirection: "row",
@@ -991,49 +1104,22 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   sectionAccentBar: {
-    width: scale(4),
-    height: scale(18),
+    width: scale(3.5),
+    height: scale(16),
     borderRadius: scale(2),
-    marginRight: scale(10),
+    marginRight: scale(8),
   },
   sectionTitle: {
-    fontSize: scale(16.5),
+    fontSize: scale(15),
     fontWeight: "800",
     color: C.textPrimary,
     letterSpacing: 0.3,
-  },
-  liveDot: {
-    width: scale(8),
-    height: scale(8),
-    borderRadius: scale(4),
-    backgroundColor: C.live,
-    marginLeft: scale(10),
-  },
-  headerViewAllBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(6),
-    paddingHorizontal: scale(14),
-    paddingVertical: scale(6),
-    borderRadius: scale(999),
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    borderWidth: 1.5,
-    borderColor: "rgba(255, 255, 255, 0.2)",
-  },
-  headerViewAllBtnFocused: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ffffff",
-  },
-  headerViewAllTxt: {
-    fontSize: scale(12.5),
-    fontWeight: "800",
-    letterSpacing: 0.5,
   },
 
   rowTrack: {
     paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
-    paddingVertical: scale(14),
+    paddingVertical: scale(8),
     gap: CARD_GAP,
   },
 
@@ -1048,77 +1134,51 @@ const s = StyleSheet.create({
     borderColor: "transparent",
   },
   trendCardActiveBorder: {
-    borderColor: C.accent,
+    borderColor: "#ffffff",
+    shadowColor: "#ffffff",
+    shadowOpacity: 0.4,
+    shadowRadius: scale(8),
+    elevation: 8,
   },
   trendBannerGrad: {
-    ...(StyleSheet.absoluteFill as any),
-    justifyContent: "flex-end",
-    padding: scale(8),
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(8),
   },
   trendBannerTitle: {
+    color: "#ffffff",
     fontSize: scale(11.5),
     fontWeight: "900",
-    color: C.accent,
-    textShadowColor: "rgba(0,0,0,0.9)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    letterSpacing: 0.4,
   },
   trendBannerSub: {
-    fontSize: scale(9.5),
-    color: "rgba(255,255,255,0.7)",
+    color: C.accent,
+    fontSize: scale(10),
+    fontWeight: "700",
     marginTop: scale(2),
   },
 
-  // ── Canales Card ──
-  channelCard: {
-    width: CHANNEL_CARD_W,
-    height: scale(80),
-    borderRadius: scale(10),
-    backgroundColor: C.bgCard,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: scale(8),
-    borderWidth: 2,
-    borderColor: C.borderSubtle,
-  },
-  channelCardFocused: {
-    borderColor: C.live,
-    backgroundColor: "rgba(255, 255, 255, 0.12)",
-  },
-  channelLogo: { width: scale(50), height: scale(36), marginBottom: scale(4) },
-  channelLogoFallback: {
-    width: scale(42),
-    height: scale(42),
-    borderRadius: scale(8),
-    backgroundColor: "rgba(255,183,3,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: scale(4),
-  },
-  channelLogoText: { fontSize: scale(14), fontWeight: "900", color: C.accent },
-  channelName: {
-    fontSize: scale(10.5),
-    fontWeight: "700",
-    color: C.textSecondary,
-    textAlign: "center",
-  },
-
-  // ── Continuar Viendo Card ──
+  // ── Continuar Viendo ──
   continueCard: {
     width: CONT_CARD_W,
     height: CONT_CARD_H,
     borderRadius: scale(10),
+    overflow: "hidden",
     backgroundColor: C.bgCard,
     borderWidth: 2,
-    borderColor: C.borderSubtle,
-    overflow: "hidden",
+    borderColor: "transparent",
   },
   continueCardFocused: {
-    borderColor: C.accent,
+    borderColor: "#ffffff",
+    elevation: 6,
   },
   continueCardImgWrap: {
-    flex: 1,
-    backgroundColor: "#161616",
+    width: "100%",
+    height: scale(88),
+    backgroundColor: "#111",
   },
   continueFallback: {
     flex: 1,
@@ -1126,20 +1186,19 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   progressBarTrack: {
-    height: scale(3.5),
+    height: scale(3),
     backgroundColor: "rgba(255,255,255,0.15)",
   },
   progressBarFill: {
     height: "100%",
-    backgroundColor: C.accent,
+    backgroundColor: C.accentOrange,
   },
   continueInfo: {
-    paddingHorizontal: scale(8),
-    paddingVertical: scale(5),
+    padding: scale(6),
   },
   continueTitle: {
+    color: C.textPrimary,
     fontSize: scale(11),
     fontWeight: "700",
-    color: "#fff",
   },
 });
