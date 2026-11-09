@@ -35,13 +35,13 @@ function BackdropBackground({
         colors={[
           "#080808",
           "rgba(8,8,8,0.96)",
-          "rgba(8,8,8,0.85)",
-          "rgba(8,8,8,0.55)",
+          "rgba(8,8,8,0.82)",
+          "rgba(8,8,8,0.52)",
           "rgba(8,8,8,0.22)",
-          "rgba(8,8,8,0.04)",
+          "rgba(8,8,8,0.05)",
           "transparent",
         ]}
-        locations={[0, 0.15, 0.30, 0.44, 0.56, 0.68, 0.80]}
+        locations={[0, 0.15, 0.32, 0.50, 0.68, 0.84, 1]}
         start={{ x: 0, y: 0.5 }}
         end={{ x: 1, y: 0.5 }}
         style={StyleSheet.absoluteFill}
@@ -53,13 +53,13 @@ function BackdropBackground({
         colors={[
           "#080808",
           "rgba(8,8,8,0.95)",
-          "rgba(8,8,8,0.80)",
+          "rgba(8,8,8,0.78)",
           "rgba(8,8,8,0.48)",
-          "rgba(8,8,8,0.18)",
-          "rgba(8,8,8,0.03)",
+          "rgba(8,8,8,0.20)",
+          "rgba(8,8,8,0.04)",
           "transparent",
         ]}
-        locations={[0, 0.12, 0.25, 0.38, 0.50, 0.62, 0.75]}
+        locations={[0, 0.14, 0.30, 0.50, 0.70, 0.86, 1]}
         start={{ x: 0.5, y: 1 }}
         end={{ x: 0.5, y: 0 }}
         style={StyleSheet.absoluteFill}
@@ -70,13 +70,13 @@ function BackdropBackground({
       <LinearGradient
         colors={[
           "#080808",
-          "rgba(8,8,8,0.92)",
-          "rgba(8,8,8,0.70)",
-          "rgba(8,8,8,0.38)",
-          "rgba(8,8,8,0.12)",
+          "rgba(8,8,8,0.90)",
+          "rgba(8,8,8,0.65)",
+          "rgba(8,8,8,0.35)",
+          "rgba(8,8,8,0.10)",
           "transparent",
         ]}
-        locations={[0, 0.20, 0.38, 0.55, 0.70, 0.85]}
+        locations={[0, 0.20, 0.42, 0.65, 0.85, 1]}
         start={{ x: 0, y: 1 }}
         end={{ x: 0.85, y: 0.15 }}
         style={StyleSheet.absoluteFill}

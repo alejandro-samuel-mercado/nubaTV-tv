@@ -613,14 +613,6 @@ export default function HomeTvScreen() {
 
       {/* ── 2. SECTOR INFERIOR SCROLLABLE (PORTADAS DEL HERO + SECCIONES DE CATÁLOGO) ── */}
       <View style={s.bottomSectorContainer}>
-        {/* Máscara de fundido superior para transición suave hacia el Hero */}
-        <LinearGradient
-          colors={["#080808", "rgba(8,8,8,0.75)", "rgba(8,8,8,0.2)", "transparent"]}
-          locations={[0, 0.3, 0.7, 1]}
-          style={s.bottomSectorTopFade}
-          pointerEvents="none"
-        />
-
         <ScrollView
           style={s.bottomScroll}
           contentContainerStyle={s.bottomScrollContent}
@@ -725,14 +717,6 @@ export default function HomeTvScreen() {
             <View style={{ height: scale(40) }} />
           </View>
         </ScrollView>
-
-        {/* Máscara de fundido inferior suave */}
-        <LinearGradient
-          colors={["transparent", "rgba(8,8,8,0.5)", "#080808"]}
-          locations={[0, 0.5, 1]}
-          style={s.bottomSectorBottomFade}
-          pointerEvents="none"
-        />
       </View>
     </View>
   );
@@ -937,22 +921,6 @@ const s = StyleSheet.create({
     flex: 1,
     position: "relative",
     zIndex: 5,
-  },
-  bottomSectorTopFade: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: scale(12),
-    zIndex: 20,
-  },
-  bottomSectorBottomFade: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: scale(16),
-    zIndex: 20,
   },
   bottomScroll: {
     flex: 1,
