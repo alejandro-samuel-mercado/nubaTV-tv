@@ -104,13 +104,16 @@ const TYPE_LABEL_MAP: Record<string, string> = {
 const VodCard = memo(function VodCard({
   item,
   onPress,
+  trapFocusRight,
 }: {
   item: NexoContentItem;
   onPress: (item: NexoContentItem) => void;
+  trapFocusRight?: boolean;
 }) {
   return (
     <Focusable
       onPress={() => onPress(item)}
+      trapFocusRight={trapFocusRight}
       style={s.vodCard}
       focusedStyle={s.vodCardFocused}
       scaleFocused={1.05}
@@ -508,9 +511,13 @@ export default function ExploreTvScreen() {
             windowSize={6}
             onEndReached={loadMore}
             onEndReachedThreshold={0.4}
-            renderItem={({ item }) => (
+            renderItem={({ item, index }) => (
               <View style={s.cardWrapper}>
-                <VodCard item={item} onPress={handleVodPress} />
+                <VodCard
+                  item={item}
+                  onPress={handleVodPress}
+                  trapFocusRight={index % cols === cols - 1 || index === items.length - 1}
+                />
               </View>
             )}
             ListFooterComponent={
@@ -839,10 +846,6 @@ const s = StyleSheet.create({
   filterToggleBtnFocused: {
     backgroundColor: "#ffffff",
     borderColor: "#ffffff",
-    shadowColor: "#ffffff",
-    shadowOpacity: 0.5,
-    shadowRadius: scale(6),
-    elevation: 6,
   },
   filterToggleTxt: {
     fontSize: scale(13),
@@ -914,10 +917,7 @@ const s = StyleSheet.create({
   },
   vodCardFocused: {
     borderColor: C.accent,
-    shadowColor: C.accent,
-    shadowOpacity: 0.45,
-    shadowRadius: scale(6),
-    elevation: 6,
+    zIndex: 10,
   },
   vodGrad: {
     position: "absolute",

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
+  findNodeHandle,
   Pressable,
   StyleProp,
   StyleSheet,
@@ -27,6 +28,8 @@ export interface FocusableProps {
   nextFocusRight?: number;
   nextFocusUp?: number;
   nextFocusDown?: number;
+  /** Bloquear el foco a la derecha (no salta a otra fila al presionar derecha al final) */
+  trapFocusRight?: boolean;
   hitSlop?: any;
   /** Si debe animar la escala suavemente al enfocar (default: true) */
   animateScale?: boolean;
@@ -34,7 +37,7 @@ export interface FocusableProps {
   scaleValue?: number;
   /** Factor de escala alternativo para retrocompatibilidad */
   scaleFocused?: number;
-  /** Mostrar anillo de foco visual luminoso (default: true) */
+  /** Mostrar anillo de foco visual en overlay (default: false si hay focusedStyle, true si no) */
   showFocusRing?: boolean;
   /** Color del anillo de foco (default: C.accent #ffb703) */
   focusRingColor?: string;
@@ -55,10 +58,10 @@ export interface FocusableProps {
  * Focusable — Componente universal de foco para Android TV / Control Remoto.
  *
  * Características:
- * 1. Indicador visual luminoso de alto contraste (anillo de foco ámbar/dorado + halo de luz).
+ * 1. Indicador visual nítido y de alto contraste (borde y escala acelerados por GPU).
  * 2. Transición suave de escala acelerada por hardware (useNativeDriver).
- * 3. Control de velocidad de navegación / key-repeat para evitar saltos o pérdida de foco.
- * 4. Elevación y zIndex dinámicos para evitar que elementos vecinos recorten el foco.
+ * 3. Bloqueo opcional de bordes (trapFocusRight) para evitar saltos indeseados entre filas.
+ * 4. Control de velocidad de navegación / key-repeat para evitar saltos o pérdida de foco.
  */
 const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
   {
@@ -72,22 +75,42 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
     animateScale = true,
     scaleValue = 1.05,
     scaleFocused,
-    showFocusRing = true,
+    showFocusRing,
     focusRingColor,
-    focusBorderWidth = scale(3),
+    focusBorderWidth = scale(2.5),
     borderRadius,
     throttleMs = 70,
+    trapFocusRight,
+    nextFocusRight,
     ...rest
   },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
+  const [selfNodeHandle, setSelfNodeHandle] = useState<number | undefined>(undefined);
+  const innerRef = useRef<any>(null);
+
+  React.useImperativeHandle(ref, () => innerRef.current);
 
   const targetScale = scaleFocused ?? scaleValue;
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const ringAnim = useRef(new Animated.Value(0)).current;
   const throttleTimer = useRef<any>(null);
+
+  // Actualizar handle del nodo nativo para trapFocusRight
+  const updateSelfHandle = useCallback(() => {
+    if (trapFocusRight && innerRef.current) {
+      const handle = findNodeHandle(innerRef.current);
+      if (typeof handle === "number" && handle > 0) {
+        setSelfNodeHandle((prev) => (prev !== handle ? handle : prev));
+      }
+    }
+  }, [trapFocusRight]);
+
+  useEffect(() => {
+    updateSelfHandle();
+  }, [updateSelfHandle]);
 
   // Limpiar timer al desmontar
   useEffect(() => {
@@ -102,11 +125,15 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
   const handleFocus = useCallback(() => {
     setFocused(true);
 
+    if (trapFocusRight && !selfNodeHandle) {
+      updateSelfHandle();
+    }
+
     // Cancelar animaciones previas para evitar acumulación al moverse rápido
     scaleAnim.stopAnimation();
     ringAnim.stopAnimation();
 
-    // Animación suave y ágil de escala y anillo luminoso (60/120fps nativos)
+    // Animación suave y ágil de escala (60/120fps nativos)
     Animated.parallel([
       Animated.timing(scaleAnim, {
         toValue: animateScale ? targetScale : 1,
@@ -134,7 +161,7 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
     } else if (onFocus) {
       onFocus();
     }
-  }, [animateScale, targetScale, throttleMs, onFocus, scaleAnim, ringAnim]);
+  }, [animateScale, targetScale, throttleMs, onFocus, scaleAnim, ringAnim, trapFocusRight, selfNodeHandle, updateSelfHandle]);
 
   const handleBlur = useCallback(() => {
     setFocused(false);
@@ -182,6 +209,10 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
     flatFocused.borderColor ??
     C.accent;
 
+  // Si no se especificó showFocusRing, solo se muestra si NO hay focusedStyle explícito
+  // para evitar duplicar bordes o sobreponer cuadros molestos en elementos estilizados
+  const shouldShowFocusRing = showFocusRing ?? !focusedStyle;
+
   // Combinar transforms existentes evitando duplicar scale
   const baseTransforms = Array.isArray(flatStyle.transform)
     ? flatStyle.transform.filter((t: any) => !animateScale || typeof t?.scale !== "number")
@@ -195,29 +226,36 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
     ...(animateScale ? [{ scale: scaleAnim }] : []),
   ];
 
+  const resolvedNextFocusRight =
+    nextFocusRight ?? (trapFocusRight ? selfNodeHandle : undefined);
+
   return (
     <AnimatedPressable
-      ref={ref}
+      ref={innerRef}
       focusable={!disabled}
       disabled={disabled}
       onFocus={handleFocus}
       onBlur={handleBlur}
       onPress={onPress}
+      onLayout={(e: any) => {
+        if (trapFocusRight) updateSelfHandle();
+        (rest as any).onLayout?.(e);
+      }}
+      nextFocusRight={resolvedNextFocusRight}
       style={[
         style,
         focused && focusedStyle,
         combinedTransforms.length > 0 && { transform: combinedTransforms },
         {
           zIndex: focused ? 50 : 1,
-          elevation: focused ? 14 : 0,
         },
       ]}
       {...rest}
     >
       {typeof children === "function" ? children({ focused }) : children}
 
-      {/* Anillo de foco visual premium: se dibuja en overlay para que overflow:hidden de imágenes no lo corte */}
-      {showFocusRing && (
+      {/* Anillo de foco visual limpio (sin elevation de sombras opacas ni fondos de tinte encimado) */}
+      {shouldShowFocusRing && (
         <Animated.View
           pointerEvents="none"
           style={[
@@ -227,21 +265,9 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
               borderColor: resolvedBorderColor,
               borderWidth: focusBorderWidth,
               opacity: ringAnim,
-              shadowColor: resolvedBorderColor,
             },
           ]}
-        >
-          {/* Sutil resplandor interno */}
-          <Animated.View
-            style={[
-              s.focusInnerGlow,
-              {
-                borderRadius: Math.max(0, resolvedRadius - scale(2)),
-                opacity: ringAnim,
-              },
-            ]}
-          />
-        </Animated.View>
+        />
       )}
     </AnimatedPressable>
   );
@@ -256,14 +282,6 @@ const s = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: scale(10),
-    elevation: 14,
     zIndex: 99,
-  },
-  focusInnerGlow: {
-    ...(StyleSheet.absoluteFill as any),
-    backgroundColor: "rgba(255, 183, 3, 0.08)",
   },
 });

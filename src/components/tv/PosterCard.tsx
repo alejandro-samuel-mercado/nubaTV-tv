@@ -15,6 +15,8 @@ interface Props {
   onPressItem: (item: NexoContentItem) => void;
   onFocusItem?: (item: NexoContentItem) => void;
   nextFocusLeft?: number;
+  nextFocusRight?: number;
+  trapFocusRight?: boolean;
   hasTVPreferredFocus?: boolean;
 }
 
@@ -25,6 +27,8 @@ function PosterCard({
   onPressItem,
   onFocusItem,
   nextFocusLeft,
+  nextFocusRight,
+  trapFocusRight,
   hasTVPreferredFocus,
 }: Props) {
   return (
@@ -32,6 +36,8 @@ function PosterCard({
       onPress={() => onPressItem(item)}
       onFocus={onFocusItem ? () => onFocusItem(item) : undefined}
       nextFocusLeft={nextFocusLeft}
+      nextFocusRight={nextFocusRight}
+      trapFocusRight={trapFocusRight}
       hasTVPreferredFocus={hasTVPreferredFocus}
       scaleFocused={1.06}
       style={[s.outer, { width, height }]}
@@ -74,12 +80,6 @@ const s = StyleSheet.create({
   },
   outerFocused: {
     borderColor: "#ffffff",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    shadowColor: "#ffffff",
-    shadowOpacity: 0.35,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: scale(8),
-    elevation: 8,
     zIndex: 20,
   },
   inner: {

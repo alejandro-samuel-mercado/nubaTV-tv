@@ -92,16 +92,19 @@ const KidsCard = memo(function KidsCard({
   item,
   onPress,
   accentColor = KIDS_COLORS.yellow,
+  trapFocusRight,
 }: {
   item: NexoContentItem;
   onPress: (item: NexoContentItem) => void;
   accentColor?: string;
+  trapFocusRight?: boolean;
 }) {
   return (
     <Focusable
       onPress={() => onPress(item)}
+      trapFocusRight={trapFocusRight}
       style={s.card}
-      focusedStyle={[s.cardFocused, { borderColor: accentColor, shadowColor: accentColor }]}
+      focusedStyle={[s.cardFocused, { borderColor: accentColor }]}
       scaleFocused={1.06}
     >
       <RemoteImage
@@ -187,6 +190,7 @@ const KidsRow = memo(function KidsRow({
             item={item}
             onPress={onPress}
             accentColor={accentColor}
+            trapFocusRight={!onViewAll && index === items.length - 1}
           />
         )}
         ListFooterComponent={
@@ -473,6 +477,7 @@ export default function KidsScreen() {
                   <Focusable
                     key={item.id || idx}
                     onPress={() => handleOpenDetail(item)}
+                    trapFocusRight={idx % 2 === 1}
                     scaleFocused={1.06}
                     style={s.gridCard}
                     focusedStyle={s.gridCardFocused}
@@ -763,10 +768,6 @@ const s = StyleSheet.create({
   btnPlayFocused: {
     backgroundColor: "#ffffff",
     borderColor: "#ffffff",
-    shadowColor: "#ffffff",
-    shadowOpacity: 0.6,
-    shadowRadius: scale(8),
-    elevation: 8,
   },
   btnPlayTxt: {
     color: "#000000",
@@ -787,10 +788,6 @@ const s = StyleSheet.create({
   btnDetailFocused: {
     backgroundColor: KIDS_COLORS.cyan,
     borderColor: KIDS_COLORS.cyan,
-    shadowColor: KIDS_COLORS.cyan,
-    shadowOpacity: 0.5,
-    shadowRadius: scale(8),
-    elevation: 8,
   },
   btnDetailTxt: {
     color: "#ffffff",
@@ -820,10 +817,7 @@ const s = StyleSheet.create({
   },
   gridCardFocused: {
     borderColor: KIDS_COLORS.yellow,
-    shadowColor: KIDS_COLORS.yellow,
-    shadowOpacity: 0.6,
-    shadowRadius: scale(8),
-    elevation: 8,
+    zIndex: 10,
   },
   gridCardGrad: {
     position: "absolute",
@@ -918,9 +912,7 @@ const s = StyleSheet.create({
   },
   cardFocused: {
     borderWidth: 2.5,
-    shadowOpacity: 0.5,
-    shadowRadius: scale(8),
-    elevation: 8,
+    zIndex: 10,
   },
   cardGrad: {
     position: "absolute",

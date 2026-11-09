@@ -14,6 +14,8 @@ interface Props {
   accentColor?: string;
   borderRadius?: number;
   nextFocusLeft?: number;
+  nextFocusRight?: number;
+  trapFocusRight?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -26,12 +28,16 @@ function ViewAllCard({
   accentColor = C.accent,
   borderRadius = scale(12),
   nextFocusLeft,
+  nextFocusRight,
+  trapFocusRight = true,
   style,
 }: Props) {
   return (
     <Focusable
       onPress={onPress}
       nextFocusLeft={nextFocusLeft}
+      nextFocusRight={nextFocusRight}
+      trapFocusRight={trapFocusRight}
       borderRadius={borderRadius}
       focusRingColor={accentColor}
       scaleValue={1.05}

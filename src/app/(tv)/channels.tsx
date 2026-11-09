@@ -184,6 +184,7 @@ const FilterPill = memo(function FilterPill({
   icon: Icon,
   onPress,
   nextFocusLeft,
+  trapFocusRight,
 }: {
   id: string;
   label: string;
@@ -193,11 +194,13 @@ const FilterPill = memo(function FilterPill({
   icon: any;
   onPress: () => void;
   nextFocusLeft?: number;
+  trapFocusRight?: boolean;
 }) {
   return (
     <Focusable
       onPress={onPress}
       nextFocusLeft={nextFocusLeft}
+      trapFocusRight={trapFocusRight}
       scaleFocused={1.05}
       style={[
         s.filterPill,
@@ -209,10 +212,6 @@ const FilterPill = memo(function FilterPill({
       focusedStyle={{
         backgroundColor: color,
         borderColor: "#ffffff",
-        shadowColor: color,
-        shadowOpacity: 0.6,
-        shadowRadius: scale(8),
-        elevation: 6,
       }}
     >
       <Icon
@@ -261,6 +260,7 @@ const LiveChannelCard = memo(function LiveChannelCard({
   themeColor,
   onPress,
   nextFocusLeft,
+  trapFocusRight,
 }: {
   channel: Channel;
   isActive: boolean;
@@ -268,6 +268,7 @@ const LiveChannelCard = memo(function LiveChannelCard({
   themeColor: string;
   onPress: (ch: Channel) => void;
   nextFocusLeft?: number;
+  trapFocusRight?: boolean;
 }) {
   const handlePress = useCallback(() => {
     onPress(channel);
@@ -277,6 +278,7 @@ const LiveChannelCard = memo(function LiveChannelCard({
     <Focusable
       onPress={handlePress}
       nextFocusLeft={nextFocusLeft}
+      trapFocusRight={trapFocusRight}
       scaleFocused={1.06}
       style={[
         s.channelCard,
@@ -289,7 +291,6 @@ const LiveChannelCard = memo(function LiveChannelCard({
         s.channelCardFocused,
         {
           borderColor: themeColor,
-          shadowColor: themeColor,
         },
       ]}
     >
@@ -388,9 +389,10 @@ const ThemedChannelRow = memo(function ThemedChannelRow({
         themeColor={theme.color}
         onPress={onPressChannel}
         nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
+        trapFocusRight={!onViewAll && index === channels.length - 1}
       />
     ),
-    [activeChannelId, favSet, theme.color, onPressChannel, sidebarHandle],
+    [activeChannelId, favSet, theme.color, onPressChannel, sidebarHandle, onViewAll, channels.length],
   );
 
   return (
@@ -881,19 +883,19 @@ export default function ChannelsScreen() {
 
             {/* Lado Derecho (30%): Rejilla 2x2 Zapping Rápido */}
             <View style={s.heroRightGrid}>
-              {candidateChannels.map((item) => {
+              {candidateChannels.map((item, idx) => {
                 const itemTheme = getChannelCategory(item) || CATEGORY_THEMES[0];
                 return (
                   <Focusable
                     key={item.id}
                     onPress={() => handleHeroGridPress(item)}
+                    trapFocusRight={idx % 2 === 1}
                     scaleFocused={1.06}
                     style={s.gridCard}
                     focusedStyle={[
                       s.gridCardFocused,
                       {
                         borderColor: itemTheme.color,
-                        shadowColor: itemTheme.color,
                       },
                     ]}
                   >
@@ -971,9 +973,10 @@ export default function ChannelsScreen() {
             )}
 
             {/* Categorías Temáticas */}
-            {CATEGORY_THEMES.map((theme) => {
+            {CATEGORY_THEMES.map((theme, idx, arr) => {
               const count = themedGroups.map.get(theme.id)?.length || 0;
               if (count === 0) return null;
+              const isLast = idx === arr.length - 1;
               return (
                 <FilterPill
                   key={theme.id}
@@ -983,6 +986,7 @@ export default function ChannelsScreen() {
                   isActive={selectedCatId === theme.id}
                   color={theme.color}
                   icon={theme.icon}
+                  trapFocusRight={isLast}
                   onPress={() => setSelectedCatId(theme.id)}
                 />
               );
@@ -1351,10 +1355,6 @@ const s = StyleSheet.create({
   btnFullscreenFocused: {
     backgroundColor: "#ffffff",
     borderColor: "#ffffff",
-    shadowColor: "#ffffff",
-    shadowOpacity: 0.6,
-    shadowRadius: scale(8),
-    elevation: 8,
   },
   btnFullscreenTxt: {
     color: "#000000",
@@ -1417,9 +1417,7 @@ const s = StyleSheet.create({
     padding: scale(10),
   },
   gridCardFocused: {
-    shadowOpacity: 0.6,
-    shadowRadius: scale(8),
-    elevation: 8,
+    zIndex: 10,
   },
   gridCardLive: {
     flexDirection: "row",
@@ -1569,9 +1567,7 @@ const s = StyleSheet.create({
     padding: scale(10),
   },
   channelCardFocused: {
-    shadowOpacity: 0.6,
-    shadowRadius: scale(10),
-    elevation: 8,
+    zIndex: 10,
   },
   cardTopRow: {
     flexDirection: "row",

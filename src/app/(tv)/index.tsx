@@ -47,10 +47,9 @@ const formatDuration = (mins?: number) => {
 const SIDEBAR_OFFSET = scale(64);
 const CONTENT_LEFT_PAD = scale(112);
 
-// Cards del selector de portadas dentro del Hero (tamaño normal majestuoso)
-const HS_CARD_W = scale(115);
-const HS_CARD_ACTIVE_W = scale(250);
-const HS_CARD_H = scale(155);
+// Cards del selector de portadas dentro del Hero (reducido sutilmente y uniforme)
+const HS_CARD_W = scale(170);
+const HS_CARD_H = scale(110);
 
 // Cards de secciones de catálogo (filas inferiores)
 const POSTER_W = scale(130);
@@ -123,7 +122,8 @@ const HeroSelector = memo(function HeroSelector({
               onFocus={() => onSelectHero(index, item, false)}
               onPress={() => onSelectHero(index, item, true)}
               nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
-              scaleFocused={1.05}
+              trapFocusRight={index === items.length - 1}
+              scaleFocused={1.06}
               style={[
                 s.hsCard,
                 isActive && s.hsCardActive,
@@ -140,18 +140,16 @@ const HeroSelector = memo(function HeroSelector({
                 colors={["transparent", "rgba(0,0,0,0.88)"]}
                 style={StyleSheet.absoluteFill}
               />
-              {isActive ? (
-                <View style={s.hsCardInfo}>
-                  <Text style={s.hsCardTitle} numberOfLines={1}>
-                    {item.title.toUpperCase()}
-                  </Text>
-                  <Text style={s.hsCardSub} numberOfLines={1}>
-                    {TYPE_LABEL[item.type] || item.type}
-                    {item.releaseYear ? ` • ${item.releaseYear}` : ""}
-                    {item.rating ? ` • ★ ${item.rating.toFixed(1)}` : ""}
-                  </Text>
-                </View>
-              ) : null}
+              <View style={s.hsCardInfo}>
+                <Text style={s.hsCardTitle} numberOfLines={1}>
+                  {item.title.toUpperCase()}
+                </Text>
+                <Text style={s.hsCardSub} numberOfLines={1}>
+                  {TYPE_LABEL[item.type] || item.type}
+                  {item.releaseYear ? ` • ${item.releaseYear}` : ""}
+                  {item.rating ? ` • ★ ${item.rating.toFixed(1)}` : ""}
+                </Text>
+              </View>
             </Focusable>
           );
         }}
@@ -289,6 +287,7 @@ const TrendingRow = memo(function TrendingRow({
           <Focusable
             onPress={() => onPress(item)}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
+            trapFocusRight={!onViewAll && index === items.length - 1}
             scaleFocused={1.06}
             style={s.trendCard}
             focusedStyle={s.trendCardActiveBorder}
@@ -377,6 +376,7 @@ const ContentRow = memo(function ContentRow({
             height={POSTER_H}
             onPressItem={onPress}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
+            trapFocusRight={!onViewAll && index === items.length - 1}
           />
         )}
         ListFooterComponent={
@@ -425,6 +425,7 @@ const ContinueWatchingRow = memo(function ContinueWatchingRow({
           <Focusable
             onPress={() => onPress(item)}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
+            trapFocusRight={index === items.length - 1}
             scaleFocused={1.06}
             style={s.continueCard}
             focusedStyle={s.continueCardFocused}
@@ -752,10 +753,10 @@ const s = StyleSheet.create({
   },
   loadText: { color: C.textSecondary, fontSize: scale(13) },
 
-  // ── 1. Sector Hero Fijo (Tamaño Normal Majestuoso) ──
+  // ── 1. Sector Hero Fijo (Tamaño Majestuoso Reducido Sutilmente) ──
   fixedHeroContainer: {
-    paddingTop: scale(88),
-    paddingBottom: scale(14),
+    paddingTop: scale(70),
+    paddingBottom: scale(10),
     zIndex: 10,
   },
 
@@ -773,26 +774,26 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(255, 183, 3, 0.15)",
     borderWidth: 1,
     borderColor: "rgba(255, 183, 3, 0.35)",
-    paddingHorizontal: scale(12),
-    paddingVertical: scale(5),
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(4),
     borderRadius: scale(14),
     alignSelf: "flex-start",
-    marginBottom: scale(12),
+    marginBottom: scale(8),
   },
   taglineChipText: {
     color: C.accent,
-    fontSize: scale(12),
+    fontSize: scale(11.5),
     fontWeight: "800",
     letterSpacing: 0.8,
   },
 
   heroTitle: {
     fontFamily: "Bangers",
-    fontSize: scale(56),
+    fontSize: scale(50),
     color: C.accent,
     letterSpacing: 1,
-    marginBottom: scale(10),
-    lineHeight: scale(60),
+    marginBottom: scale(8),
+    lineHeight: scale(54),
     textShadowColor: "rgba(0,0,0,0.85)",
     textShadowOffset: { width: 1, height: 2 },
     textShadowRadius: 8,
@@ -802,10 +803,10 @@ const s = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    marginBottom: scale(12),
+    marginBottom: scale(8),
   },
   heroMetaText: {
-    fontSize: scale(14.5),
+    fontSize: scale(14),
     color: "rgba(255,255,255,0.88)",
     fontWeight: "600",
   },
@@ -813,13 +814,13 @@ const s = StyleSheet.create({
   heroBadges: {
     flexDirection: "row",
     gap: scale(8),
-    marginBottom: scale(14),
+    marginBottom: scale(10),
     flexWrap: "wrap",
   },
   badge: {
     backgroundColor: "rgba(40,40,40,0.75)",
     paddingHorizontal: scale(9),
-    paddingVertical: scale(3.5),
+    paddingVertical: scale(3),
     borderRadius: scale(5),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.2)",
@@ -828,27 +829,27 @@ const s = StyleSheet.create({
     borderColor: "rgba(255,183,3,0.45)",
     backgroundColor: "rgba(255,183,3,0.15)",
   },
-  badgeText: { fontSize: scale(12), color: "#fff", fontWeight: "700" },
+  badgeText: { fontSize: scale(11.5), color: "#fff", fontWeight: "700" },
 
   heroDesc: {
-    fontSize: scale(14.5),
+    fontSize: scale(14),
     color: "rgba(255,255,255,0.85)",
-    lineHeight: scale(22),
-    marginBottom: scale(18),
+    lineHeight: scale(20),
+    marginBottom: scale(14),
     maxWidth: scale(680),
   },
 
   heroButtons: {
     flexDirection: "row",
-    gap: scale(14),
+    gap: scale(12),
   },
   btnPlay: {
     flexDirection: "row",
     alignItems: "center",
     gap: scale(10),
     backgroundColor: C.accent,
-    paddingHorizontal: scale(26),
-    height: scale(46),
+    paddingHorizontal: scale(22),
+    height: scale(42),
     borderRadius: scale(10),
     borderWidth: 2,
     borderColor: "transparent",
@@ -856,20 +857,16 @@ const s = StyleSheet.create({
   btnPlayFocused: {
     backgroundColor: "#fff",
     borderColor: "#fff",
-    shadowColor: "#fff",
-    shadowOpacity: 0.5,
-    shadowRadius: scale(8),
-    elevation: 8,
   },
-  btnPlayText: { color: "#000", fontSize: scale(15), fontWeight: "900" },
+  btnPlayText: { color: "#000", fontSize: scale(14.5), fontWeight: "900" },
 
   btnDetails: {
     flexDirection: "row",
     alignItems: "center",
     gap: scale(10),
     backgroundColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: scale(24),
-    height: scale(46),
+    paddingHorizontal: scale(20),
+    height: scale(42),
     borderRadius: scale(10),
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.2)",
@@ -877,12 +874,8 @@ const s = StyleSheet.create({
   btnDetailsFocused: {
     backgroundColor: "rgba(255,255,255,0.28)",
     borderColor: "#fff",
-    shadowColor: "#fff",
-    shadowOpacity: 0.4,
-    shadowRadius: scale(8),
-    elevation: 8,
   },
-  btnDetailsText: { color: "#fff", fontSize: scale(14.5), fontWeight: "800" },
+  btnDetailsText: { color: "#fff", fontSize: scale(14), fontWeight: "800" },
 
   // ── Hero Selector (Cards de portada integradas al scroll) ──
   heroSelectorWrapper: {
@@ -908,26 +901,17 @@ const s = StyleSheet.create({
   hsCard: {
     width: HS_CARD_W,
     height: HS_CARD_H,
-    borderRadius: scale(12),
+    borderRadius: scale(10),
     overflow: "hidden",
     backgroundColor: "#161616",
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.08)",
   },
   hsCardActive: {
-    width: HS_CARD_ACTIVE_W,
     borderColor: C.accent,
-    shadowColor: C.accent,
-    shadowOpacity: 0.45,
-    shadowRadius: scale(8),
-    elevation: 8,
   },
   hsCardFocused: {
     borderColor: "#ffffff",
-    shadowColor: "#ffffff",
-    shadowOpacity: 0.5,
-    shadowRadius: scale(8),
-    elevation: 10,
     zIndex: 10,
   },
   hsCardInfo: {
@@ -1055,10 +1039,6 @@ const s = StyleSheet.create({
   },
   trendCardActiveBorder: {
     borderColor: C.accent,
-    shadowColor: C.accent,
-    shadowOpacity: 0.4,
-    shadowRadius: scale(6),
-    elevation: 6,
   },
   trendBannerGrad: {
     ...(StyleSheet.absoluteFill as any),
@@ -1094,10 +1074,6 @@ const s = StyleSheet.create({
   channelCardFocused: {
     borderColor: C.live,
     backgroundColor: "rgba(255, 255, 255, 0.12)",
-    shadowColor: C.live,
-    shadowOpacity: 0.5,
-    shadowRadius: scale(6),
-    elevation: 6,
   },
   channelLogo: { width: scale(50), height: scale(36), marginBottom: scale(4) },
   channelLogoFallback: {
@@ -1129,10 +1105,6 @@ const s = StyleSheet.create({
   },
   continueCardFocused: {
     borderColor: C.accent,
-    shadowColor: C.accent,
-    shadowOpacity: 0.4,
-    shadowRadius: scale(6),
-    elevation: 6,
   },
   continueCardImgWrap: {
     flex: 1,

@@ -16,10 +16,12 @@ interface Props {
   onFocus?: () => void;
   onToggleFav?: () => void;
   nextFocusLeft?: number;
+  nextFocusRight?: number;
+  trapFocusRight?: boolean;
   hasTVPreferredFocus?: boolean;
 }
 
-function ChannelCard({ channel, isActive, isFav, onPress, onFocus, onToggleFav, nextFocusLeft, hasTVPreferredFocus }: Props) {
+function ChannelCard({ channel, isActive, isFav, onPress, onFocus, onToggleFav, nextFocusLeft, nextFocusRight, trapFocusRight, hasTVPreferredFocus }: Props) {
   const [focused, setFocused] = useState(false);
 
   // Compute category color
@@ -29,6 +31,8 @@ function ChannelCard({ channel, isActive, isFav, onPress, onFocus, onToggleFav, 
   return (
     <Focusable
       nextFocusLeft={nextFocusLeft}
+      nextFocusRight={nextFocusRight}
+      trapFocusRight={trapFocusRight}
       hasTVPreferredFocus={hasTVPreferredFocus}
       onFocus={() => { setFocused(true); onFocus?.(); }}
       onBlur={() => setFocused(false)}

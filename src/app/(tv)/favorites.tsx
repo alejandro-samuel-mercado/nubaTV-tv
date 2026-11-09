@@ -46,6 +46,7 @@ export default function FavoritesTvScreen() {
               isFav={true}
               hasTVPreferredFocus={index === 0}
               nextFocusLeft={index % 6 === 0 ? sidebarHandle ?? undefined : undefined}
+              trapFocusRight={index % 6 === 5 || index === favChannels.length - 1}
               onPress={() => handlePlay(item)}
               onToggleFav={() => toggleFavorite(item.id)}
             />

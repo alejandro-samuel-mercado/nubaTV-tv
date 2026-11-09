@@ -47,11 +47,12 @@ export default function SearchScreen() {
           numColumns={7}
           columnWrapperStyle={{ gap: scale(14) }}
           contentContainerStyle={s.grid}
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <PosterCard
               item={item}
               width={CARD_W}
               height={CARD_H}
+              trapFocusRight={index % 7 === 6 || index === results.length - 1}
               onPressItem={(it) => router.push({ pathname: '/detail', params: { slug: it.slug } } as any)}
             />
           )}
