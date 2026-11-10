@@ -204,9 +204,13 @@ function getChannelCategory(ch: Channel): CategoryTheme | null {
   return null;
 }
 
+// ── Medidas de Elementos de Lista para Virtualización de Alto Rendimiento ────
+const CH_ITEM_H = scale(46);
+const CH_ITEM_GAP = scale(4);
+
 // ── Chip de Filtro Superior (Abre la Guía Dual de Canales al Presionar) ───────
 const FilterPill = memo(function FilterPill({
-  id: _id,
+  id,
   label,
   count,
   isActive,
@@ -222,13 +226,17 @@ const FilterPill = memo(function FilterPill({
   isActive: boolean;
   color: string;
   icon: any;
-  onPress: () => void;
+  onPress: (id: string) => void;
   nextFocusLeft?: number;
   trapFocusRight?: boolean;
 }) {
+  const handlePress = useCallback(() => {
+    onPress(id);
+  }, [onPress, id]);
+
   return (
     <Focusable
-      onPress={onPress}
+      onPress={handlePress}
       nextFocusLeft={nextFocusLeft}
       trapFocusRight={trapFocusRight}
       scaleFocused={1.03}
@@ -281,6 +289,236 @@ const FilterPill = memo(function FilterPill({
     </Focusable>
   );
 });
+
+// ── Item de Categoría en la Guía Dual (Ultra-Optimizado con React.memo) ───────
+interface CategoryItemProps {
+  cat: {
+    id: string;
+    label: string;
+    count: number;
+    color: string;
+    icon: any;
+  };
+  isSelected: boolean;
+  onFocus: (id: string) => void;
+  onPress: (id: string) => void;
+  nextFocusRight?: number;
+  nodeRef?: (node: any) => void;
+}
+
+const CategoryItem = memo(
+  function CategoryItem({
+    cat,
+    isSelected,
+    onFocus,
+    onPress,
+    nextFocusRight,
+    nodeRef,
+  }: CategoryItemProps) {
+    const Icon = cat.icon;
+    const handleFocus = useCallback(() => onFocus(cat.id), [onFocus, cat.id]);
+    const handlePress = useCallback(() => onPress(cat.id), [onPress, cat.id]);
+
+    return (
+      <Focusable
+        ref={nodeRef}
+        onFocus={handleFocus}
+        onPress={handlePress}
+        nextFocusRight={nextFocusRight}
+        animateScale={false}
+        showFocusRing={false}
+        style={[s.catPill, isSelected && s.catPillActive]}
+        focusedStyle={s.catPillFocused}
+      >
+        {({ focused }) => (
+          <>
+            <View
+              style={[
+                s.catIconWrap,
+                {
+                  backgroundColor: isSelected
+                    ? "rgba(255, 183, 3, 0.2)"
+                    : "rgba(255,255,255,0.06)",
+                },
+                focused && { backgroundColor: "#000000" },
+              ]}
+            >
+              <Icon
+                size={scale(14)}
+                color={
+                  focused
+                    ? "#000000"
+                    : isSelected
+                      ? LIVE_COLORS.accentAmber
+                      : cat.color
+                }
+              />
+            </View>
+
+            <Text
+              style={[
+                s.catLabel,
+                isSelected && s.catLabelActive,
+                focused && s.catLabelFocused,
+              ]}
+              numberOfLines={1}
+            >
+              {cat.label}
+            </Text>
+
+            <View
+              style={[
+                s.catCountBadge,
+                isSelected && s.catCountBadgeActive,
+                focused && s.catCountBadgeFocused,
+              ]}
+            >
+              <Text
+                style={[
+                  s.catCountTxt,
+                  isSelected && s.catCountTxtActive,
+                  focused && s.catCountTxtFocused,
+                ]}
+              >
+                {cat.count}
+              </Text>
+            </View>
+          </>
+        )}
+      </Focusable>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.cat.id === next.cat.id &&
+      prev.cat.count === next.cat.count &&
+      prev.isSelected === next.isSelected &&
+      prev.nextFocusRight === next.nextFocusRight
+    );
+  }
+);
+
+// ── Fila de Canal en la Guía Dual (Ultra-Optimizado con React.memo) ───────────
+interface ChannelListItemProps {
+  item: Channel;
+  index: number;
+  isCurrent: boolean;
+  onPress: (item: Channel) => void;
+  onFocus: () => void;
+  nextFocusLeft?: number;
+  firstChannelRef?: any;
+}
+
+const ChannelListItem = memo(
+  function ChannelListItem({
+    item,
+    index,
+    isCurrent,
+    onPress,
+    onFocus,
+    nextFocusLeft,
+    firstChannelRef,
+  }: ChannelListItemProps) {
+    const handlePress = useCallback(() => {
+      onPress(item);
+    }, [onPress, item]);
+
+    return (
+      <Focusable
+        ref={index === 0 ? firstChannelRef : undefined}
+        onFocus={onFocus}
+        onPress={handlePress}
+        nextFocusLeft={nextFocusLeft}
+        animateScale={false}
+        showFocusRing={false}
+        style={[s.chItem, isCurrent && s.chItemCurrent]}
+        focusedStyle={s.chItemFocused}
+      >
+        {({ focused }) => (
+          <>
+            {/* Logo del Canal (transition=0 para máxima fluidez en TV) */}
+            <View style={[s.chLogoBox, focused && s.chLogoBoxFocused]}>
+              {item.logo ? (
+                <RemoteImage
+                  uri={item.logo}
+                  style={s.chLogoImg as any}
+                  contentFit="contain"
+                  transition={0}
+                />
+              ) : (
+                <Tv
+                  size={scale(16)}
+                  color={focused ? "#000000" : "rgba(255,255,255,0.7)"}
+                />
+              )}
+            </View>
+
+            {/* Info del Canal */}
+            <View style={s.chInfoBox}>
+              <Text
+                style={[
+                  s.chName,
+                  isCurrent && s.chNameCurrent,
+                  focused && s.chNameFocused,
+                ]}
+                numberOfLines={1}
+              >
+                {item.name}
+              </Text>
+
+              <View style={s.chMetaRow}>
+                {item.country ? (
+                  <Text
+                    style={[s.chMetaTxt, focused && s.chMetaTxtFocused]}
+                    numberOfLines={1}
+                  >
+                    {item.country}
+                  </Text>
+                ) : null}
+                {item.language ? (
+                  <Text
+                    style={[s.chMetaTxt, focused && s.chMetaTxtFocused]}
+                    numberOfLines={1}
+                  >
+                    {item.country ? " • " : ""}
+                    {item.language}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+
+            {/* Indicador de EN PANTALLA */}
+            <View style={s.chBadgesWrap}>
+              {isCurrent && (
+                <View
+                  style={[s.badgeLiveOn, focused && s.badgeLiveOnFocused]}
+                >
+                  <View style={s.liveOnDot} />
+                  <Text
+                    style={[
+                      s.badgeLiveOnTxt,
+                      focused && s.badgeLiveOnTxtFocused,
+                    ]}
+                  >
+                    EN PANTALLA
+                  </Text>
+                </View>
+              )}
+            </View>
+          </>
+        )}
+      </Focusable>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.item.id === next.item.id &&
+      prev.isCurrent === next.isCurrent &&
+      prev.nextFocusLeft === next.nextFocusLeft &&
+      prev.index === next.index
+    );
+  }
+);
 
 // ── Tarjeta de Película Destacada del Hero (16:9 Panorámica) ────────────────
 const MovieHeroCard = memo(function MovieHeroCard({
@@ -540,21 +778,31 @@ export default function ChannelsScreen() {
     return getChannelCategory(activeChannel) || CATEGORY_THEMES[0];
   }, [activeChannel]);
 
-  // Canales agrupados por temáticas
+  // Mapa de canal por ID para búsquedas O(1) instantáneas
+  const channelMap = useMemo(() => {
+    const map = new Map<string, Channel>();
+    for (let i = 0; i < allowedChannels.length; i++) {
+      map.set(allowedChannels[i].id, allowedChannels[i]);
+    }
+    return map;
+  }, [allowedChannels]);
+
+  // Canales agrupados por temáticas (SOLO se computa cuando cambia allowedChannels)
   const themedGroups = useMemo(() => {
     const map = new Map<string, Channel[]>();
     CATEGORY_THEMES.forEach((t) => map.set(t.id, []));
 
     const others: Channel[] = [];
 
-    allowedChannels.forEach((ch) => {
+    for (let i = 0; i < allowedChannels.length; i++) {
+      const ch = allowedChannels[i];
       const theme = getChannelCategory(ch);
       if (theme) {
         map.get(theme.id)?.push(ch);
       } else {
         others.push(ch);
       }
-    });
+    }
 
     return { map, others };
   }, [allowedChannels]);
@@ -566,18 +814,21 @@ export default function ChannelsScreen() {
     return allowedChannels.filter((c) => favSet.has(c.id));
   }, [allowedChannels, favSet]);
 
-  // ── Últimos Canales Vistos para la Cuadrícula 2x2 Lateral en el Hero ────────
+  // ── Últimos Canales Vistos para la Cuadrícula 2x2 Lateral en el Hero (O(1)) ─
   const recentDisplayChannels = useMemo(() => {
     if (allowedChannels.length === 0) return [];
 
-    const resolved = recentIds
-      .map((id) => allowedChannels.find((c) => c.id === id))
-      .filter((c): c is Channel => Boolean(c));
+    const resolved: Channel[] = [];
+    for (let i = 0; i < recentIds.length; i++) {
+      const ch = channelMap.get(recentIds[i]);
+      if (ch) resolved.push(ch);
+    }
 
     const seen = new Set<string>();
     const uniqueRecent: Channel[] = [];
 
-    for (const ch of resolved) {
+    for (let i = 0; i < resolved.length; i++) {
+      const ch = resolved[i];
       if (!seen.has(ch.id)) {
         seen.add(ch.id);
         uniqueRecent.push(ch);
@@ -592,8 +843,9 @@ export default function ChannelsScreen() {
 
     // Completar hasta 4 si aún hay menos de 4 canales en el historial
     const pool = [...uniqueRecent];
-    for (const ch of allowedChannels) {
+    for (let i = 0; i < allowedChannels.length; i++) {
       if (pool.length >= 4) break;
+      const ch = allowedChannels[i];
       if (!seen.has(ch.id)) {
         seen.add(ch.id);
         pool.push(ch);
@@ -601,10 +853,10 @@ export default function ChannelsScreen() {
     }
 
     return pool.slice(0, 4);
-  }, [allowedChannels, recentIds, activeChannel]);
+  }, [allowedChannels, recentIds, channelMap, activeChannel]);
 
-  // ── Generación de Categorías Completas para la Guía y la Cinta ──────────────
-  const guideCategories = useMemo(() => {
+  // ── Categorías Estáticas (Temas, Países, M3U) — SOLO calculadas 1 vez ───────
+  const baseCategories = useMemo(() => {
     const list: {
       id: string;
       label: string;
@@ -614,45 +866,9 @@ export default function ChannelsScreen() {
       channels: Channel[];
     }[] = [];
 
-    // 1. Todos los Canales
-    list.push({
-      id: "all",
-      label: "Todos los Canales",
-      count: allowedChannels.length,
-      color: LIVE_COLORS.accentAmber,
-      icon: Tv,
-      channels: allowedChannels,
-    });
-
-    // 2. Mis Favoritos (si existen)
-    if (favChannels.length > 0) {
-      list.push({
-        id: "favorites",
-        label: "Mis Favoritos",
-        count: favChannels.length,
-        color: LIVE_COLORS.favHeart,
-        icon: Heart,
-        channels: favChannels,
-      });
-    }
-
-    // 3. Recientes (si existen)
-    const validRecents = recentIds
-      .map((id) => allowedChannels.find((c) => c.id === id))
-      .filter((c): c is Channel => Boolean(c));
-    if (validRecents.length > 0) {
-      list.push({
-        id: "recent",
-        label: "Recientes",
-        count: validRecents.length,
-        color: LIVE_COLORS.newsCyan,
-        icon: RotateCcw,
-        channels: validRecents,
-      });
-    }
-
-    // 4. Categorías temáticas inteligentes
-    for (const theme of CATEGORY_THEMES) {
+    // 1. Categorías temáticas inteligentes
+    for (let i = 0; i < CATEGORY_THEMES.length; i++) {
+      const theme = CATEGORY_THEMES[i];
       const chs = themedGroups.map.get(theme.id) || [];
       if (chs.length > 0) {
         list.push({
@@ -666,9 +882,10 @@ export default function ChannelsScreen() {
       }
     }
 
-    // 5. Agrupación por Países
+    // 2. Agrupación por Países
     const countryMap = new Map<string, Channel[]>();
-    for (const ch of allowedChannels) {
+    for (let i = 0; i < allowedChannels.length; i++) {
+      const ch = allowedChannels[i];
       const c = (ch.country || "").trim();
       if (c && c.toLowerCase() !== "internacional" && c.toLowerCase() !== "mundo") {
         const norm = c.charAt(0).toUpperCase() + c.slice(1);
@@ -681,7 +898,8 @@ export default function ChannelsScreen() {
       .filter(([_, arr]) => arr.length >= 2)
       .sort((a, b) => b[1].length - a[1].length);
 
-    for (const [countryName, chs] of sortedCountries.slice(0, 8)) {
+    for (let i = 0; i < Math.min(8, sortedCountries.length); i++) {
+      const [countryName, chs] = sortedCountries[i];
       list.push({
         id: `country_${countryName.toLowerCase()}`,
         label: countryName,
@@ -692,9 +910,10 @@ export default function ChannelsScreen() {
       });
     }
 
-    // 6. Agrupaciones m3u adicionales
+    // 3. Agrupaciones m3u adicionales
     const groupMap = new Map<string, Channel[]>();
-    for (const ch of allowedChannels) {
+    for (let i = 0; i < allowedChannels.length; i++) {
+      const ch = allowedChannels[i];
       const grp = (ch.groupTitle || ch.category?.name || "").trim();
       if (grp && grp.length > 2 && !getChannelCategory(ch)) {
         const curr = groupMap.get(grp) || [];
@@ -720,7 +939,61 @@ export default function ChannelsScreen() {
     }
 
     return list;
-  }, [allowedChannels, favChannels, recentIds, themedGroups]);
+  }, [allowedChannels, themedGroups]);
+
+  // ── Generación de Categorías Completas para la Guía y la Cinta ──────────────
+  const guideCategories = useMemo(() => {
+    const list: {
+      id: string;
+      label: string;
+      count: number;
+      color: string;
+      icon: any;
+      channels: Channel[];
+    }[] = [
+      {
+        id: "all",
+        label: "Todos los Canales",
+        count: allowedChannels.length,
+        color: LIVE_COLORS.accentAmber,
+        icon: Tv,
+        channels: allowedChannels,
+      },
+    ];
+
+    // Mis Favoritos (si existen)
+    if (favChannels.length > 0) {
+      list.push({
+        id: "favorites",
+        label: "Mis Favoritos",
+        count: favChannels.length,
+        color: LIVE_COLORS.favHeart,
+        icon: Heart,
+        channels: favChannels,
+      });
+    }
+
+    // Recientes (si existen)
+    if (recentIds.length > 0) {
+      const validRecents: Channel[] = [];
+      for (let i = 0; i < recentIds.length; i++) {
+        const ch = channelMap.get(recentIds[i]);
+        if (ch) validRecents.push(ch);
+      }
+      if (validRecents.length > 0) {
+        list.push({
+          id: "recent",
+          label: "Recientes",
+          count: validRecents.length,
+          color: LIVE_COLORS.newsCyan,
+          icon: RotateCcw,
+          channels: validRecents,
+        });
+      }
+    }
+
+    return list.concat(baseCategories);
+  }, [allowedChannels, favChannels, recentIds, channelMap, baseCategories]);
 
   // Cinta de Etiquetas para la vista principal
   const smartRibbonCategories = useMemo(() => {
@@ -764,12 +1037,27 @@ export default function ChannelsScreen() {
   }, []);
 
   // Abrir la guía dual desde una etiqueta de categoría (sin agregar botón extra)
-  const handleCategoryPillPress = useCallback((cat: { id: string }) => {
-    setSelectedCatId(cat.id);
-    setSelectedGuideCategory(cat.id);
+  const handleCategoryPillPress = useCallback((catId: string) => {
+    setSelectedCatId(catId);
+    setSelectedGuideCategory(catId);
     setGuideSearch("");
     setGuidePane("channels");
     setShowGuide(true);
+  }, []);
+
+  // Handlers estables para items de categoría y canal en la guía dual
+  const handleCategoryItemFocus = useCallback((id: string) => {
+    setSelectedGuideCategory(id);
+    setGuidePane("categories");
+  }, []);
+
+  const handleCategoryItemPress = useCallback((id: string) => {
+    setSelectedGuideCategory(id);
+    setGuidePane("channels");
+  }, []);
+
+  const handleChannelItemFocus = useCallback(() => {
+    setGuidePane("channels");
   }, []);
 
   // Categoría activa seleccionada en la guía
@@ -795,11 +1083,12 @@ export default function ChannelsScreen() {
     );
   }, [activeGuideCategoryObj, allowedChannels, guideSearch]);
 
-  // Actualizar handles de nodos en categorías
+  // Actualizar handles de nodos en categorías SOLO cuando la guía está abierta
   useEffect(() => {
-    if (Platform.OS === "web") return;
+    if (Platform.OS === "web" || !showGuide) return;
     const handles: Record<string, number> = {};
-    for (const cat of guideCategories) {
+    for (let i = 0; i < guideCategories.length; i++) {
+      const cat = guideCategories[i];
       const node = catRefs.current[cat.id];
       if (node) {
         const h = safeFindNodeHandle(node);
@@ -809,19 +1098,18 @@ export default function ChannelsScreen() {
     setCatHandles(handles);
   }, [guideCategories, showGuide]);
 
-  // Actualizar handle del primer canal para nextFocusRight
+  // Actualizar handle del primer canal para nextFocusRight SOLO cuando la guía está abierta
   const updateFirstChannelHandle = useCallback(() => {
-    if (Platform.OS === "web") return;
+    if (Platform.OS === "web" || !showGuide) return;
     if (firstChannelRef.current) {
       const h = safeFindNodeHandle(firstChannelRef.current);
       if (typeof h === "number" && h > 0) setFirstChannelHandle(h);
     }
-  }, []);
+  }, [showGuide]);
 
   useEffect(() => {
+    if (!showGuide) return;
     updateFirstChannelHandle();
-    const t = setTimeout(updateFirstChannelHandle, 100);
-    return () => clearTimeout(t);
   }, [displayedGuideChannels, showGuide, updateFirstChannelHandle]);
 
   // ── Eventos de Control Remoto / Teclado TV ──────────────────────────────────
@@ -979,6 +1267,50 @@ export default function ChannelsScreen() {
     [],
   );
 
+  // Layout matemático fijo para FlatList de canales de la guía (60 FPS sin medir)
+  const getChannelItemLayout = useCallback(
+    (_: any, index: number) => ({
+      length: CH_ITEM_H + CH_ITEM_GAP,
+      offset: (CH_ITEM_H + CH_ITEM_GAP) * index,
+      index,
+    }),
+    [],
+  );
+
+  const activeChannelId = activeChannel?.id;
+
+  const currentCategoryHandle =
+    catHandles[selectedGuideCategory] || catHandles[guideCategories[0]?.id];
+
+  // Renderizador memoizado de fila de canal
+  const renderChannelItem = useCallback(
+    ({ item, index }: { item: Channel; index: number }) => (
+      <ChannelListItem
+        item={item}
+        index={index}
+        isCurrent={item.id === activeChannelId}
+        onPress={handleGuideChannelPress}
+        onFocus={handleChannelItemFocus}
+        nextFocusLeft={currentCategoryHandle}
+        firstChannelRef={index === 0 ? firstChannelRef : undefined}
+      />
+    ),
+    [activeChannelId, handleGuideChannelPress, handleChannelItemFocus, currentCategoryHandle],
+  );
+
+  // Renderizador memoizado de películas destacadas
+  const renderMovieItem = useCallback(
+    ({ item, index }: { item: NexoContentItem; index: number }) => (
+      <MovieHeroCard
+        item={item}
+        index={index}
+        total={heroMovies.length}
+        onPress={handleMoviePress}
+      />
+    ),
+    [heroMovies.length, handleMoviePress],
+  );
+
   // ── Pantalla de Carga ──────────────────────────────────────────────────────
   if (channelsLoading && allowedChannels.length === 0) {
     return (
@@ -988,9 +1320,6 @@ export default function ChannelsScreen() {
       </View>
     );
   }
-
-  const currentCategoryHandle =
-    catHandles[selectedGuideCategory] || catHandles[guideCategories[0]?.id];
 
   return (
     <View style={s.root}>
@@ -1043,7 +1372,6 @@ export default function ChannelsScreen() {
               {/* Video en Vivo con HeroVideo universal */}
               {isScreenFocused && isChannelsRoute && previewUrl && !videoError ? (
                 <HeroVideo
-                  key={previewUrl}
                   uri={previewUrl}
                   muted={false}
                   onError={() => {
@@ -1285,7 +1613,7 @@ export default function ChannelsScreen() {
                             uri={item.logo}
                             style={s.gridCardLogo as any}
                             contentFit="contain"
-                            transition={100}
+                            transition={0}
                           />
                         ) : (
                           <Tv2 size={scale(18)} color={itemTheme.color} />
@@ -1335,7 +1663,7 @@ export default function ChannelsScreen() {
                   icon={cat.icon}
                   nextFocusLeft={isFirst ? sidebarHandle ?? undefined : undefined}
                   trapFocusRight={isLast}
-                  onPress={() => handleCategoryPillPress(cat)}
+                  onPress={handleCategoryPillPress}
                 />
               );
             })}
@@ -1386,14 +1714,7 @@ export default function ChannelsScreen() {
               windowSize={3}
               getItemLayout={getMovieItemLayout}
               removeClippedSubviews={Platform.OS === "android"}
-              renderItem={({ item, index }) => (
-                <MovieHeroCard
-                  item={item}
-                  index={index}
-                  total={heroMovies.length}
-                  onPress={handleMoviePress}
-                />
-              )}
+              renderItem={renderMovieItem}
             />
           )}
         </View>
@@ -1435,89 +1756,19 @@ export default function ChannelsScreen() {
                 contentContainerStyle={s.catScrollContent}
                 showsVerticalScrollIndicator={false}
               >
-                {guideCategories.map((cat) => {
-                  const isSelected = cat.id === selectedGuideCategory;
-                  const Icon = cat.icon;
-
-                  return (
-                    <Focusable
-                      key={cat.id}
-                      ref={(node: any) => {
-                        catRefs.current[cat.id] = node;
-                      }}
-                      hasTVPreferredFocus={isSelected && guidePane === "categories"}
-                      onFocus={() => {
-                        setSelectedGuideCategory(cat.id);
-                        setGuidePane("categories");
-                      }}
-                      onPress={() => {
-                        setSelectedGuideCategory(cat.id);
-                        setGuidePane("channels");
-                      }}
-                      nextFocusRight={firstChannelHandle}
-                      animateScale={false}
-                      showFocusRing={false}
-                      style={[s.catPill, isSelected && s.catPillActive]}
-                      focusedStyle={s.catPillFocused}
-                    >
-                      {({ focused }) => (
-                        <>
-                          <View
-                            style={[
-                              s.catIconWrap,
-                              {
-                                backgroundColor: isSelected
-                                  ? "rgba(255, 183, 3, 0.2)"
-                                  : "rgba(255,255,255,0.06)",
-                              },
-                              focused && { backgroundColor: "#000000" },
-                            ]}
-                          >
-                            <Icon
-                              size={scale(14)}
-                              color={
-                                focused
-                                  ? "#000000"
-                                  : isSelected
-                                    ? LIVE_COLORS.accentAmber
-                                    : cat.color
-                              }
-                            />
-                          </View>
-
-                          <Text
-                            style={[
-                              s.catLabel,
-                              isSelected && s.catLabelActive,
-                              focused && s.catLabelFocused,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {cat.label}
-                          </Text>
-
-                          <View
-                            style={[
-                              s.catCountBadge,
-                              isSelected && s.catCountBadgeActive,
-                              focused && s.catCountBadgeFocused,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                s.catCountTxt,
-                                isSelected && s.catCountTxtActive,
-                                focused && s.catCountTxtFocused,
-                              ]}
-                            >
-                              {cat.count}
-                            </Text>
-                          </View>
-                        </>
-                      )}
-                    </Focusable>
-                  );
-                })}
+                {guideCategories.map((cat) => (
+                  <CategoryItem
+                    key={cat.id}
+                    cat={cat}
+                    isSelected={cat.id === selectedGuideCategory}
+                    onFocus={handleCategoryItemFocus}
+                    onPress={handleCategoryItemPress}
+                    nextFocusRight={firstChannelHandle}
+                    nodeRef={(node: any) => {
+                      catRefs.current[cat.id] = node;
+                    }}
+                  />
+                ))}
               </ScrollView>
             </View>
 
@@ -1568,102 +1819,12 @@ export default function ChannelsScreen() {
                 keyExtractor={(item) => item.id}
                 style={s.chList}
                 contentContainerStyle={s.chListContent}
-                initialNumToRender={14}
-                maxToRenderPerBatch={10}
-                windowSize={7}
-                renderItem={({ item, index }) => {
-                  const isCurrent = item.id === activeChannel?.id;
-
-                  return (
-                    <Focusable
-                      ref={index === 0 ? firstChannelRef : undefined}
-                      hasTVPreferredFocus={index === 0 && guidePane === "channels"}
-                      onFocus={() => {
-                        setGuidePane("channels");
-                      }}
-                      onPress={() => handleGuideChannelPress(item)}
-                      nextFocusLeft={currentCategoryHandle}
-                      animateScale={false}
-                      showFocusRing={false}
-                      style={[s.chItem, isCurrent && s.chItemCurrent]}
-                      focusedStyle={s.chItemFocused}
-                    >
-                      {({ focused }) => (
-                        <>
-                          {/* Logo del Canal */}
-                          <View style={[s.chLogoBox, focused && s.chLogoBoxFocused]}>
-                            {item.logo ? (
-                              <RemoteImage
-                                uri={item.logo}
-                                style={s.chLogoImg as any}
-                                contentFit="contain"
-                                transition={100}
-                              />
-                            ) : (
-                              <Tv
-                                size={scale(16)}
-                                color={focused ? "#000000" : "rgba(255,255,255,0.7)"}
-                              />
-                            )}
-                          </View>
-
-                          {/* Info del Canal */}
-                          <View style={s.chInfoBox}>
-                            <Text
-                              style={[
-                                s.chName,
-                                isCurrent && s.chNameCurrent,
-                                focused && s.chNameFocused,
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {item.name}
-                            </Text>
-
-                            <View style={s.chMetaRow}>
-                              {item.country ? (
-                                <Text
-                                  style={[s.chMetaTxt, focused && s.chMetaTxtFocused]}
-                                  numberOfLines={1}
-                                >
-                                  {item.country}
-                                </Text>
-                              ) : null}
-                              {item.language ? (
-                                <Text
-                                  style={[s.chMetaTxt, focused && s.chMetaTxtFocused]}
-                                  numberOfLines={1}
-                                >
-                                  {item.country ? " • " : ""}
-                                  {item.language}
-                                </Text>
-                              ) : null}
-                            </View>
-                          </View>
-
-                          {/* Indicador de EN PANTALLA */}
-                          <View style={s.chBadgesWrap}>
-                            {isCurrent && (
-                              <View
-                                style={[s.badgeLiveOn, focused && s.badgeLiveOnFocused]}
-                              >
-                                <View style={s.liveOnDot} />
-                                <Text
-                                  style={[
-                                    s.badgeLiveOnTxt,
-                                    focused && s.badgeLiveOnTxtFocused,
-                                  ]}
-                                >
-                                  EN PANTALLA
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                        </>
-                      )}
-                    </Focusable>
-                  );
-                }}
+                initialNumToRender={12}
+                maxToRenderPerBatch={8}
+                windowSize={5}
+                getItemLayout={getChannelItemLayout}
+                removeClippedSubviews={Platform.OS === "android"}
+                renderItem={renderChannelItem}
                 ListEmptyComponent={
                   <View style={s.chEmpty}>
                     <Tv size={scale(26)} color="rgba(255,255,255,0.3)" />
@@ -2504,10 +2665,10 @@ const s = StyleSheet.create({
     gap: scale(4),
   },
   chItem: {
+    height: CH_ITEM_H,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: scale(10),
-    paddingVertical: scale(7),
     borderRadius: scale(9),
     backgroundColor: "rgba(255, 255, 255, 0.04)",
     borderWidth: 1.5,
