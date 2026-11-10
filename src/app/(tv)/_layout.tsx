@@ -2,13 +2,13 @@ import { Stack, usePathname, useRouter } from "expo-router";
 
 import {
       Clapperboard,
-      Compass,
       Film,
       Flame,
       Heart,
       Home,
       Settings,
       Smile,
+      Sparkles,
       Tv,
 } from "lucide-react-native";
 
@@ -75,10 +75,10 @@ const NAV_ITEMS = [
     route: "/(tv)/anime",
   },
   {
-    key: "explore",
-    label: "Explorar",
-    icon: Compass,
-    route: "/(tv)/explore",
+    key: "premieres",
+    label: "Estrenos",
+    icon: Sparkles,
+    route: "/(tv)/premieres",
   },
   {
     key: "favorites",
@@ -326,7 +326,11 @@ export default function TVLayout() {
           <Stack.Screen name="channels" />
           <Stack.Screen name="movies" />
           <Stack.Screen name="series" />
+          <Stack.Screen name="kids" />
+          <Stack.Screen name="anime" />
+          <Stack.Screen name="premieres" />
           <Stack.Screen name="explore" />
+          <Stack.Screen name="search" />
           <Stack.Screen name="favorites" />
           <Stack.Screen name="settings" />
           <Stack.Screen name="profile" />

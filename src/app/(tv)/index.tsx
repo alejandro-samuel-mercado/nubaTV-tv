@@ -48,9 +48,9 @@ const SIDEBAR_OFFSET = scale(64);
 const CONTENT_LEFT_PAD = scale(112);
 
 // Cards del selector de portadas dentro del Hero (diseño dinámico: vertical inactivo, horizontal expandido activo 16:9)
-const HS_CARD_W = scale(105);
-const HS_CARD_ACTIVE_W = scale(250);
-const HS_CARD_H = scale(135);
+const HS_CARD_W = scale(90);
+const HS_CARD_ACTIVE_W = scale(215);
+const HS_CARD_H = scale(120);
 
 // Cards de secciones de catálogo (filas inferiores)
 const POSTER_W = scale(112);
@@ -213,7 +213,7 @@ const HeroInfo = memo(function HeroInfo({
     <View style={s.heroInfo} pointerEvents="box-none">
       {/* Tagline / Tipo Chip */}
       <View style={s.taglineChip}>
-        <Sparkles size={scale(8.5)} color="#f59e0b" />
+        <Sparkles size={scale(10)} color="#f59e0b" />
         <Text style={s.taglineChipText}>
           {item.tagline || (TYPE_LABEL[item.type] || item.type).toUpperCase()}
         </Text>
@@ -259,9 +259,9 @@ const HeroInfo = memo(function HeroInfo({
         ) : null}
       </View>
 
-      {/* Sinopsis concisa (2 líneas para dejar espacio limpio al catálogo inferior) */}
+      {/* Sinopsis concisa y elegante */}
       {item.description ? (
-        <Text style={s.heroDesc} numberOfLines={2}>
+        <Text style={s.heroDesc} numberOfLines={3}>
           {item.description}
         </Text>
       ) : null}
@@ -276,7 +276,7 @@ const HeroInfo = memo(function HeroInfo({
           style={s.btnPlay}
           focusedStyle={s.btnPlayFocused}
         >
-          <Play size={scale(12)} color="#000" fill="#000" />
+          <Play size={scale(15)} color="#000" fill="#000" />
           <Text style={s.btnPlayText}>Reproducir</Text>
         </Focusable>
 
@@ -287,7 +287,7 @@ const HeroInfo = memo(function HeroInfo({
             style={s.btnDetails}
             focusedStyle={s.btnDetailsFocused}
           >
-            <Info size={scale(12)} color="#ffffff" />
+            <Info size={scale(15)} color="#ffffff" />
             <Text style={s.btnDetailsText}>Detalles</Text>
           </Focusable>
         ) : null}
@@ -893,75 +893,75 @@ const s = StyleSheet.create({
   },
   loadText: { color: C.textSecondary, fontSize: scale(13) },
 
-  // ── 1. Sector Hero Fijo (Tamaño Proporcionado y Elegante) ──
+  // ── 1. Sector Hero Fijo (Tamaño Proporcionado y Majestuoso) ──
   fixedHeroContainer: {
-    paddingTop: scale(40),
-    paddingBottom: scale(4),
+    paddingTop: scale(88),
+    paddingBottom: scale(14),
     zIndex: 10,
   },
 
   heroInfo: {
     paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
-    maxWidth: scale(600),
+    maxWidth: scale(720),
     zIndex: 2,
   },
 
   taglineChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(4.5),
+    gap: scale(6),
     backgroundColor: "rgba(255, 183, 3, 0.15)",
     borderWidth: 1,
     borderColor: "rgba(255, 183, 3, 0.35)",
-    paddingHorizontal: scale(8),
-    paddingVertical: scale(2),
-    borderRadius: scale(10),
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(4.5),
+    borderRadius: scale(14),
     alignSelf: "flex-start",
-    marginBottom: scale(5),
+    marginBottom: scale(10),
   },
   taglineChipText: {
     color: C.accent,
-    fontSize: scale(9.5),
+    fontSize: scale(12),
     fontWeight: "800",
     letterSpacing: 0.8,
   },
 
   heroTitle: {
     fontFamily: "Bangers",
-    fontSize: scale(28),
+    fontSize: scale(52),
     color: C.accent,
     letterSpacing: 0.8,
-    marginBottom: scale(4),
-    lineHeight: scale(30),
+    marginBottom: scale(8),
+    lineHeight: scale(56),
     textShadowColor: "rgba(0,0,0,0.85)",
     textShadowOffset: { width: 1, height: 2 },
-    textShadowRadius: 6,
+    textShadowRadius: 8,
   },
 
   heroMeta: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    marginBottom: scale(4),
+    marginBottom: scale(8),
   },
   heroMetaText: {
-    fontSize: scale(11.5),
+    fontSize: scale(14),
     color: "rgba(255,255,255,0.88)",
     fontWeight: "600",
   },
 
   heroBadges: {
     flexDirection: "row",
-    gap: scale(5),
-    marginBottom: scale(6),
+    gap: scale(8),
+    marginBottom: scale(10),
     flexWrap: "wrap",
   },
   badge: {
     backgroundColor: "rgba(40,40,40,0.75)",
-    paddingHorizontal: scale(6),
-    paddingVertical: scale(2),
-    borderRadius: scale(4),
+    paddingHorizontal: scale(9),
+    paddingVertical: scale(3),
+    borderRadius: scale(5),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.2)",
   },
@@ -969,28 +969,28 @@ const s = StyleSheet.create({
     borderColor: "rgba(255,183,3,0.45)",
     backgroundColor: "rgba(255,183,3,0.15)",
   },
-  badgeText: { fontSize: scale(9.5), color: "#fff", fontWeight: "700" },
+  badgeText: { fontSize: scale(12), color: "#fff", fontWeight: "700" },
 
   heroDesc: {
-    fontSize: scale(11.5),
+    fontSize: scale(14),
     color: "rgba(255,255,255,0.85)",
-    lineHeight: scale(16),
-    marginBottom: scale(10),
-    maxWidth: scale(580),
+    lineHeight: scale(20),
+    marginBottom: scale(14),
+    maxWidth: scale(720),
   },
 
   heroButtons: {
     flexDirection: "row",
-    gap: scale(8),
+    gap: scale(12),
   },
   btnPlay: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(6),
+    gap: scale(8),
     backgroundColor: C.accent,
-    paddingHorizontal: scale(16),
-    height: scale(34),
-    borderRadius: scale(7),
+    paddingHorizontal: scale(24),
+    height: scale(44),
+    borderRadius: scale(9),
     borderWidth: 2,
     borderColor: "transparent",
   },
@@ -998,16 +998,16 @@ const s = StyleSheet.create({
     backgroundColor: "#fff",
     borderColor: "#fff",
   },
-  btnPlayText: { color: "#000", fontSize: scale(12), fontWeight: "900" },
+  btnPlayText: { color: "#000", fontSize: scale(14.5), fontWeight: "900" },
 
   btnDetails: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(6),
+    gap: scale(8),
     backgroundColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: scale(14),
-    height: scale(34),
-    borderRadius: scale(7),
+    paddingHorizontal: scale(22),
+    height: scale(44),
+    borderRadius: scale(9),
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.2)",
   },
@@ -1015,7 +1015,7 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.28)",
     borderColor: "#fff",
   },
-  btnDetailsText: { color: "#fff", fontSize: scale(12), fontWeight: "800" },
+  btnDetailsText: { color: "#fff", fontSize: scale(14), fontWeight: "800" },
 
   // ── Hero Selector (Cards de portada integradas al scroll) ──
   heroSelectorWrapper: {
