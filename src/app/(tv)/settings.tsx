@@ -3,19 +3,15 @@ import {
   ArrowRight,
   Check,
   Info,
-  LayoutGrid,
   LogOut,
   MonitorPlay,
-  Palette,
-  PlugZap,
   RefreshCw,
   Shield,
-  SlidersHorizontal,
   Tv,
   UserRound,
 } from "lucide-react-native";
 import React, { useEffect, useMemo, useState } from "react";
-import { StyleSheet, Switch, Text, View, ScrollView } from "react-native";
+import { StyleSheet, Switch, Text, View } from "react-native";
 import Focusable from "../../components/tv/Focusable";
 import { useGlobal } from "../../contexts/GlobalContext";
 import { scale } from "../../lib/scale";
@@ -25,52 +21,27 @@ import { getItemAsync, setItemAsync } from "../../utils/storage";
 const SIDEBAR_PAD = scale(88);
 const SETTINGS_STORAGE_KEY = "nubatv_tv_settings";
 
-type SectionId =
-  | "account"
-  | "parental"
-  | "appearance"
-  | "design"
-  | "integrations"
-  | "playback"
-  | "about";
+type SectionId = "account" | "parental" | "playback" | "about";
 
 type QualityMode = "Auto" | "1080p FHD" | "4K UHD";
-type LayoutMode = "Cuadrícula" | "Lista";
 
 type AppSettings = {
   parentalLock: boolean;
   hideRestricted: boolean;
-  compactMode: boolean;
-  showMetaDetails: boolean;
-  layoutMode: LayoutMode;
   autoPlayNext: boolean;
   subtitlesEnabled: boolean;
   defaultQuality: QualityMode;
-  externalPlayer: boolean;
-  integrations: {
-    realDebrid: boolean;
-    trakt: boolean;
-    plex: boolean;
-  };
 };
 
 const defaultSettings: AppSettings = {
   parentalLock: false,
   hideRestricted: true,
-  compactMode: false,
-  showMetaDetails: true,
-  layoutMode: "Cuadrícula",
   autoPlayNext: true,
   subtitlesEnabled: false,
   defaultQuality: "Auto",
-  externalPlayer: false,
-  integrations: {
-    realDebrid: false,
-    trakt: false,
-    plex: false,
-  },
 };
 
+// Exactamente las 4 secciones solicitadas
 const MENU_ITEMS: Array<{
   id: SectionId;
   label: string;
@@ -79,15 +50,11 @@ const MENU_ITEMS: Array<{
 }> = [
   { id: "account", label: "Cuenta", icon: UserRound, subtitle: "Estado de la cuenta y suscripción" },
   { id: "parental", label: "Control parental", icon: Shield, subtitle: "Filtros de contenido y restricciones" },
-  { id: "appearance", label: "Apariencia", icon: Palette, subtitle: "Tema visual y visualización en pantalla" },
-  { id: "design", label: "Diseño", icon: LayoutGrid, subtitle: "Disposición de elementos y navegación" },
-  { id: "integrations", label: "Integraciones", icon: PlugZap, subtitle: "Servicios externos y vinculaciones" },
   { id: "playback", label: "Reproducción", icon: MonitorPlay, subtitle: "Opciones de video, audio y calidad" },
   { id: "about", label: "Acerca de", icon: Info, subtitle: "Información del sistema y versión" },
 ];
 
 const qualityOptions: QualityMode[] = ["Auto", "1080p FHD", "4K UHD"];
-const layoutOptions: LayoutMode[] = ["Cuadrícula", "Lista"];
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -106,10 +73,6 @@ export default function SettingsScreen() {
         setSettings({
           ...defaultSettings,
           ...parsed,
-          integrations: {
-            ...defaultSettings.integrations,
-            ...(parsed.integrations ?? {}),
-          },
         });
       } catch (error) {
         console.log("Error parsing settings:", error);
@@ -126,21 +89,6 @@ export default function SettingsScreen() {
     const next = {
       ...settings,
       [key]: value,
-    };
-    setSettings(next);
-    setItemAsync(SETTINGS_STORAGE_KEY, JSON.stringify(next));
-  };
-
-  const updateIntegration = (
-    key: keyof AppSettings["integrations"],
-    value: boolean,
-  ) => {
-    const next = {
-      ...settings,
-      integrations: {
-        ...settings.integrations,
-        [key]: value,
-      },
     };
     setSettings(next);
     setItemAsync(SETTINGS_STORAGE_KEY, JSON.stringify(next));
@@ -283,83 +231,6 @@ export default function SettingsScreen() {
       );
     }
 
-    if (active === "appearance") {
-      return (
-        <View style={s.sectionContentWrap}>
-          {renderSettingRow({
-            label: "Modo compacto de tarjetas",
-            description: "Muestra cuadrículas más densas con más portadas por fila",
-            value: settings.compactMode,
-            onToggle: () => updateSetting("compactMode", !settings.compactMode),
-          })}
-          {renderSettingRow({
-            label: "Mostrar metadatos de contenido",
-            description: "Despliega badges de año, duración, género y calidad en las portadas",
-            value: settings.showMetaDetails,
-            onToggle: () => updateSetting("showMetaDetails", !settings.showMetaDetails),
-          })}
-        </View>
-      );
-    }
-
-    if (active === "design") {
-      return (
-        <View style={s.sectionContentWrap}>
-          <View style={s.segmentedBox}>
-            <Text style={s.segmentGroupTitle}>Vista por defecto del catálogo</Text>
-            <Text style={s.segmentGroupSubtitle}>
-              Selecciona cómo se visualizan las listas y colecciones de contenido
-            </Text>
-            <View style={s.segmentedRow}>
-              {layoutOptions.map((option) => {
-                const selected = settings.layoutMode === option;
-                return (
-                  <Focusable
-                    key={option}
-                    onPress={() => updateSetting("layoutMode", option)}
-                    style={[s.segmentButton, selected && s.segmentButtonActive]}
-                    focusedStyle={s.segmentButtonFocused}
-                  >
-                    <Text style={[s.segmentText, selected && s.segmentTextActive]}>
-                      {option}
-                    </Text>
-                  </Focusable>
-                );
-              })}
-            </View>
-          </View>
-        </View>
-      );
-    }
-
-    if (active === "integrations") {
-      return (
-        <View style={s.sectionContentWrap}>
-          {renderSettingRow({
-            label: "Sincronización Real-Debrid",
-            description: "Permite usar enlaces de alta velocidad y servidores de caché premium",
-            value: settings.integrations.realDebrid,
-            onToggle: () =>
-              updateIntegration("realDebrid", !settings.integrations.realDebrid),
-          })}
-          {renderSettingRow({
-            label: "Integración con Trakt.tv",
-            description: "Registra historial de visualización y sincroniza progreso entre dispositivos",
-            value: settings.integrations.trakt,
-            onToggle: () =>
-              updateIntegration("trakt", !settings.integrations.trakt),
-          })}
-          {renderSettingRow({
-            label: "Conexión Plex Media",
-            description: "Enlaza bibliotecas de medios locales si están disponibles en la red",
-            value: settings.integrations.plex,
-            onToggle: () =>
-              updateIntegration("plex", !settings.integrations.plex),
-          })}
-        </View>
-      );
-    }
-
     if (active === "playback") {
       return (
         <View style={s.sectionContentWrap}>
@@ -438,10 +309,14 @@ export default function SettingsScreen() {
   return (
     <View style={s.root}>
       <View style={s.shell}>
-        {/* Panel Izquierdo: Menú de Categorías con Foco Profesional TV */}
+        {/* Panel Izquierdo: Menú con proporciones limpias, elegantes y foco TV */}
         <View style={s.leftPanel}>
-          <Text style={s.menuSectionHeader}>AJUSTES DEL SISTEMA</Text>
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <View style={s.leftPanelHeader}>
+            <Text style={s.leftHeaderTitle}>Ajustes</Text>
+            <Text style={s.leftHeaderSub}>Configuración de TV</Text>
+          </View>
+
+          <View style={s.menuList}>
             {MENU_ITEMS.map((item) => {
               const selected = item.id === active;
               const Icon = item.icon;
@@ -469,7 +344,15 @@ export default function SettingsScreen() {
                 </Focusable>
               );
             })}
-          </ScrollView>
+          </View>
+
+          {/* Tarjeta de usuario en pie del panel izquierdo */}
+          <View style={s.userBadgeFooter}>
+            <View style={s.userBadgeDot} />
+            <Text style={s.userBadgeText} numberOfLines={1}>
+              {user?.username || "Usuario TV"}
+            </Text>
+          </View>
         </View>
 
         {/* Panel Derecho: Contenido de la sección seleccionada */}
@@ -517,26 +400,37 @@ const s = StyleSheet.create({
   },
   leftPanel: {
     flex: 0.85,
-    paddingRight: scale(14),
+    paddingRight: scale(16),
     borderRightWidth: 1,
     borderRightColor: "rgba(255,255,255,0.08)",
+    justifyContent: "space-between",
   },
-  menuSectionHeader: {
-    fontSize: scale(12),
+  leftPanelHeader: {
+    marginBottom: scale(18),
+    paddingLeft: scale(6),
+  },
+  leftHeaderTitle: {
+    fontSize: scale(22),
     fontWeight: "900",
-    color: "rgba(255,255,255,0.45)",
-    letterSpacing: 1.2,
-    marginBottom: scale(16),
-    paddingLeft: scale(8),
+    color: "#fff",
+    letterSpacing: -0.3,
+  },
+  leftHeaderSub: {
+    fontSize: scale(13),
+    color: "rgba(255,255,255,0.5)",
+    marginTop: scale(2),
+  },
+  menuList: {
+    gap: scale(10),
+    flex: 1,
   },
   menuItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: scale(14),
     minHeight: scale(56),
-    borderRadius: scale(16),
+    borderRadius: scale(14),
     paddingHorizontal: scale(16),
-    marginBottom: scale(10),
     backgroundColor: "rgba(255,255,255,0.03)",
     borderWidth: 1.5,
     borderColor: "transparent",
@@ -569,6 +463,28 @@ const s = StyleSheet.create({
   menuLabelActive: {
     color: "#fff",
     fontWeight: "900",
+  },
+  userBadgeFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(8),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(14),
+    borderRadius: scale(10),
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  userBadgeDot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: scale(4),
+    backgroundColor: "#22c55e",
+  },
+  userBadgeText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: scale(13),
+    fontWeight: "700",
   },
 
   rightPanel: {
