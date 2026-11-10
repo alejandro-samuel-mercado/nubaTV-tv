@@ -233,17 +233,18 @@ export default function KidsScreen() {
   const [kidsSeries, setKidsSeries] = useState<NexoContentItem[]>([]);
   const [topRatedKids, setTopRatedKids] = useState<NexoContentItem[]>([]);
 
-  // ── Cargar contenido de la API filtrado para Kids ───────────────────────────
+  // ── Cargar contenido de la API filtrado para Kids con distribución única ───
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const [animes, movies, series, topRated] = await Promise.all([
-          getContentList({ type: "ANIME", limit: 30 }),
+        const [animes, movies, series, topRated, animMovies] = await Promise.all([
+          getContentList({ type: "ANIME", limit: 40 }),
           getContentList({ type: "MOVIE", limit: 50, sort: "popular" }),
           getContentList({ type: "SERIES", limit: 40 }),
-          getContentList({ sort: "rating", limit: 35 }),
+          getContentList({ sort: "rating", limit: 40 }),
+          getContentList({ type: "MOVIE", genreId: "cmoywh4rc000excl6ffu8fp29", limit: 40 }), // Animación y familia real
         ]);
 
         if (cancelled) return;
@@ -252,6 +253,37 @@ export default function KidsScreen() {
         const kidsMovies = movies.filter(isKidsFriendly);
         const kidsSer = series.filter(isKidsFriendly);
         const kidsTop = topRated.filter(isKidsFriendly);
+        const animM = animMovies.filter(isKidsFriendly);
+
+        // Función de extracción única: garantiza que ninguna fila repita contenido de otra
+        const pickDistinct = (items: NexoContentItem[], used: Set<string>, limit = 16) => {
+          const list: NexoContentItem[] = [];
+          for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            if (!it || !it.id || used.has(it.id)) continue;
+            used.add(it.id);
+            list.push(it);
+            if (list.length >= limit) break;
+          }
+          return list;
+        };
+
+        const usedIds = new Set<string>();
+
+        // 1. Mundo Infantil en Tendencia (éxitos destacados)
+        const trending = pickDistinct([...kidsMovies, ...kidsSer], usedIds, 16);
+
+        // 2. Películas Animadas y Familiares (sin repetir las de tendencia)
+        const animatedList = pickDistinct(animM, usedIds, 16);
+
+        // 3. Aventuras Anime para Todos (anime apto para chicos)
+        const animeList = pickDistinct(animes, usedIds, 16);
+
+        // 4. Series Infantiles y Caricaturas (series exclusivas para niños)
+        const seriesList = pickDistinct(kidsSer, usedIds, 16);
+
+        // 5. Favoritos Mejor Valorados (los más aclamados sin repetir)
+        const topRatedList = pickDistinct(kidsTop, usedIds, 16);
 
         // Armar el pool del Hero con los mejores contenidos animados e infantiles
         const pool = [
@@ -261,11 +293,11 @@ export default function KidsScreen() {
         ].filter(Boolean);
 
         setHeroPool(pool);
-        setTrendingKids([...kidsMovies.slice(0, 10), ...animes.slice(0, 6)]);
-        setAnimatedMovies(kidsMovies.slice(0, 16));
-        setAnimeAdventures(animes.slice(0, 16));
-        setKidsSeries(kidsSer.slice(0, 16));
-        setTopRatedKids(kidsTop.slice(0, 16));
+        setTrendingKids(trending);
+        setAnimatedMovies(animatedList);
+        setAnimeAdventures(animeList);
+        setKidsSeries(seriesList);
+        setTopRatedKids(topRatedList);
 
         prefetchImages(pool.slice(0, 6).map((x) => x.backdropUrl || x.posterUrl || ""));
       } catch (err) {
@@ -510,16 +542,14 @@ export default function KidsScreen() {
                 );
               })}
 
-              {/* 4. Tarjeta "Ver Todo" con botón hacia /search con filtro 'kids' */}
+              {/* 4. Botón circular "Ver todo" hacia /explore con filtro Animación/Kids */}
               <HeroGridSeeAllCard
                 accentColor={KIDS_COLORS.cyan}
-                title="Ver Todo"
-                subtitle="Mundo infantil y familiar"
-                buttonLabel="Explorar Kids"
+                title="Ver todo"
                 onPress={() =>
                   router.push({
-                    pathname: "/search",
-                    params: { filter: "kids" },
+                    pathname: "/(tv)/explore",
+                    params: { genreId: "cmoywh4rc000excl6ffu8fp29" },
                   } as any)
                 }
               />
@@ -541,7 +571,7 @@ export default function KidsScreen() {
             onViewAll={() =>
               router.push({
                 pathname: "/(tv)/explore",
-                params: { genre: "Familia" },
+                params: { genreId: "cmoywh4rc000excl6ffu8fp29", sort: "popular" },
               } as any)
             }
           />

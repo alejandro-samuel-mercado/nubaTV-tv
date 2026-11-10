@@ -330,7 +330,6 @@ export default function TVLayout() {
           <Stack.Screen name="anime" />
           <Stack.Screen name="premieres" />
           <Stack.Screen name="explore" />
-          <Stack.Screen name="search" />
           <Stack.Screen name="favorites" />
           <Stack.Screen name="settings" />
           <Stack.Screen name="profile" />

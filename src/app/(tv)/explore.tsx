@@ -252,7 +252,13 @@ export default function ExploreTvScreen() {
       if (pg === 1) setLoading(true);
       const params: any = { sort, limit: 32, page: pg };
       if (contentType) params.type = contentType;
-      if (genre) params.genre = genre;
+      if (genre) {
+        if (genre.startsWith("cm")) {
+          params.genreId = genre;
+        } else {
+          params.genre = genre;
+        }
+      }
       if (appliedQuery) params.search = appliedQuery;
 
       getContentList(params)

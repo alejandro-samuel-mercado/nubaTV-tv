@@ -205,29 +205,55 @@ export default function SeriesScreen() {
   const [comedySeries, setComedySeries] = useState<NexoContentItem[]>([]);
   const [sciFiSeries, setSciFiSeries] = useState<NexoContentItem[]>([]);
 
-  // ── Cargar series de la API ────────────────────────────────────────────────
+  // ── Cargar series de la API con distribución única por sección ─────────────
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const [popular, recent, rating] = await Promise.all([
-          getContentList({ type: "SERIES", sort: "popular", limit: 40 }),
-          getContentList({ type: "SERIES", sort: "recent", limit: 40 }),
-          getContentList({ type: "SERIES", sort: "rating", limit: 40 }),
+        const [popular, recent, rating, dramaRes, comedyRes, p2Res] = await Promise.all([
+          getContentList({ type: "SERIES", sort: "popular", limit: 35 }),
+          getContentList({ type: "SERIES", sort: "recent", limit: 35 }),
+          getContentList({ type: "SERIES", sort: "rating", limit: 35 }),
+          getContentList({ type: "SERIES", genreId: "cmoywh2rh000axcl683pj6eu0", limit: 35 }), // Drama
+          getContentList({ type: "SERIES", genreId: "cmoywh22d0009xcl6fxgc4vqn", limit: 35 }), // Comedia
+          getContentList({ type: "SERIES", page: 2, limit: 35 }), // Más producciones
         ]);
 
         if (cancelled) return;
 
-        // Filtrar por géneros temáticos
-        const byGenre = (kws: string[]) =>
-          popular.filter((m) =>
-            m.genres?.some((g) => kws.some((k) => g.name.toLowerCase().includes(k))),
-          );
+        // Función de extracción única: garantiza que ninguna fila repita contenido de otra
+        const pickDistinct = (items: NexoContentItem[], used: Set<string>, limit = 16) => {
+          const list: NexoContentItem[] = [];
+          for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            if (!it || !it.id || used.has(it.id)) continue;
+            used.add(it.id);
+            list.push(it);
+            if (list.length >= limit) break;
+          }
+          return list;
+        };
 
-        const drama = byGenre(["drama", "crimen", "misterio", "suspense", "thriller", "policíaco"]);
-        const comedy = byGenre(["comedia", "animación", "familiar", "romance"]);
-        const scifi = byGenre(["ciencia ficción", "fantasía", "sobrenatural", "aventura", "acción"]);
+        const usedIds = new Set<string>();
+
+        // 1. Series en Tendencia
+        const trending = pickDistinct(popular, usedIds, 16);
+
+        // 2. Nuevas Temporadas y Estrenos (sin repetir)
+        const recentList = pickDistinct(recent, usedIds, 16);
+
+        // 3. Series Mejor Valoradas (sin repetir)
+        const topRatedList = pickDistinct(rating, usedIds, 16);
+
+        // 4. Drama, Crimen y Suspenso (títulos de drama genuinos)
+        const dramaList = pickDistinct(dramaRes, usedIds, 16);
+
+        // 5. Comedia, Humor y Familiar
+        const comedyList = pickDistinct(comedyRes, usedIds, 16);
+
+        // 6. Ciencia Ficción, Misterio y Fantasía
+        const scifiList = pickDistinct(p2Res, usedIds, 16);
 
         // Pool de Hero: series con mejores backdrops o posters
         const pool = [
@@ -236,12 +262,12 @@ export default function SeriesScreen() {
         ].filter((x) => Boolean(x.backdropUrl || x.posterUrl));
 
         setHeroPool(pool);
-        setTrendingSeries(popular.slice(0, 18));
-        setRecentSeries(recent.slice(0, 18));
-        setTopRatedSeries(rating.slice(0, 18));
-        setDramaSeries(drama.length >= 6 ? drama.slice(0, 18) : popular.slice(6, 22));
-        setComedySeries(comedy.length >= 6 ? comedy.slice(0, 18) : recent.slice(6, 22));
-        setSciFiSeries(scifi.length >= 6 ? scifi.slice(0, 18) : rating.slice(6, 22));
+        setTrendingSeries(trending);
+        setRecentSeries(recentList);
+        setTopRatedSeries(topRatedList);
+        setDramaSeries(dramaList);
+        setComedySeries(comedyList);
+        setSciFiSeries(scifiList);
 
         prefetchImages(pool.slice(0, 6).map((x) => x.backdropUrl || x.posterUrl || ""));
       } catch (err) {
@@ -482,16 +508,14 @@ export default function SeriesScreen() {
                 );
               })}
 
-              {/* 4. Tarjeta "Ver Todo" con botón hacia /search con filtro 'series' */}
+              {/* 4. Botón circular "Ver todo" hacia /explore con filtro 'SERIES' */}
               <HeroGridSeeAllCard
                 accentColor={SERIES_COLORS.primaryPurple}
-                title="Ver Todo"
-                subtitle="Catálogo de series"
-                buttonLabel="Explorar Series"
+                title="Ver todo"
                 onPress={() =>
                   router.push({
-                    pathname: "/search",
-                    params: { filter: "series" },
+                    pathname: "/(tv)/explore",
+                    params: { type: "SERIES" },
                   } as any)
                 }
               />
@@ -509,6 +533,12 @@ export default function SeriesScreen() {
             accentColor={SERIES_COLORS.primaryPurple}
             icon={Trophy}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "SERIES", sort: "popular" },
+              } as any)
+            }
           />
 
           {/* 2. Nuevas Temporadas y Estrenos */}
@@ -519,6 +549,12 @@ export default function SeriesScreen() {
             accentColor={SERIES_COLORS.cyan}
             icon={Tv}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "SERIES", sort: "recent" },
+              } as any)
+            }
           />
 
           {/* 3. Series Mejor Valoradas */}
@@ -529,6 +565,12 @@ export default function SeriesScreen() {
             accentColor={SERIES_COLORS.gold}
             icon={Star}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "SERIES", sort: "rating" },
+              } as any)
+            }
           />
 
           {/* 4. Drama, Suspense y Misterio */}
@@ -539,6 +581,12 @@ export default function SeriesScreen() {
             accentColor={SERIES_COLORS.neonMagenta}
             icon={Flame}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "SERIES", genre: "Drama" },
+              } as any)
+            }
           />
 
           {/* 5. Comedia y Familiar */}
@@ -549,6 +597,12 @@ export default function SeriesScreen() {
             accentColor={SERIES_COLORS.emerald}
             icon={Smile}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "SERIES", genre: "Comedia" },
+              } as any)
+            }
           />
 
           {/* 6. Ciencia Ficción, Fantasía y Misterio */}
@@ -559,6 +613,12 @@ export default function SeriesScreen() {
             accentColor={SERIES_COLORS.electricViolet}
             icon={Sparkles}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "SERIES", genre: "Ciencia ficción" },
+              } as any)
+            }
           />
         </View>
 

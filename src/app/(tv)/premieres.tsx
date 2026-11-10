@@ -202,17 +202,20 @@ export default function PremieresScreen() {
   const [animatedPremieres, setAnimatedPremieres] = useState<NexoContentItem[]>([]);
   const [trendingPremieres, setTrendingPremieres] = useState<NexoContentItem[]>([]);
 
-  // ── Cargar contenido de estrenos reales desde la API ─────────────────────────
+  // ── Cargar contenido de estrenos reales desde la API con distribución única ─
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const [recentMovies, recentSeries, recentAnime, popularAll] = await Promise.all([
+        const [recentMovies, recentSeries, recentAnime, popularAll, topRatedAll, p2Movies, p2Series] = await Promise.all([
           getContentList({ type: "MOVIE", sort: "recent", limit: 35 }),
           getContentList({ type: "SERIES", sort: "recent", limit: 35 }),
-          getContentList({ type: "ANIME", sort: "recent", limit: 25 }),
+          getContentList({ type: "ANIME", sort: "recent", limit: 30 }),
           getContentList({ sort: "popular", limit: 35 }),
+          getContentList({ sort: "rating", limit: 35 }),
+          getContentList({ type: "MOVIE", sort: "recent", page: 2, limit: 35 }),
+          getContentList({ type: "SERIES", sort: "recent", page: 2, limit: 35 }),
         ]);
 
         if (cancelled) return;
@@ -221,33 +224,60 @@ export default function PremieresScreen() {
         const sortByYear = (arr: NexoContentItem[]) =>
           [...arr].sort((a, b) => (b.releaseYear || 0) - (a.releaseYear || 0));
 
-        const moviesSorted = sortByYear(recentMovies);
-        const seriesSorted = sortByYear(recentSeries);
-        const animeSorted = sortByYear(recentAnime);
+        // Función de extracción única: garantiza que ninguna fila repita contenido de otra
+        const pickDistinct = (items: NexoContentItem[], used: Set<string>, limit = 16) => {
+          const list: NexoContentItem[] = [];
+          for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            if (!it || !it.id || used.has(it.id)) continue;
+            used.add(it.id);
+            list.push(it);
+            if (list.length >= limit) break;
+          }
+          return list;
+        };
 
-        // Estrenos con mejor calificación
-        const topRated = [...recentMovies, ...recentSeries]
-          .filter((x) => (x.rating || 0) >= 7.0)
-          .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+        const usedIds = new Set<string>();
 
-        // Estrenos populares
-        const popularPremieres = popularAll
+        // 1. Estrenos de Cine
+        const cinema = pickDistinct(sortByYear(recentMovies), usedIds, 16);
+
+        // 2. Nuevas Series y Temporadas
+        const series = pickDistinct(sortByYear(recentSeries), usedIds, 16);
+
+        // 3. Tendencias de Estreno (sin repetir de las anteriores)
+        const popularPremieres = sortByYear(
+          popularAll.filter((x) => (x.releaseYear || 0) >= 2023)
+        );
+        const trending = pickDistinct(popularPremieres, usedIds, 16);
+
+        // 4. Estrenos Mejor Valorados (sin repetir)
+        const ratedPremieres = topRatedAll
           .filter((x) => (x.releaseYear || 0) >= 2023)
-          .slice(0, 16);
+          .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+        const topRated = pickDistinct(ratedPremieres, usedIds, 16);
+
+        // 5. Estrenos de Animación y Anime
+        const animated = pickDistinct(sortByYear(recentAnime), usedIds, 16);
+
+        // Si alguna lista necesita completar, recurrir a las páginas 2 de novedades
+        const p2Combined = sortByYear([...p2Movies, ...p2Series]);
+        if (trending.length < 12) trending.push(...pickDistinct(p2Combined, usedIds, 12 - trending.length));
+        if (topRated.length < 12) topRated.push(...pickDistinct(p2Combined, usedIds, 12 - topRated.length));
 
         // Pool del Hero: Los lanzamientos más destacados con portada de alta calidad
         const pool = [
-          ...moviesSorted.slice(0, 5),
-          ...seriesSorted.slice(0, 5),
-          ...animeSorted.slice(0, 3),
+          ...cinema.slice(0, 5),
+          ...series.slice(0, 5),
+          ...animated.slice(0, 3),
         ].filter((x) => Boolean(x.backdropUrl || x.posterUrl));
 
         setHeroPool(pool);
-        setCinemaPremieres(moviesSorted.slice(0, 18));
-        setSeriesPremieres(seriesSorted.slice(0, 18));
-        setTopRatedPremieres(topRated.slice(0, 18));
-        setAnimatedPremieres(animeSorted.slice(0, 18));
-        setTrendingPremieres(popularPremieres.slice(0, 18));
+        setCinemaPremieres(cinema);
+        setSeriesPremieres(series);
+        setTrendingPremieres(trending);
+        setTopRatedPremieres(topRated);
+        setAnimatedPremieres(animated);
 
         prefetchImages(pool.slice(0, 6).map((x) => x.backdropUrl || x.posterUrl || ""));
       } catch (err) {
@@ -490,16 +520,14 @@ export default function PremieresScreen() {
                 );
               })}
 
-              {/* 4. Tarjeta "Ver Todo" con botón hacia /search con filtro 'premieres' */}
+              {/* 4. Botón circular "Ver todo" hacia /explore con filtro 'recent' */}
               <HeroGridSeeAllCard
                 accentColor={PREMIERES_COLORS.gold}
-                title="Ver Todo"
-                subtitle="Cartelera completa"
-                buttonLabel="Explorar Estrenos"
+                title="Ver todo"
                 onPress={() =>
                   router.push({
-                    pathname: "/search",
-                    params: { filter: "premieres" },
+                    pathname: "/(tv)/explore",
+                    params: { sort: "recent" },
                   } as any)
                 }
               />
@@ -517,6 +545,12 @@ export default function PremieresScreen() {
             accentColor={PREMIERES_COLORS.gold}
             icon={Film}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "MOVIE", sort: "recent" },
+              } as any)
+            }
           />
 
           {/* 2. Nuevas Series y Temporadas */}
@@ -527,6 +561,12 @@ export default function PremieresScreen() {
             accentColor={PREMIERES_COLORS.orange}
             icon={Tv}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "SERIES", sort: "recent" },
+              } as any)
+            }
           />
 
           {/* 3. Estrenos en Tendencia */}
@@ -537,6 +577,12 @@ export default function PremieresScreen() {
             accentColor={PREMIERES_COLORS.crimson}
             icon={Flame}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { sort: "popular" },
+              } as any)
+            }
           />
 
           {/* 4. Estrenos Mejor Valorados */}
@@ -547,6 +593,12 @@ export default function PremieresScreen() {
             accentColor={PREMIERES_COLORS.emerald}
             icon={Star}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { sort: "rating" },
+              } as any)
+            }
           />
 
           {/* 5. Estrenos Animados y Anime */}
@@ -557,6 +609,12 @@ export default function PremieresScreen() {
             accentColor={PREMIERES_COLORS.cyan}
             icon={Sparkles}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { genreId: "cmoywh4rc000excl6ffu8fp29", sort: "recent" },
+              } as any)
+            }
           />
         </View>
 

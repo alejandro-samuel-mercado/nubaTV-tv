@@ -224,24 +224,51 @@ export default function AnimeScreen() {
   const [shonenAdventures, setShonenAdventures] = useState<NexoContentItem[]>([]);
   const [topRatedAnime, setTopRatedAnime] = useState<NexoContentItem[]>([]);
 
-  // ── Cargar contenido de la API de Anime y Animación ────────────────────────
+  // ── Cargar contenido de anime de la API con distribución única ──────────────
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const [popular, recent, topRated, animMovies, allAnime] = await Promise.all([
+        const [popular, recent, topRated, animMovies, p2Anime] = await Promise.all([
           getContentList({ type: "ANIME", sort: "popular", limit: 35 }),
           getContentList({ type: "ANIME", sort: "recent", limit: 35 }),
           getContentList({ type: "ANIME", sort: "rating", limit: 35 }),
-          getContentList({ genre: "Animación", type: "MOVIE", limit: 35 }),
-          getContentList({ type: "ANIME", limit: 45 }),
+          getContentList({ type: "MOVIE", genreId: "cmoywh4rc000excl6ffu8fp29", limit: 35 }), // Películas de animación
+          getContentList({ type: "ANIME", page: 2, limit: 35 }), // Aventuras y sagas
         ]);
 
         if (cancelled) return;
 
-        // Filtrar aventuras shonen / acción
-        const shonen = allAnime.filter(isShonenOrAction);
+        // Función de extracción única: garantiza que ninguna fila repita contenido de otra
+        const pickDistinct = (items: NexoContentItem[], used: Set<string>, limit = 16) => {
+          const list: NexoContentItem[] = [];
+          for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            if (!it || !it.id || used.has(it.id)) continue;
+            used.add(it.id);
+            list.push(it);
+            if (list.length >= limit) break;
+          }
+          return list;
+        };
+
+        const usedIds = new Set<string>();
+
+        // 1. Tendencias del Anime
+        const trending = pickDistinct(popular, usedIds, 16);
+
+        // 2. Estrenos y Nuevos Capítulos (sin repetir)
+        const recentList = pickDistinct(recent, usedIds, 16);
+
+        // 3. Películas de Animación (largometrajes reales)
+        const animList = pickDistinct(animMovies, usedIds, 16);
+
+        // 4. Aventuras Shonen y Acción
+        const shonenList = pickDistinct(p2Anime, usedIds, 16);
+
+        // 5. Obras Maestras Mejor Valoradas (sin repetir)
+        const topRatedList = pickDistinct(topRated, usedIds, 16);
 
         // Armar el pool del Hero con los mejores contenidos
         const pool = [
@@ -251,11 +278,11 @@ export default function AnimeScreen() {
         ].filter(Boolean);
 
         setHeroPool(pool);
-        setTrendingAnime(popular.slice(0, 16));
-        setRecentAnime(recent.slice(0, 16));
-        setAnimatedMovies(animMovies.slice(0, 16));
-        setShonenAdventures(shonen.length >= 6 ? shonen.slice(0, 16) : allAnime.slice(0, 16));
-        setTopRatedAnime(topRated.slice(0, 16));
+        setTrendingAnime(trending);
+        setRecentAnime(recentList);
+        setAnimatedMovies(animList);
+        setShonenAdventures(shonenList);
+        setTopRatedAnime(topRatedList);
 
         prefetchImages(pool.slice(0, 6).map((x) => x.backdropUrl || x.posterUrl || ""));
       } catch (err) {
@@ -500,16 +527,14 @@ export default function AnimeScreen() {
                 );
               })}
 
-              {/* 4. Tarjeta "Ver Todo" con botón hacia /search con filtro 'anime' */}
+              {/* 4. Botón circular "Ver todo" hacia /explore con filtro 'ANIME' */}
               <HeroGridSeeAllCard
                 accentColor={ANIME_COLORS.crimson}
-                title="Ver Todo"
-                subtitle="Catálogo de Anime"
-                buttonLabel="Explorar Anime"
+                title="Ver todo"
                 onPress={() =>
                   router.push({
-                    pathname: "/search",
-                    params: { filter: "anime" },
+                    pathname: "/(tv)/explore",
+                    params: { type: "ANIME" },
                   } as any)
                 }
               />

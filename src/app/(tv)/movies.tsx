@@ -203,29 +203,55 @@ export default function MoviesScreen() {
   const [comedyMovies, setComedyMovies] = useState<NexoContentItem[]>([]);
   const [sciFiMovies, setSciFiMovies] = useState<NexoContentItem[]>([]);
 
-  // ── Cargar películas de la API ──────────────────────────────────────────────
+  // ── Cargar películas de la API con distribución única por sección ──────────
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const [popular, recent, rating] = await Promise.all([
-          getContentList({ type: "MOVIE", sort: "popular", limit: 40 }),
-          getContentList({ type: "MOVIE", sort: "recent", limit: 40 }),
-          getContentList({ type: "MOVIE", sort: "rating", limit: 40 }),
+        const [popular, recent, rating, actionRes, comedyRes, scifiRes] = await Promise.all([
+          getContentList({ type: "MOVIE", sort: "popular", limit: 35 }),
+          getContentList({ type: "MOVIE", sort: "recent", limit: 35 }),
+          getContentList({ type: "MOVIE", sort: "rating", limit: 35 }),
+          getContentList({ type: "MOVIE", genreId: "cmoywh11k0008xcl6zo6gmt9t", limit: 35 }), // Acción
+          getContentList({ type: "MOVIE", genreId: "cmoywh22d0009xcl6fxgc4vqn", limit: 35 }), // Comedia
+          getContentList({ type: "MOVIE", genreId: "cmoywh3gn000cxcl621by2juo", limit: 35 }), // Ciencia Ficción
         ]);
 
         if (cancelled) return;
 
-        // Filtrar por géneros temáticos
-        const byGenre = (kws: string[]) =>
-          popular.filter((m) =>
-            m.genres?.some((g) => kws.some((k) => g.name.toLowerCase().includes(k))),
-          );
+        // Función de extracción única: garantiza que ninguna fila repita contenido de otra
+        const pickDistinct = (items: NexoContentItem[], used: Set<string>, limit = 16) => {
+          const list: NexoContentItem[] = [];
+          for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            if (!it || !it.id || used.has(it.id)) continue;
+            used.add(it.id);
+            list.push(it);
+            if (list.length >= limit) break;
+          }
+          return list;
+        };
 
-        const action = byGenre(["acción", "accion", "aventura", "bélica", "crimen"]);
-        const comedy = byGenre(["comedia", "romance", "familiar"]);
-        const scifi = byGenre(["ciencia ficción", "fantasía", "misterio", "terror"]);
+        const usedIds = new Set<string>();
+
+        // 1. Películas en Tendencia
+        const trending = pickDistinct(popular, usedIds, 16);
+
+        // 2. Estrenos Recientes (sin repetir las de tendencia)
+        const recentList = pickDistinct(recent, usedIds, 16);
+
+        // 3. Mejor Valoradas (sin repetir anteriores)
+        const topRatedList = pickDistinct(rating, usedIds, 16);
+
+        // 4. Acción y Aventuras (títulos de acción genuinos)
+        const actionList = pickDistinct(actionRes, usedIds, 16);
+
+        // 5. Comedia y Familiar
+        const comedyList = pickDistinct(comedyRes, usedIds, 16);
+
+        // 6. Ciencia Ficción, Fantasía y Terror
+        const scifiList = pickDistinct(scifiRes, usedIds, 16);
 
         // Pool de Hero: películas con mejores backdrops
         const pool = [
@@ -234,12 +260,12 @@ export default function MoviesScreen() {
         ].filter((x) => Boolean(x.backdropUrl || x.posterUrl));
 
         setHeroPool(pool);
-        setTrendingMovies(popular.slice(0, 18));
-        setRecentMovies(recent.slice(0, 18));
-        setTopRatedMovies(rating.slice(0, 18));
-        setActionMovies(action.length >= 6 ? action.slice(0, 18) : popular.slice(6, 22));
-        setComedyMovies(comedy.length >= 6 ? comedy.slice(0, 18) : recent.slice(6, 22));
-        setSciFiMovies(scifi.length >= 6 ? scifi.slice(0, 18) : rating.slice(6, 22));
+        setTrendingMovies(trending);
+        setRecentMovies(recentList);
+        setTopRatedMovies(topRatedList);
+        setActionMovies(actionList);
+        setComedyMovies(comedyList);
+        setSciFiMovies(scifiList);
 
         prefetchImages(pool.slice(0, 6).map((x) => x.backdropUrl || x.posterUrl || ""));
       } catch (err) {
@@ -480,16 +506,14 @@ export default function MoviesScreen() {
                 );
               })}
 
-              {/* 4. Tarjeta "Ver Todo" con botón hacia /search con filtro 'movies' */}
+              {/* 4. Botón circular "Ver todo" hacia /explore con filtro 'MOVIE' */}
               <HeroGridSeeAllCard
                 accentColor={MOVIE_COLORS.gold}
-                title="Ver Todo"
-                subtitle="Catálogo de películas"
-                buttonLabel="Explorar Cine"
+                title="Ver todo"
                 onPress={() =>
                   router.push({
-                    pathname: "/search",
-                    params: { filter: "movies" },
+                    pathname: "/(tv)/explore",
+                    params: { type: "MOVIE" },
                   } as any)
                 }
               />
@@ -507,6 +531,12 @@ export default function MoviesScreen() {
             accentColor={MOVIE_COLORS.gold}
             icon={Trophy}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "MOVIE", sort: "popular" },
+              } as any)
+            }
           />
 
           {/* 2. Estrenos Recientes */}
@@ -517,6 +547,12 @@ export default function MoviesScreen() {
             accentColor={MOVIE_COLORS.cinemaBlue}
             icon={Film}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "MOVIE", sort: "recent" },
+              } as any)
+            }
           />
 
           {/* 3. Mejor Valoradas */}
@@ -527,6 +563,12 @@ export default function MoviesScreen() {
             accentColor={MOVIE_COLORS.emerald}
             icon={Star}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "MOVIE", sort: "rating" },
+              } as any)
+            }
           />
 
           {/* 4. Acción y Aventuras */}
@@ -537,6 +579,12 @@ export default function MoviesScreen() {
             accentColor={MOVIE_COLORS.neonRed}
             icon={Flame}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "MOVIE", genre: "Acción" },
+              } as any)
+            }
           />
 
           {/* 5. Comedia y Familiar */}
@@ -547,6 +595,12 @@ export default function MoviesScreen() {
             accentColor={MOVIE_COLORS.pink}
             icon={Smile}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "MOVIE", genre: "Comedia" },
+              } as any)
+            }
           />
 
           {/* 6. Ciencia Ficción y Misterio */}
@@ -557,6 +611,12 @@ export default function MoviesScreen() {
             accentColor={MOVIE_COLORS.purple}
             icon={Sparkles}
             onPress={handleOpenDetail}
+            onViewAll={() =>
+              router.push({
+                pathname: "/(tv)/explore",
+                params: { type: "MOVIE", genre: "Ciencia ficción" },
+              } as any)
+            }
           />
         </View>
 

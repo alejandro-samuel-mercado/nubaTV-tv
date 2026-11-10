@@ -444,7 +444,7 @@ const ContentRow = memo(function ContentRow({
                 height={POSTER_H}
                 onPress={onViewAll}
                 label="Ver todo"
-                sublabel={viewAllSublabel || "Explorar catálogo"}
+                sublabel={viewAllSublabel}
                 accentColor={accent}
               />
             </View>

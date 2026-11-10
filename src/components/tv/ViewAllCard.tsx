@@ -1,6 +1,6 @@
 import React, { memo } from "react";
 import { StyleSheet, Text, View, StyleProp, ViewStyle } from "react-native";
-import { ArrowRight, Compass } from "lucide-react-native";
+import { ChevronRight } from "lucide-react-native";
 import Focusable from "./Focusable";
 import { scale } from "../../lib/scale";
 import { C } from "../../lib/tvColors";
@@ -24,7 +24,7 @@ function ViewAllCard({
   height,
   onPress,
   label = "Ver todo",
-  sublabel = "Explorar catálogo",
+  sublabel,
   accentColor = C.accent,
   borderRadius = scale(12),
   nextFocusLeft,
@@ -40,7 +40,7 @@ function ViewAllCard({
       trapFocusRight={trapFocusRight}
       borderRadius={borderRadius}
       focusRingColor={accentColor}
-      scaleValue={1.05}
+      scaleValue={1.04}
       style={[
         s.root,
         {
@@ -54,30 +54,37 @@ function ViewAllCard({
     >
       {({ focused }) => (
         <View style={s.inner}>
-          {/* Círculo central con ícono y resplandor */}
+          {/* Círculo central con símbolo '>' */}
           <View
             style={[
               s.iconCircle,
               {
-                backgroundColor: focused ? `${accentColor}30` : `${accentColor}15`,
-                borderColor: focused ? accentColor : `${accentColor}40`,
+                backgroundColor: focused ? accentColor : `${accentColor}20`,
+                borderColor: focused ? "#ffffff" : `${accentColor}50`,
               },
             ]}
           >
-            {focused ? (
-              <ArrowRight size={scale(18)} color={accentColor} strokeWidth={2.4} />
-            ) : (
-              <Compass size={scale(18)} color={accentColor} strokeWidth={2} />
-            )}
+            <ChevronRight
+              size={scale(22)}
+              color={focused ? "#000000" : accentColor}
+              strokeWidth={3}
+              style={{ marginLeft: scale(1.5) }}
+            />
           </View>
 
-          {/* Textos */}
-          <Text style={[s.label, focused && { color: accentColor }]} numberOfLines={1}>
-            {label.toUpperCase()}
+          {/* Texto limpio 'Ver todo' sin texto redundante */}
+          <Text
+            style={[
+              s.label,
+              { color: focused ? "#ffffff" : "rgba(255, 255, 255, 0.85)" },
+            ]}
+            numberOfLines={1}
+          >
+            {label}
           </Text>
 
           {sublabel ? (
-            <Text style={s.sublabel} numberOfLines={2}>
+            <Text style={s.sublabel} numberOfLines={1}>
               {sublabel}
             </Text>
           ) : null}
@@ -108,25 +115,25 @@ const s = StyleSheet.create({
     width: "100%",
   },
   iconCircle: {
-    width: scale(42),
-    height: scale(42),
-    borderRadius: scale(21),
-    borderWidth: 1.5,
+    width: scale(44),
+    height: scale(44),
+    borderRadius: scale(22),
+    borderWidth: 1.8,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: scale(8),
   },
   label: {
-    fontSize: scale(11.5),
-    fontWeight: "900",
+    fontSize: scale(12),
+    fontWeight: "800",
     color: "#ffffff",
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
     textAlign: "center",
   },
   sublabel: {
-    fontSize: scale(9.5),
+    fontSize: scale(10),
     fontWeight: "600",
-    color: "rgba(255, 255, 255, 0.45)",
+    color: "rgba(255, 255, 255, 0.5)",
     textAlign: "center",
     marginTop: scale(3),
     maxWidth: "90%",
