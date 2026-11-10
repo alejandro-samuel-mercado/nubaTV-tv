@@ -389,10 +389,21 @@ export default function ExploreTvScreen() {
               onPress={clearAllFilters}
               style={s.clearBtn}
               focusedStyle={s.clearBtnFocused}
-              {...({ nextFocusLeft: sidebarHandle ?? undefined } as any)}
+              nextFocusLeft={sidebarHandle ?? undefined}
             >
-              <X size={scale(13)} color={C.accent} />
-              <Text style={s.clearBtnTxt}>Limpiar todos los filtros</Text>
+              {({ focused }) => (
+                <>
+                  <X size={scale(13)} color={focused ? "#000" : C.accent} />
+                  <Text
+                    style={[
+                      s.clearBtnTxt,
+                      focused && { color: "#000000", fontWeight: "900" },
+                    ]}
+                  >
+                    Limpiar todos los filtros
+                  </Text>
+                </>
+              )}
             </Focusable>
           )}
 
@@ -413,19 +424,24 @@ export default function ExploreTvScreen() {
                   focusedStyle={s.typeChipFocused}
                   nextFocusLeft={idx % 3 === 0 ? (sidebarHandle ?? undefined) : undefined}
                 >
-                  <Icon
-                    size={scale(14)}
-                    color={isSelected ? C.accent : "rgba(255,255,255,0.75)"}
-                  />
-                  <Text
-                    style={[
-                      s.typeChipTxt,
-                      isSelected && s.typeChipTxtActive,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {t.label}
-                  </Text>
+                  {({ focused }) => (
+                    <>
+                      <Icon
+                        size={scale(14)}
+                        color={focused ? "#000000" : (isSelected ? C.accent : "rgba(255,255,255,0.75)")}
+                      />
+                      <Text
+                        style={[
+                          s.typeChipTxt,
+                          isSelected && s.typeChipTxtActive,
+                          focused && { color: "#000000", fontWeight: "900" },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {t.label}
+                      </Text>
+                    </>
+                  )}
                 </Focusable>
               );
             })}
@@ -450,19 +466,24 @@ export default function ExploreTvScreen() {
                   focusedStyle={s.sortChipFocused}
                   nextFocusLeft={idx === 0 ? (sidebarHandle ?? undefined) : undefined}
                 >
-                  <Icon
-                    size={scale(13)}
-                    color={isSelected ? C.accent : "rgba(255,255,255,0.7)"}
-                  />
-                  <Text
-                    style={[
-                      s.sortChipTxt,
-                      isSelected && s.sortChipTxtActive,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {opt.label}
-                  </Text>
+                  {({ focused }) => (
+                    <>
+                      <Icon
+                        size={scale(13)}
+                        color={focused ? "#000000" : (isSelected ? C.accent : "rgba(255,255,255,0.7)")}
+                      />
+                      <Text
+                        style={[
+                          s.sortChipTxt,
+                          isSelected && s.sortChipTxtActive,
+                          focused && { color: "#000000", fontWeight: "900" },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {opt.label}
+                      </Text>
+                    </>
+                  )}
                 </Focusable>
               );
             })}
@@ -490,15 +511,18 @@ export default function ExploreTvScreen() {
                   focusedStyle={s.genreChip2Focused}
                   nextFocusLeft={idx % 2 === 0 ? (sidebarHandle ?? undefined) : undefined}
                 >
-                  <Text
-                    style={[
-                      s.genreChip2Txt,
-                      isSelected && s.genreChip2TxtActive,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {g.label}
-                  </Text>
+                  {({ focused }) => (
+                    <Text
+                      style={[
+                        s.genreChip2Txt,
+                        isSelected && s.genreChip2TxtActive,
+                        focused && { color: "#000000", fontWeight: "900" },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {g.label}
+                    </Text>
+                  )}
                 </Focusable>
               );
             })}
@@ -692,8 +716,9 @@ const s = StyleSheet.create({
     marginBottom: scale(10),
   },
   clearBtnFocused: {
-    backgroundColor: "#ffffff",
+    backgroundColor: C.accent,
     borderColor: "#ffffff",
+    transform: [{ scale: 1.02 }],
   },
   clearBtnTxt: {
     color: C.accent,
@@ -750,12 +775,10 @@ const s = StyleSheet.create({
     borderColor: "rgba(255, 183, 3, 0.6)",
   },
   typeChipFocused: {
-    backgroundColor: "#ffffff",
+    backgroundColor: C.accent,
     borderColor: "#ffffff",
-    shadowColor: "#ffffff",
-    shadowOpacity: 0.6,
-    shadowRadius: scale(6),
-    elevation: 6,
+    transform: [{ scale: 1.04 }],
+    elevation: 8,
   },
   typeChipTxt: {
     fontSize: scale(12.5),
@@ -789,8 +812,10 @@ const s = StyleSheet.create({
     borderColor: "rgba(255, 183, 3, 0.6)",
   },
   sortChipFocused: {
-    backgroundColor: "#ffffff",
+    backgroundColor: C.accent,
     borderColor: "#ffffff",
+    transform: [{ scale: 1.04 }],
+    elevation: 8,
   },
   sortChipTxt: {
     fontSize: scale(12),
@@ -825,12 +850,10 @@ const s = StyleSheet.create({
     borderColor: C.accent,
   },
   genreChip2Focused: {
-    backgroundColor: "#ffffff",
+    backgroundColor: C.accent,
     borderColor: "#ffffff",
-    shadowColor: "#ffffff",
-    shadowOpacity: 0.6,
-    shadowRadius: scale(6),
-    elevation: 6,
+    transform: [{ scale: 1.03 }],
+    elevation: 8,
   },
   genreChip2Txt: {
     fontSize: scale(12.5),

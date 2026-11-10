@@ -184,10 +184,9 @@ const AnimeRow = memo(function AnimeRow({
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowTrack}
-        initialNumToRender={items.length || 16}
-        maxToRenderPerBatch={items.length || 16}
-        windowSize={11}
-        removeClippedSubviews={false}
+        initialNumToRender={6}
+        maxToRenderPerBatch={4}
+        windowSize={5}
         renderItem={({ item, index }) => (
           <AnimeCard
             item={item}

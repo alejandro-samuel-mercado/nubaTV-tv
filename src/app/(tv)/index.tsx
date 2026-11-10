@@ -329,10 +329,9 @@ const TrendingRow = memo(function TrendingRow({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowTrack}
         style={{ overflow: "visible" }}
-        initialNumToRender={items.length || 16}
-        maxToRenderPerBatch={items.length || 16}
-        windowSize={11}
-        removeClippedSubviews={false}
+        initialNumToRender={6}
+        maxToRenderPerBatch={4}
+        windowSize={5}
         renderItem={({ item, index }) => (
           <Focusable
             onPress={() => onPress(item)}
@@ -428,10 +427,9 @@ const ContentRow = memo(function ContentRow({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowTrack}
         style={{ overflow: "visible" }}
-        initialNumToRender={items.length || 16}
-        maxToRenderPerBatch={items.length || 16}
-        windowSize={11}
-        removeClippedSubviews={false}
+        initialNumToRender={6}
+        maxToRenderPerBatch={4}
+        windowSize={5}
         renderItem={({ item, index }) => (
           <PosterCard
             item={item}
