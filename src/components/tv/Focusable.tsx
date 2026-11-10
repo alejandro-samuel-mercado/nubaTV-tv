@@ -33,6 +33,7 @@ export interface FocusableProps {
   onPress?: () => void;
   onFocus?: () => void;
   onBlur?: () => void;
+  onLayout?: (event: any) => void;
   disabled?: boolean;
   hasTVPreferredFocus?: boolean;
   nextFocusLeft?: number;
@@ -41,6 +42,12 @@ export interface FocusableProps {
   nextFocusDown?: number;
   /** Bloquear el foco a la derecha (no salta a otra fila al presionar derecha al final) */
   trapFocusRight?: boolean;
+  /** Bloquear el foco a la izquierda (no salta fuera al presionar izquierda) */
+  trapFocusLeft?: boolean;
+  /** Bloquear el foco hacia arriba (no salta fuera al presionar arriba) */
+  trapFocusUp?: boolean;
+  /** Bloquear el foco hacia abajo (no salta fuera al presionar abajo) */
+  trapFocusDown?: boolean;
   hitSlop?: any;
   /** Si debe animar la escala suavemente al enfocar (default: true) */
   animateScale?: boolean;
@@ -92,7 +99,13 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
     borderRadius,
     throttleMs = 70,
     trapFocusRight,
+    trapFocusLeft,
+    trapFocusUp,
+    trapFocusDown,
     nextFocusRight,
+    nextFocusLeft,
+    nextFocusUp,
+    nextFocusDown,
     ...rest
   },
   ref,
@@ -110,16 +123,18 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
   const ringAnim = useRef(new Animated.Value(0)).current;
   const throttleTimer = useRef<any>(null);
 
-  // Actualizar handle del nodo nativo para trapFocusRight (solo plataformas nativas)
+  const hasAnyTrap = trapFocusRight || trapFocusLeft || trapFocusUp || trapFocusDown;
+
+  // Actualizar handle del nodo nativo para trampas de foco (solo plataformas nativas)
   const updateSelfHandle = useCallback(() => {
     if (Platform.OS === "web") return;
-    if (trapFocusRight && innerRef.current) {
+    if (hasAnyTrap && innerRef.current) {
       const handle = safeFindNodeHandle(innerRef.current);
       if (typeof handle === "number" && handle > 0) {
         setSelfNodeHandle((prev) => (prev !== handle ? handle : prev));
       }
     }
-  }, [trapFocusRight]);
+  }, [hasAnyTrap]);
 
   useEffect(() => {
     updateSelfHandle();
@@ -138,7 +153,7 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
   const handleFocus = useCallback(() => {
     setFocused(true);
 
-    if (trapFocusRight && !selfNodeHandle) {
+    if (hasAnyTrap && !selfNodeHandle) {
       updateSelfHandle();
     }
 
@@ -241,6 +256,12 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
 
   const resolvedNextFocusRight =
     nextFocusRight ?? (trapFocusRight ? selfNodeHandle : undefined);
+  const resolvedNextFocusLeft =
+    nextFocusLeft ?? (trapFocusLeft ? selfNodeHandle : undefined);
+  const resolvedNextFocusUp =
+    nextFocusUp ?? (trapFocusUp ? selfNodeHandle : undefined);
+  const resolvedNextFocusDown =
+    nextFocusDown ?? (trapFocusDown ? selfNodeHandle : undefined);
 
   return (
     <AnimatedPressable
@@ -251,10 +272,13 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
       onBlur={handleBlur}
       onPress={onPress}
       onLayout={(e: any) => {
-        if (trapFocusRight) updateSelfHandle();
+        if (hasAnyTrap) updateSelfHandle();
         (rest as any).onLayout?.(e);
       }}
       nextFocusRight={resolvedNextFocusRight}
+      nextFocusLeft={resolvedNextFocusLeft}
+      nextFocusUp={resolvedNextFocusUp}
+      nextFocusDown={resolvedNextFocusDown}
       style={[
         style,
         focused && focusedStyle,

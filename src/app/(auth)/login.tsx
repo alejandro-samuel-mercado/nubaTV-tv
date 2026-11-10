@@ -224,24 +224,16 @@ export default function LoginScreen() {
   const passInputRef = useRef<TextInput>(null);
   const cardShift = useRef(new Animated.Value(0)).current;
 
-  // Elevar la tarjeta cuando un input esté enfocado o el teclado de la TV aparezca,
-  // garantizando que el campo de contraseña quede siempre visible en la mitad superior
-  const isInputActive = userFocused || passFocused;
-  useEffect(() => {
-    Animated.timing(cardShift, {
-      toValue: isInputActive ? -scale(115) : 0,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  }, [isInputActive, cardShift]);
-
+  // Elevar la tarjeta ÚNICAMENTE cuando el teclado virtual aparezca en pantalla.
+  // En reposo (o navegando con el control remoto d-pad), la tarjeta permanece centrada
+  // para evitar superponerse con la barra superior.
   useEffect(() => {
     const showSub = Keyboard.addListener(
       Platform.OS === "android" ? "keyboardDidShow" : "keyboardWillShow",
       () => {
         Animated.timing(cardShift, {
           toValue: -scale(115),
-          duration: 200,
+          duration: 220,
           useNativeDriver: true,
         }).start();
       }
@@ -249,20 +241,18 @@ export default function LoginScreen() {
     const hideSub = Keyboard.addListener(
       Platform.OS === "android" ? "keyboardDidHide" : "keyboardWillHide",
       () => {
-        if (!userFocused && !passFocused) {
-          Animated.timing(cardShift, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }).start();
-        }
+        Animated.timing(cardShift, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
       }
     );
     return () => {
       showSub.remove();
       hideSub.remove();
     };
-  }, [cardShift, userFocused, passFocused]);
+  }, [cardShift]);
 
   const handleLogin = useCallback(async () => {
     if (loading) return;

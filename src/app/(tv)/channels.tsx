@@ -7,6 +7,7 @@ import {
   Globe,
   Heart,
   MapPin,
+  Maximize2,
   Music,
   Play,
   RotateCcw,
@@ -218,6 +219,7 @@ const FilterPill = memo(function FilterPill({
   icon: Icon,
   onPress,
   nextFocusLeft,
+  nextFocusUp,
   trapFocusRight,
 }: {
   id: string;
@@ -228,6 +230,7 @@ const FilterPill = memo(function FilterPill({
   icon: any;
   onPress: (id: string) => void;
   nextFocusLeft?: number;
+  nextFocusUp?: number;
   trapFocusRight?: boolean;
 }) {
   const handlePress = useCallback(() => {
@@ -238,6 +241,7 @@ const FilterPill = memo(function FilterPill({
     <Focusable
       onPress={handlePress}
       nextFocusLeft={nextFocusLeft}
+      nextFocusUp={nextFocusUp}
       trapFocusRight={trapFocusRight}
       scaleFocused={1.03}
       style={[
@@ -304,6 +308,8 @@ interface CategoryItemProps {
   onPress: (id: string) => void;
   nextFocusRight?: number;
   nodeRef?: (node: any) => void;
+  isFirst?: boolean;
+  isLast?: boolean;
 }
 
 const CategoryItem = memo(
@@ -314,6 +320,8 @@ const CategoryItem = memo(
     onPress,
     nextFocusRight,
     nodeRef,
+    isFirst,
+    isLast,
   }: CategoryItemProps) {
     const Icon = cat.icon;
     const handleFocus = useCallback(() => onFocus(cat.id), [onFocus, cat.id]);
@@ -325,6 +333,10 @@ const CategoryItem = memo(
         onFocus={handleFocus}
         onPress={handlePress}
         nextFocusRight={nextFocusRight}
+        trapFocusLeft={true}
+        trapFocusUp={isFirst}
+        trapFocusDown={isLast}
+        throttleMs={80}
         animateScale={false}
         showFocusRing={false}
         style={[s.catPill, isSelected && s.catPillActive]}
@@ -407,6 +419,7 @@ interface ChannelListItemProps {
   onFocus: () => void;
   nextFocusLeft?: number;
   firstChannelRef?: any;
+  isLast?: boolean;
 }
 
 const ChannelListItem = memo(
@@ -418,6 +431,7 @@ const ChannelListItem = memo(
     onFocus,
     nextFocusLeft,
     firstChannelRef,
+    isLast,
   }: ChannelListItemProps) {
     const handlePress = useCallback(() => {
       onPress(item);
@@ -429,6 +443,9 @@ const ChannelListItem = memo(
         onFocus={onFocus}
         onPress={handlePress}
         nextFocusLeft={nextFocusLeft}
+        trapFocusRight={true}
+        trapFocusDown={isLast}
+        throttleMs={80}
         animateScale={false}
         showFocusRing={false}
         style={[s.chItem, isCurrent && s.chItemCurrent]}
@@ -1017,6 +1034,11 @@ export default function ChannelsScreen() {
   const [firstChannelHandle, setFirstChannelHandle] = useState<number | undefined>(undefined);
   const catRefs = useRef<Record<string, any>>({});
   const firstChannelRef = useRef<any>(null);
+  const catDebounceTimer = useRef<any>(null);
+
+  // Referencia y handle nativo del reproductor para recibir foco desde las etiquetas
+  const playerStageRef = useRef<any>(null);
+  const [playerStageHandle, setPlayerStageHandle] = useState<number | undefined>(undefined);
 
   // Toast HUD flotante
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -1032,12 +1054,20 @@ export default function ChannelsScreen() {
 
   // Cerrar la guía de filtro
   const closeGuide = useCallback(() => {
+    if (catDebounceTimer.current) {
+      clearTimeout(catDebounceTimer.current);
+      catDebounceTimer.current = null;
+    }
     setShowGuide(false);
     setGuideSearch("");
   }, []);
 
   // Abrir la guía dual desde una etiqueta de categoría (sin agregar botón extra)
   const handleCategoryPillPress = useCallback((catId: string) => {
+    if (catDebounceTimer.current) {
+      clearTimeout(catDebounceTimer.current);
+      catDebounceTimer.current = null;
+    }
     setSelectedCatId(catId);
     setSelectedGuideCategory(catId);
     setGuideSearch("");
@@ -1045,13 +1075,21 @@ export default function ChannelsScreen() {
     setShowGuide(true);
   }, []);
 
-  // Handlers estables para items de categoría y canal en la guía dual
+  // Handlers estables con debounce para evitar congelamientos o desbordes al mantener presionado d-pad
   const handleCategoryItemFocus = useCallback((id: string) => {
-    setSelectedGuideCategory(id);
     setGuidePane("categories");
+    if (catDebounceTimer.current) clearTimeout(catDebounceTimer.current);
+    catDebounceTimer.current = setTimeout(() => {
+      setSelectedGuideCategory(id);
+      catDebounceTimer.current = null;
+    }, 130);
   }, []);
 
   const handleCategoryItemPress = useCallback((id: string) => {
+    if (catDebounceTimer.current) {
+      clearTimeout(catDebounceTimer.current);
+      catDebounceTimer.current = null;
+    }
     setSelectedGuideCategory(id);
     setGuidePane("channels");
   }, []);
@@ -1115,15 +1153,8 @@ export default function ChannelsScreen() {
   // ── Eventos de Control Remoto / Teclado TV ──────────────────────────────────
   useTVEventHandlerSafe((evt: any) => {
     if (!evt || !evt.eventType) return;
-    const t = evt.eventType;
-
-    // Si la guía dual está abierta:
+    // Si la guía dual está abierta, se mantiene contenida sin escapes
     if (showGuide) {
-      // Desplazamiento a la derecha desde la lista de canales cierra la guía inmediatamente
-      if (t === "right" && guidePane === "channels") {
-        closeGuide();
-        return;
-      }
       return;
     }
   });
@@ -1153,14 +1184,6 @@ export default function ChannelsScreen() {
       // Tecla Atrás / Escape / Backspace: cierra de UNA sola vez
       if (e.key === "Escape" || (!isInput && e.key === "Backspace")) {
         if (showGuide) {
-          e.preventDefault();
-          closeGuide();
-          return;
-        }
-      }
-
-      if (showGuide) {
-        if (!isInput && e.key === "ArrowRight" && guidePane === "channels") {
           e.preventDefault();
           closeGuide();
           return;
@@ -1293,9 +1316,10 @@ export default function ChannelsScreen() {
         onFocus={handleChannelItemFocus}
         nextFocusLeft={currentCategoryHandle}
         firstChannelRef={index === 0 ? firstChannelRef : undefined}
+        isLast={index === displayedGuideChannels.length - 1}
       />
     ),
-    [activeChannelId, handleGuideChannelPress, handleChannelItemFocus, currentCategoryHandle],
+    [activeChannelId, handleGuideChannelPress, handleChannelItemFocus, currentCategoryHandle, displayedGuideChannels.length],
   );
 
   // Renderizador memoizado de películas destacadas
@@ -1398,11 +1422,46 @@ export default function ChannelsScreen() {
                 </View>
               )}
 
-              {/* Capa de click a pantalla completa sobre el reproductor */}
-              <Pressable
-                style={StyleSheet.absoluteFill}
+              {/* Ventana de reproducción interactiva y enfocable con marco de foco activo */}
+              <Focusable
+                ref={playerStageRef}
                 onPress={() => handleOpenFullscreen()}
-              />
+                onLayout={() => {
+                  if (playerStageRef.current) {
+                    const h = safeFindNodeHandle(playerStageRef.current);
+                    if (typeof h === "number" && h > 0) {
+                      setPlayerStageHandle(h);
+                    }
+                  }
+                }}
+                nextFocusLeft={sidebarHandle ?? undefined}
+                style={[
+                  StyleSheet.absoluteFill,
+                  { borderRadius: scale(18), zIndex: 10 },
+                ]}
+                focusedStyle={{
+                  borderWidth: scale(3.5),
+                  borderColor: "#ffffff",
+                  backgroundColor: "rgba(255, 255, 255, 0.05)",
+                  shadowColor: activeTheme.color,
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: 0.9,
+                  shadowRadius: scale(14),
+                }}
+              >
+                {({ focused }) =>
+                  focused ? (
+                    <View style={s.heroPlayerFocusHint} pointerEvents="none">
+                      <View style={s.heroPlayerFocusBadge}>
+                        <Maximize2 size={scale(13)} color="#000000" />
+                        <Text style={s.heroPlayerFocusTxt}>
+                          Presiona OK para Pantalla Completa
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null
+                }
+              </Focusable>
 
               {/* Degradados cinematográficos sobre el reproductor */}
               <LinearGradient
@@ -1662,6 +1721,7 @@ export default function ChannelsScreen() {
                   color={cat.color}
                   icon={cat.icon}
                   nextFocusLeft={isFirst ? sidebarHandle ?? undefined : undefined}
+                  nextFocusUp={playerStageHandle}
                   trapFocusRight={isLast}
                   onPress={handleCategoryPillPress}
                 />
@@ -1756,11 +1816,13 @@ export default function ChannelsScreen() {
                 contentContainerStyle={s.catScrollContent}
                 showsVerticalScrollIndicator={false}
               >
-                {guideCategories.map((cat) => (
+                {guideCategories.map((cat, idx) => (
                   <CategoryItem
                     key={cat.id}
                     cat={cat}
                     isSelected={cat.id === selectedGuideCategory}
+                    isFirst={idx === 0}
+                    isLast={idx === guideCategories.length - 1}
                     onFocus={handleCategoryItemFocus}
                     onPress={handleCategoryItemPress}
                     nextFocusRight={firstChannelHandle}
@@ -1979,6 +2041,31 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: scale(7),
     zIndex: 5,
+  },
+  heroPlayerFocusHint: {
+    position: "absolute",
+    top: scale(14),
+    right: scale(18),
+    zIndex: 20,
+  },
+  heroPlayerFocusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(6),
+    backgroundColor: "#ffffff",
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(5),
+    borderRadius: scale(8),
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+  },
+  heroPlayerFocusTxt: {
+    color: "#000000",
+    fontSize: scale(11),
+    fontWeight: "900",
+    letterSpacing: 0.3,
   },
   heroLivePill: {
     flexDirection: "row",
