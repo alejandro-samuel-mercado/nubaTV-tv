@@ -7,7 +7,7 @@ import {
   FlatList,
   ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { scale } from '../../lib/scale';
 import { C } from '../../lib/tvColors';
 import { searchContent, getContentList, NexoContentItem } from '../../services/nexoplay';
@@ -20,6 +20,7 @@ import {
   Film,
   Clapperboard,
   Flame,
+  Smile,
 } from 'lucide-react-native';
 import { useSidebarHandle } from '../../hooks/useNavThrottle';
 
@@ -31,30 +32,36 @@ const FILTERS = [
   { key: 'premieres', label: 'Estrenos', icon: Sparkles, color: '#ffb703' },
   { key: 'movies', label: 'Películas', icon: Film, color: '#38bdf8' },
   { key: 'series', label: 'Series', icon: Clapperboard, color: '#a855f7' },
+  { key: 'kids', label: 'Kids', icon: Smile, color: '#06d6a0' },
   { key: 'anime', label: 'Anime', icon: Flame, color: '#ec4899' },
 ];
 
 export default function SearchScreen() {
   const router = useRouter();
   const sidebarHandle = useSidebarHandle();
-  const [query, setQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState('all');
-  const [rawResults, setRawResults] = useState<NexoContentItem[]>([]);
-  const [premieresList, setPremieresList] = useState<NexoContentItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const params = useLocalSearchParams<{ filter?: string; q?: string }>();
 
-  // Carga previa de estrenos para cuando se active el filtro "Estrenos" sin consulta
+  const [query, setQuery] = useState(params.q || '');
+  const [activeFilter, setActiveFilter] = useState(
+    params.filter && FILTERS.some((f) => f.key === params.filter)
+      ? params.filter
+      : 'all'
+  );
+  const [rawResults, setRawResults] = useState<NexoContentItem[]>([]);
+  const [catalogMap, setCatalogMap] = useState<Record<string, NexoContentItem[]>>({});
+  const [loading, setLoading] = useState(false);
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
+
+  // Escuchar cambios en los parámetros de la URL
   useEffect(() => {
-    let cancelled = false;
-    getContentList({ sort: 'recent', limit: 35 })
-      .then((items) => {
-        if (!cancelled) setPremieresList(items);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (params.filter && FILTERS.some((f) => f.key === params.filter)) {
+      setActiveFilter(params.filter);
+    }
+    if (params.q && params.q !== query) {
+      setQuery(params.q);
+      doSearch(params.q);
+    }
+  }, [params.filter, params.q]);
 
   const doSearch = useCallback(async (q: string) => {
     if (!q.trim()) {
@@ -72,31 +79,105 @@ export default function SearchScreen() {
     }
   }, []);
 
-  // Filtrado reactivo según el chip seleccionado
+  // Carga reactiva de catálogo cuando no hay texto de búsqueda
+  useEffect(() => {
+    if (query.trim()) return;
+    if (catalogMap[activeFilter] && catalogMap[activeFilter].length > 0) return;
+
+    let cancelled = false;
+    setLoadingCatalog(true);
+
+    (async () => {
+      try {
+        let items: NexoContentItem[] = [];
+        if (activeFilter === 'premieres') {
+          items = await getContentList({ sort: 'recent', limit: 40 });
+        } else if (activeFilter === 'movies') {
+          items = await getContentList({ type: 'MOVIE', sort: 'popular', limit: 40 });
+        } else if (activeFilter === 'series') {
+          items = await getContentList({ type: 'SERIES', sort: 'popular', limit: 40 });
+        } else if (activeFilter === 'anime') {
+          items = await getContentList({ type: 'ANIME', limit: 40 });
+        } else if (activeFilter === 'kids') {
+          const all = await getContentList({ limit: 60, sort: 'popular' });
+          const kidsKeywords = [
+            'animación',
+            'animacion',
+            'familiar',
+            'infantil',
+            'niños',
+            'aventura',
+            'kids',
+          ];
+          items = all.filter(
+            (item) =>
+              item.genres?.some((g) =>
+                kidsKeywords.some((k) => g.name.toLowerCase().includes(k))
+              ) ||
+              item.contentRating === 'G' ||
+              item.contentRating === 'PG'
+          );
+        } else {
+          items = await getContentList({ sort: 'popular', limit: 40 });
+        }
+
+        if (!cancelled) {
+          setCatalogMap((prev) => ({ ...prev, [activeFilter]: items }));
+        }
+      } catch (err) {
+        console.warn('Error cargando catálogo para filtro:', activeFilter, err);
+      } finally {
+        if (!cancelled) setLoadingCatalog(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeFilter, query, catalogMap]);
+
+  // Filtrado reactivo según el chip seleccionado y la búsqueda
   const displayedItems = useMemo(() => {
-    const source = query.trim() ? rawResults : (activeFilter === 'premieres' ? premieresList : []);
+    if (query.trim()) {
+      if (activeFilter === 'all') return rawResults;
 
-    if (activeFilter === 'all') return source;
+      if (activeFilter === 'premieres') {
+        return rawResults.filter((item) => (item.releaseYear || 0) >= 2024);
+      }
 
-    if (activeFilter === 'premieres') {
-      if (!query.trim()) return premieresList;
-      return source.filter((item) => (item.releaseYear || 0) >= 2024);
+      if (activeFilter === 'movies') {
+        return rawResults.filter((item) => item.type === 'MOVIE');
+      }
+
+      if (activeFilter === 'series') {
+        return rawResults.filter((item) => item.type === 'SERIES');
+      }
+
+      if (activeFilter === 'anime') {
+        return rawResults.filter((item) => item.type === 'ANIME');
+      }
+
+      if (activeFilter === 'kids') {
+        const kidsKeywords = [
+          'animación',
+          'animacion',
+          'familiar',
+          'infantil',
+          'niños',
+          'kids',
+        ];
+        return rawResults.filter((item) =>
+          item.genres?.some((g) =>
+            kidsKeywords.some((k) => g.name.toLowerCase().includes(k))
+          )
+        );
+      }
+
+      return rawResults;
     }
 
-    if (activeFilter === 'movies') {
-      return source.filter((item) => item.type === 'MOVIE');
-    }
-
-    if (activeFilter === 'series') {
-      return source.filter((item) => item.type === 'SERIES');
-    }
-
-    if (activeFilter === 'anime') {
-      return source.filter((item) => item.type === 'ANIME');
-    }
-
-    return source;
-  }, [rawResults, query, activeFilter, premieresList]);
+    return catalogMap[activeFilter] || [];
+  }, [rawResults, query, activeFilter, catalogMap]);
 
   return (
     <View style={s.root}>
@@ -113,11 +194,11 @@ export default function SearchScreen() {
             setQuery(q);
             doSearch(q);
           }}
-          autoFocus
+          autoFocus={!params.filter}
         />
       </View>
 
-      {/* ── Filtros Rápidos (incluye Estrenos) ── */}
+      {/* ── Filtros Rápidos (incluye Estrenos, Películas, Series, Kids, Anime) ── */}
       <View style={s.filtersRow}>
         {FILTERS.map((f, idx) => {
           const isActive = activeFilter === f.key;
@@ -159,11 +240,13 @@ export default function SearchScreen() {
         })}
       </View>
 
-      {/* ── Resultados o Sugerencias ── */}
-      {loading ? (
+      {/* ── Resultados o Catálogo Filtrado ── */}
+      {loading || (loadingCatalog && displayedItems.length === 0) ? (
         <View style={s.center}>
           <ActivityIndicator size="large" color={C.accent} />
-          <Text style={s.loadingTxt}>Buscando contenido...</Text>
+          <Text style={s.loadingTxt}>
+            {query.trim() ? 'Buscando contenido...' : 'Cargando catálogo...'}
+          </Text>
         </View>
       ) : displayedItems.length > 0 ? (
         <FlatList
@@ -190,14 +273,9 @@ export default function SearchScreen() {
           <Text style={s.empty}>Sin resultados para "{query}"</Text>
           <Text style={s.hint}>Prueba seleccionando otro filtro o término</Text>
         </View>
-      ) : activeFilter === 'premieres' ? (
-        <View style={s.center}>
-          <ActivityIndicator size="small" color="#ffb703" />
-          <Text style={s.hint}>Cargando cartelera de estrenos...</Text>
-        </View>
       ) : (
         <View style={s.center}>
-          <Text style={s.hint}>Escribe para buscar o selecciona "Estrenos" para explorar novedades</Text>
+          <Text style={s.hint}>No hay títulos disponibles en esta categoría</Text>
         </View>
       )}
     </View>

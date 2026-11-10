@@ -22,6 +22,7 @@ import {
   View,
 } from "react-native";
 import Focusable from "../../components/tv/Focusable";
+import HeroGridSeeAllCard from "../../components/tv/HeroGridSeeAllCard";
 import RemoteImage, { prefetchImages } from "../../components/tv/RemoteImage";
 import ViewAllCard from "../../components/tv/ViewAllCard";
 import { useSidebarHandle } from "../../hooks/useNavThrottle";
@@ -280,7 +281,7 @@ export default function PremieresScreen() {
   // Item principal del Hero (3/4 de la pantalla izquierda)
   const activeHero = heroPool[heroIdx] || heroPool[0] || null;
 
-  // Las 4 portadas que faltan para la cuadrícula 2x2 derecha
+  // Las 3 portadas que acompañan a la tarjeta "Ver Todo" en la cuadrícula 2x2 derecha
   const candidateCovers = useMemo(() => {
     if (heroPool.length <= 1) return [];
     const len = heroPool.length;
@@ -288,7 +289,6 @@ export default function PremieresScreen() {
       heroPool[(heroIdx + 1) % len],
       heroPool[(heroIdx + 2) % len],
       heroPool[(heroIdx + 3) % len],
-      heroPool[(heroIdx + 4) % len],
     ].filter(Boolean);
   }, [heroPool, heroIdx]);
 
@@ -457,7 +457,7 @@ export default function PremieresScreen() {
                   <Focusable
                     key={item.id || idx}
                     onPress={() => handleOpenDetail(item)}
-                    trapFocusRight={idx % 2 === 1}
+                    trapFocusRight={idx === 1}
                     scaleFocused={1.02}
                     style={s.gridCard}
                     focusedStyle={s.gridCardFocused}
@@ -489,6 +489,20 @@ export default function PremieresScreen() {
                   </Focusable>
                 );
               })}
+
+              {/* 4. Tarjeta "Ver Todo" con botón hacia /search con filtro 'premieres' */}
+              <HeroGridSeeAllCard
+                accentColor={PREMIERES_COLORS.gold}
+                title="Ver Todo"
+                subtitle="Cartelera completa"
+                buttonLabel="Explorar Estrenos"
+                onPress={() =>
+                  router.push({
+                    pathname: "/search",
+                    params: { filter: "premieres" },
+                  } as any)
+                }
+              />
             </View>
           </View>
         )}

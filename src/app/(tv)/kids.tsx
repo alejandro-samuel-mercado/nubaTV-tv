@@ -23,6 +23,7 @@ import {
   View,
 } from "react-native";
 import Focusable from "../../components/tv/Focusable";
+import HeroGridSeeAllCard from "../../components/tv/HeroGridSeeAllCard";
 import RemoteImage, { prefetchImages } from "../../components/tv/RemoteImage";
 import ViewAllCard from "../../components/tv/ViewAllCard";
 import { useSidebarHandle } from "../../hooks/useNavThrottle";
@@ -298,7 +299,7 @@ export default function KidsScreen() {
   // Item principal del Hero (3/4 de la pantalla izquierda)
   const activeHero = heroPool[heroIdx] || heroPool[0] || null;
 
-  // Las 4 portadas que faltan para la cuadrícula 2x2 derecha
+  // Las 3 portadas que acompañan a la tarjeta "Ver Todo" en la cuadrícula 2x2 derecha
   const candidateCovers = useMemo(() => {
     if (heroPool.length <= 1) return [];
     const len = heroPool.length;
@@ -306,7 +307,6 @@ export default function KidsScreen() {
       heroPool[(heroIdx + 1) % len],
       heroPool[(heroIdx + 2) % len],
       heroPool[(heroIdx + 3) % len],
-      heroPool[(heroIdx + 4) % len],
     ].filter(Boolean);
   }, [heroPool, heroIdx]);
 
@@ -475,7 +475,7 @@ export default function KidsScreen() {
                   <Focusable
                     key={item.id || idx}
                     onPress={() => handleOpenDetail(item)}
-                    trapFocusRight={idx % 2 === 1}
+                    trapFocusRight={idx === 1}
                     scaleFocused={1.02}
                     style={s.gridCard}
                     focusedStyle={s.gridCardFocused}
@@ -509,6 +509,20 @@ export default function KidsScreen() {
                   </Focusable>
                 );
               })}
+
+              {/* 4. Tarjeta "Ver Todo" con botón hacia /search con filtro 'kids' */}
+              <HeroGridSeeAllCard
+                accentColor={KIDS_COLORS.cyan}
+                title="Ver Todo"
+                subtitle="Mundo infantil y familiar"
+                buttonLabel="Explorar Kids"
+                onPress={() =>
+                  router.push({
+                    pathname: "/search",
+                    params: { filter: "kids" },
+                  } as any)
+                }
+              />
             </View>
           </View>
         )}
