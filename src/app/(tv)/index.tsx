@@ -288,7 +288,7 @@ const HeroInfo = memo(function HeroInfo({
             focusedStyle={s.btnDetailsFocused}
           >
             <Info size={scale(15)} color="#ffffff" />
-            <Text style={s.btnDetailsText}>Detalles</Text>
+            <Text style={s.btnDetailsText}>Ver Información</Text>
           </Focusable>
         ) : null}
       </View>
@@ -329,11 +329,16 @@ const TrendingRow = memo(function TrendingRow({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowTrack}
         style={{ overflow: "visible" }}
+        initialNumToRender={items.length || 16}
+        maxToRenderPerBatch={items.length || 16}
+        windowSize={11}
+        removeClippedSubviews={false}
         renderItem={({ item, index }) => (
           <Focusable
             onPress={() => onPress(item)}
             onFocus={handleCardFocus}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
+            trapFocusLeft={index === 0 && !sidebarHandle}
             trapFocusRight={!onViewAll && index === items.length - 1}
             scaleFocused={1.02}
             style={s.trendCard}
@@ -423,8 +428,10 @@ const ContentRow = memo(function ContentRow({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowTrack}
         style={{ overflow: "visible" }}
-        initialNumToRender={8}
-        maxToRenderPerBatch={6}
+        initialNumToRender={items.length || 16}
+        maxToRenderPerBatch={items.length || 16}
+        windowSize={11}
+        removeClippedSubviews={false}
         renderItem={({ item, index }) => (
           <PosterCard
             item={item}
@@ -433,6 +440,7 @@ const ContentRow = memo(function ContentRow({
             onPressItem={onPress}
             onFocusItem={handleCardFocus}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
+            trapFocusLeft={index === 0 && !sidebarHandle}
             trapFocusRight={!onViewAll && index === items.length - 1}
           />
         )}

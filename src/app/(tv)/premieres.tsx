@@ -63,16 +63,25 @@ const PremiereCard = memo(function PremiereCard({
   item,
   onPress,
   accentColor = PREMIERES_COLORS.gold,
+  nextFocusLeft,
+  nextFocusRight,
+  trapFocusLeft,
   trapFocusRight,
 }: {
   item: NexoContentItem;
   onPress: (item: NexoContentItem) => void;
   accentColor?: string;
+  nextFocusLeft?: number;
+  nextFocusRight?: number;
+  trapFocusLeft?: boolean;
   trapFocusRight?: boolean;
 }) {
   return (
     <Focusable
       onPress={() => onPress(item)}
+      nextFocusLeft={nextFocusLeft}
+      nextFocusRight={nextFocusRight}
+      trapFocusLeft={trapFocusLeft}
       trapFocusRight={trapFocusRight}
       style={s.card}
       focusedStyle={[s.cardFocused, { borderColor: accentColor }]}
@@ -153,13 +162,17 @@ const PremiereRow = memo(function PremiereRow({
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowTrack}
-        initialNumToRender={6}
-        windowSize={5}
+        initialNumToRender={items.length || 16}
+        maxToRenderPerBatch={items.length || 16}
+        windowSize={11}
+        removeClippedSubviews={false}
         renderItem={({ item, index }) => (
           <PremiereCard
             item={item}
             onPress={onPress}
             accentColor={accentColor}
+            nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
+            trapFocusLeft={index === 0 && !sidebarHandle}
             trapFocusRight={!onViewAll && index === items.length - 1}
           />
         )}
@@ -465,7 +478,7 @@ export default function PremieresScreen() {
                     focusedStyle={s.btnPlayFocused}
                   >
                     <Play size={scale(16)} color="#000" fill="#000" />
-                    <Text style={s.btnPlayTxt}>Ver Ahora</Text>
+                    <Text style={s.btnPlayTxt}>Reproducir</Text>
                   </Focusable>
 
                   <Focusable
@@ -474,7 +487,7 @@ export default function PremieresScreen() {
                     focusedStyle={s.btnDetailFocused}
                   >
                     <Info size={scale(15)} color="#ffffff" />
-                    <Text style={s.btnDetailTxt}>Detalles</Text>
+                    <Text style={s.btnDetailTxt}>Ver Información</Text>
                   </Focusable>
                 </View>
               </View>

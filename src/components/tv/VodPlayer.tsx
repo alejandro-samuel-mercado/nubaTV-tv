@@ -1,4 +1,4 @@
-import Video, { SelectedTrackType, TextTrackType, VideoRef } from "react-native-video";
+import Video, { SelectedTrackType, VideoRef } from "react-native-video";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
@@ -9,14 +9,18 @@ import {
   ChevronRight,
   Languages,
   List,
+  Maximize2,
+  Minimize,
   MessageSquare,
   Pause,
   Play,
-  RefreshCw,
   RotateCcw,
   RotateCw,
   SkipBack,
   SkipForward,
+  Volume1,
+  Volume2,
+  VolumeX,
   X,
 } from "lucide-react-native";
 import React, {
@@ -30,7 +34,6 @@ import {
   ActivityIndicator,
   BackHandler,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -43,7 +46,8 @@ import {
   getWatchStream,
   NexoContentItem,
 } from "../../services/nexoplay";
-import WebPlayer, { WebPlayerHandle } from "./WebPlayer";
+import Focusable from "./Focusable";
+import WebPlayer from "./WebPlayer";
 
 const useTVEventHandlerSafe: (handler: (evt: any) => void) => void =
   Platform.OS !== "web"
@@ -91,6 +95,13 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
   const [positionMillis, setPositionMillis] = useState(0);
   const [durationMillis, setDurationMillis] = useState(1);
 
+  // Aspect ratio, volume and audio/subtitle tracks
+  const [resizeMode, setResizeMode] = useState<"contain" | "cover">("contain");
+  const [volume, setVolume] = useState(1.0);
+  const [isMuted, setIsMuted] = useState(false);
+  const [volumeToast, setVolumeToast] = useState<string | null>(null);
+  const volumeToastTimer = useRef<any>(null);
+
   // OSD & Drawer states
   const [showOSD, setShowOSD] = useState(true);
   const [activeDrawer, setActiveDrawer] = useState<"episodes" | "subs" | "audio" | null>(null);
@@ -103,14 +114,14 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
 
   const osdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Auto-hide OSD
+  // Auto-hide OSD after 5 seconds of inactivity
   const triggerOSD = useCallback(() => {
     setShowOSD(true);
     if (osdTimerRef.current) clearTimeout(osdTimerRef.current);
     if (!activeDrawer && !showExitModal) {
       osdTimerRef.current = setTimeout(() => {
         setShowOSD(false);
-      }, 5000);
+      }, 5500);
     }
   }, [activeDrawer, showExitModal]);
 
@@ -126,7 +137,7 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
       if (cancelled || !detail) return;
       setContent(detail);
 
-      // If no initial episode is passed and content is a series, select S1 E1
+      // If series and no initial episode provided, pick first available episode
       if (!initialEpId && detail.type !== "MOVIE" && detail.seasons?.length) {
         const firstEp = detail.seasons[0]?.episodes?.[0];
         if (firstEp?.id) {
@@ -228,7 +239,7 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
     }
   }, [loading]);
 
-  // Controls
+  // Playback Controls
   const togglePlayPause = useCallback(async () => {
     triggerOSD();
     const vid = videoRef.current as any;
@@ -261,6 +272,7 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
     if (!vid) return;
     setPositionMillis(0);
     if (vid.setPositionAsync) await vid.setPositionAsync(0);
+    if (vid.seek) vid.seek(0);
     if (vid.playAsync) await vid.playAsync();
     setIsPlaying(true);
   }, [triggerOSD]);
@@ -270,16 +282,60 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
     const nextEp = allEpisodes[currentIdx + 1];
     if (nextEp?.id) {
       setCurrentEpisodeId(nextEp.id);
+      triggerOSD();
     }
-  }, [hasNext, allEpisodes, currentIdx]);
+  }, [hasNext, allEpisodes, currentIdx, triggerOSD]);
 
   const goPrev = useCallback(() => {
     if (!hasPrev) return;
     const prevEp = allEpisodes[currentIdx - 1];
     if (prevEp?.id) {
       setCurrentEpisodeId(prevEp.id);
+      triggerOSD();
     }
-  }, [hasPrev, allEpisodes, currentIdx]);
+  }, [hasPrev, allEpisodes, currentIdx, triggerOSD]);
+
+  // Toggle Screen Aspect Ratio
+  const toggleResizeMode = useCallback(() => {
+    triggerOSD();
+    setResizeMode((prev) => (prev === "contain" ? "cover" : "contain"));
+    showToastHUD(resizeMode === "contain" ? "Pantalla: Llenar (Zoom)" : "Pantalla: Ajustar (Original)");
+  }, [resizeMode, triggerOSD]);
+
+  // Toggle / Step Volume
+  const cycleVolume = useCallback(() => {
+    triggerOSD();
+    if (isMuted) {
+      setIsMuted(false);
+      showToastHUD(`Volumen: ${Math.round(volume * 100)}%`);
+      return;
+    }
+    if (volume >= 1.0) {
+      setVolume(0.75);
+      showToastHUD("Volumen: 75%");
+    } else if (volume >= 0.7) {
+      setVolume(0.5);
+      showToastHUD("Volumen: 50%");
+    } else if (volume >= 0.45) {
+      setVolume(0.25);
+      showToastHUD("Volumen: 25%");
+    } else if (volume >= 0.2) {
+      setIsMuted(true);
+      showToastHUD("Volumen: Silencio (Mute)");
+    } else {
+      setVolume(1.0);
+      setIsMuted(false);
+      showToastHUD("Volumen: 100%");
+    }
+  }, [volume, isMuted, triggerOSD]);
+
+  const showToastHUD = (msg: string) => {
+    setVolumeToast(msg);
+    if (volumeToastTimer.current) clearTimeout(volumeToastTimer.current);
+    volumeToastTimer.current = setTimeout(() => {
+      setVolumeToast(null);
+    }, 2200);
+  };
 
   // Hardware Back Button
   useEffect(() => {
@@ -305,31 +361,45 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
     return () => sub.remove();
   }, [showExitModal, activeDrawer, showOSD, triggerOSD, hideOSD]);
 
-  // TV D-Pad Events
+  // TV D-Pad Events:
+  // When OSD is HIDDEN: any press brings up OSD.
+  // When OSD is VISIBLE: do NOT hijack left/right/select; let native focus engine navigate!
   useTVEventHandlerSafe((evt: any) => {
     if (!evt || !evt.eventType) return;
     if (activeDrawer || showExitModal) return;
 
-    if (evt.eventType === "select") {
-      if (!showOSD) {
+    if (!showOSD) {
+      // OSD is hidden -> any interaction displays OSD
+      if (
+        evt.eventType === "select" ||
+        evt.eventType === "up" ||
+        evt.eventType === "down" ||
+        evt.eventType === "left" ||
+        evt.eventType === "right" ||
+        evt.eventType === "menu"
+      ) {
         triggerOSD();
-      } else {
+      } else if (evt.eventType === "playPause") {
         togglePlayPause();
       }
-    } else if (evt.eventType === "left") {
-      seekRelative(-10);
-    } else if (evt.eventType === "right") {
-      seekRelative(10);
-    } else if (evt.eventType === "up" || evt.eventType === "down") {
+    } else {
+      // OSD is open -> reset auto-hide timer on user navigation
       triggerOSD();
-    } else if (evt.eventType === "playPause") {
-      togglePlayPause();
+      if (evt.eventType === "playPause") {
+        togglePlayPause();
+      }
     }
   });
 
-  const progressPercent = durationMillis > 1000
-    ? Math.max(0, Math.min(100, (positionMillis / durationMillis) * 100))
-    : 0;
+  const progressPercent =
+    durationMillis > 1000
+      ? Math.max(0, Math.min(100, (positionMillis / durationMillis) * 100))
+      : 0;
+
+  const isSeries =
+    content?.type === "SERIES" ||
+    Boolean(content?.seasons && content.seasons.length > 0) ||
+    Boolean(currentEpisode);
 
   // Title and subtitle labels
   const mainTitle = content?.title || streamData?.title || "Reproduciendo";
@@ -338,7 +408,7 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
         currentEpisode.translations?.[0]?.title ? ` - ${currentEpisode.translations[0].title}` : ""
       }`
     : content?.releaseYear
-    ? `${content.releaseYear}${content.duration ? ` • ${Math.round(content.duration / 60)} min` : ""}`
+    ? `${content.releaseYear}${content.duration ? ` • ${Math.round(content.duration > 300 ? content.duration / 60 : content.duration)} min` : ""}`
     : "";
 
   const audioList = streamData?.audioTracks || [];
@@ -346,7 +416,7 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
 
   return (
     <View style={s.container}>
-      {/* ── Background Video Layer ── */}
+      {/* ── Video Player Layer ── */}
       {streamData?.url ? (
         Platform.OS === "web" ? (
           <WebPlayer
@@ -354,6 +424,10 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
             uri={streamData.url}
             fallbackUri={streamData.url}
             controls={false}
+            paused={!isPlaying}
+            muted={isMuted}
+            volume={isMuted ? 0 : volume}
+            resizeMode={resizeMode}
             onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
             onError={(msg) => {
               setError(true);
@@ -366,21 +440,38 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
             style={s.videoAbsolute}
             source={{ uri: streamData.url }}
             controls={false}
-            resizeMode="contain"
+            resizeMode={resizeMode}
+            volume={isMuted ? 0 : volume}
+            muted={isMuted}
+            selectedAudioTrack={
+              selectedAudio === "auto"
+                ? { type: SelectedTrackType.SYSTEM }
+                : { type: SelectedTrackType.INDEX, value: Number(selectedAudio) }
+            }
+            selectedTextTrack={
+              selectedSub === "off"
+                ? { type: SelectedTrackType.DISABLED }
+                : { type: SelectedTrackType.INDEX, value: Number(selectedSub) }
+            }
             paused={!isPlaying}
             onProgress={(data: any) => {
-              if (data?.currentTime !== undefined) {
+              if (data?.currentTime !== undefined && !isNaN(data.currentTime)) {
                 setPositionMillis(data.currentTime * 1000);
               }
-              if (data?.seekableDuration > 0) {
-                setDurationMillis(data.seekableDuration * 1000);
+              const dur = data?.seekableDuration || data?.duration;
+              if (dur && dur > 0 && !isNaN(dur)) {
+                setDurationMillis(dur * 1000);
               }
               if (loading) setLoading(false);
             }}
             onLoad={(data: any) => {
               setLoading(false);
-              if (data?.duration > 0) {
-                setDurationMillis(data.duration * 1000);
+              const dur = data?.duration ?? data?.seekableDuration;
+              if (dur && dur > 0) {
+                setDurationMillis(dur * 1000);
+              } else if (content?.duration && durationMillis <= 1000) {
+                const fallbackSecs = content.duration > 300 ? content.duration : content.duration * 60;
+                setDurationMillis(fallbackSecs * 1000);
               }
             }}
             onBuffer={({ isBuffering }: { isBuffering: boolean }) => {
@@ -389,7 +480,7 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
             onError={(err: any) => {
               console.warn("[VodPlayer] Native error:", err);
               setError(true);
-              setErrorMessage("Error de reproducción en el dispositivo.");
+              setErrorMessage("Error al reproducir el archivo multimedia.");
             }}
             onEnd={() => {
               if (hasNext) goNext();
@@ -397,6 +488,13 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
           />
         )
       ) : null}
+
+      {/* ── Toast HUD (Volumen / Aspecto) ── */}
+      {volumeToast && (
+        <View style={s.toastHUD}>
+          <Text style={s.toastHUDText}>{volumeToast}</Text>
+        </View>
+      )}
 
       {/* ── Loading Spinner ── */}
       {loading && !error && (
@@ -406,10 +504,10 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
       )}
 
       {/* ── Center Pause Indicator ── */}
-      {!isPlaying && !loading && !error && (
+      {!isPlaying && !loading && !error && !showOSD && (
         <View style={s.centerOverlay} pointerEvents="none">
           <View style={s.pauseIndicator}>
-            <Pause size={scale(48)} color="#fff" fill="#fff" />
+            <Pause size={scale(44)} color="#fff" fill="#fff" />
           </View>
         </View>
       )}
@@ -420,202 +518,56 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
           <AlertCircle size={scale(54)} color="#f87171" style={{ marginBottom: scale(16) }} />
           <Text style={s.errorTitle}>Error al cargar el video</Text>
           <Text style={s.errorSub}>{errorMessage || "No se pudo conectar a la fuente."}</Text>
-          <Pressable
-            focusable
+          <Focusable
             hasTVPreferredFocus
             onPress={() => router.back()}
-            style={({ focused }: any) => [s.btn, focused && s.btnFocused]}
+            style={s.btn}
+            focusedStyle={s.btnFocused}
           >
-            {({ focused }: any) => (
-              <Text style={[s.btnText, focused && s.btnTextFocused]}>Volver</Text>
-            )}
-          </Pressable>
+            <Text style={s.btnText}>Volver al Catálogo</Text>
+          </Focusable>
         </View>
       )}
 
       {/* ── On-Screen Display (OSD) ── */}
       {showOSD && !error && !activeDrawer && (
         <View style={s.osdOverlay} pointerEvents="box-none">
-          {/* Top Bar */}
+          {/* Top Bar: Back button, Title & Badges */}
           <LinearGradient
-            colors={["rgba(0,0,0,0.92)", "transparent"]}
+            colors={["rgba(5,7,12,0.95)", "rgba(5,7,12,0.5)", "transparent"]}
             style={s.topBar}
             pointerEvents="box-none"
           >
-            <Pressable
-              focusable
+            <Focusable
               onPress={() => setShowExitModal(true)}
-              style={({ focused }: any) => [s.roundBtn, focused && s.roundBtnFocused]}
+              style={s.topBackBtn}
+              focusedStyle={s.topBackBtnFocused}
             >
-              {({ focused }: any) => (
-                <ArrowLeft size={scale(22)} color={focused ? "#000" : "#fff"} />
-              )}
-            </Pressable>
+              <ArrowLeft size={scale(22)} color="#fff" />
+            </Focusable>
             <View style={{ flex: 1 }}>
               <Text style={s.title} numberOfLines={1}>{mainTitle}</Text>
               {!!subTitle && <Text style={s.subTitle} numberOfLines={1}>{subTitle}</Text>}
             </View>
+            <View style={s.topBadgesRow}>
+              <View style={s.qualityBadge}>
+                <Text style={s.qualityBadgeText}>HD</Text>
+              </View>
+            </View>
           </LinearGradient>
 
-          {/* Bottom Bar */}
+          {/* Bottom Bar: Progress Bar (Above) + Controls Row (Below) */}
           <LinearGradient
-            colors={["transparent", "rgba(0,0,0,0.95)"]}
+            colors={["transparent", "rgba(5,7,12,0.6)", "rgba(5,7,12,0.98)"]}
             style={s.bottomBar}
             pointerEvents="box-none"
           >
-            <View style={s.controlsRow}>
-              {/* Left Drawers */}
-              <View style={s.sideControls}>
-                {content?.seasons && content.seasons.length > 0 && (
-                  <Pressable
-                    focusable
-                    onPress={() => {
-                      setActiveDrawer("episodes");
-                      hideOSD();
-                    }}
-                    style={({ focused }: any) => [s.menuBtn, focused && s.menuBtnFocused]}
-                  >
-                    {({ focused }: any) => (
-                      <>
-                        <List size={scale(18)} color={focused ? "#000" : "#fff"} />
-                        <Text style={[s.menuBtnText, focused && s.menuBtnTextFocused]}>Episodios</Text>
-                      </>
-                    )}
-                  </Pressable>
-                )}
-
-                {subsList.length > 0 && (
-                  <Pressable
-                    focusable
-                    onPress={() => {
-                      setActiveDrawer("subs");
-                      hideOSD();
-                    }}
-                    style={({ focused }: any) => [s.menuBtn, focused && s.menuBtnFocused]}
-                  >
-                    {({ focused }: any) => (
-                      <>
-                        <MessageSquare size={scale(18)} color={focused ? "#000" : "#fff"} />
-                        <Text style={[s.menuBtnText, focused && s.menuBtnTextFocused]}>Subtítulos</Text>
-                      </>
-                    )}
-                  </Pressable>
-                )}
-
-                {audioList.length > 0 && (
-                  <Pressable
-                    focusable
-                    onPress={() => {
-                      setActiveDrawer("audio");
-                      hideOSD();
-                    }}
-                    style={({ focused }: any) => [s.menuBtn, focused && s.menuBtnFocused]}
-                  >
-                    {({ focused }: any) => (
-                      <>
-                        <Languages size={scale(18)} color={focused ? "#000" : "#fff"} />
-                        <Text style={[s.menuBtnText, focused && s.menuBtnTextFocused]}>Audio</Text>
-                      </>
-                    )}
-                  </Pressable>
-                )}
-              </View>
-
-              {/* Center Controls */}
-              <View style={s.mainControls}>
-                {hasPrev && (
-                  <Pressable
-                    focusable
-                    onPress={goPrev}
-                    style={({ focused }: any) => [s.roundBtn, focused && s.roundBtnFocused]}
-                  >
-                    {({ focused }: any) => (
-                      <SkipBack size={scale(22)} color={focused ? "#000" : "#fff"} />
-                    )}
-                  </Pressable>
-                )}
-
-                <Pressable
-                  focusable
-                  onPress={restart}
-                  style={({ focused }: any) => [s.controlActionBtn, focused && s.controlActionBtnFocused]}
-                >
-                  {({ focused }: any) => (
-                    <>
-                      <RefreshCw size={scale(20)} color={focused ? "#000" : "#fff"} />
-                      <Text style={[s.actionTxt, focused && s.actionTxtFocused]}>Reiniciar</Text>
-                    </>
-                  )}
-                </Pressable>
-
-                <Pressable
-                  focusable
-                  onPress={() => seekRelative(-10)}
-                  style={({ focused }: any) => [s.controlActionBtn, focused && s.controlActionBtnFocused]}
-                >
-                  {({ focused }: any) => (
-                    <>
-                      <RotateCcw size={scale(22)} color={focused ? "#000" : "#fff"} />
-                      <Text style={[s.actionTxt, focused && s.actionTxtFocused]}>10s</Text>
-                    </>
-                  )}
-                </Pressable>
-
-                <Pressable
-                  focusable
-                  hasTVPreferredFocus
-                  onPress={togglePlayPause}
-                  style={({ focused }: any) => [s.playBtn, focused && s.playBtnFocused]}
-                >
-                  {({ focused }: any) =>
-                    isPlaying ? (
-                      <Pause size={scale(32)} color={focused ? "#000" : "#000"} fill="#000" />
-                    ) : (
-                      <Play
-                        size={scale(32)}
-                        color={focused ? "#000" : "#000"}
-                        fill="#000"
-                        style={{ marginLeft: scale(4) }}
-                      />
-                    )
-                  }
-                </Pressable>
-
-                <Pressable
-                  focusable
-                  onPress={() => seekRelative(10)}
-                  style={({ focused }: any) => [s.controlActionBtn, focused && s.controlActionBtnFocused]}
-                >
-                  {({ focused }: any) => (
-                    <>
-                      <RotateCw size={scale(22)} color={focused ? "#000" : "#fff"} />
-                      <Text style={[s.actionTxt, focused && s.actionTxtFocused]}>10s</Text>
-                    </>
-                  )}
-                </Pressable>
-
-                {hasNext && (
-                  <Pressable
-                    focusable
-                    onPress={goNext}
-                    style={({ focused }: any) => [s.roundBtn, focused && s.roundBtnFocused]}
-                  >
-                    {({ focused }: any) => (
-                      <SkipForward size={scale(22)} color={focused ? "#000" : "#fff"} />
-                    )}
-                  </Pressable>
-                )}
-              </View>
-
-              {/* Right Spacer for balance */}
-              <View style={s.sideControls} />
-            </View>
-
-            {/* Focusable Scrubbing Progress Bar */}
-            <Pressable
-              focusable
+            {/* 1. PROGRESS BAR (Posicionada arriba de los controles, nunca superpuesta) */}
+            <Focusable
               onPress={() => triggerOSD()}
-              style={({ focused }: any) => [s.progressWrapper, focused && s.progressWrapperFocused]}
+              onFocus={triggerOSD}
+              style={s.progressWrapper}
+              focusedStyle={s.progressWrapperFocused}
             >
               <Text style={s.timeText}>{fmtTime(positionMillis)}</Text>
               <View style={s.progressBarTrack}>
@@ -623,15 +575,164 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
                 <View style={[s.progressThumb, { left: `${progressPercent}%` }]} />
               </View>
               <Text style={s.timeText}>{fmtTime(durationMillis)}</Text>
-            </Pressable>
+            </Focusable>
+
+            {/* 2. CONTROLS ROW (Diseño profesional de 3 grupos alineados) */}
+            <View style={s.controlsRow}>
+              {/* Grupo Izquierdo: Ventana de Episodios, Subtítulos y Audio */}
+              <View style={s.sideControlsLeft}>
+                {isSeries && (
+                  <Focusable
+                    onPress={() => {
+                      setActiveDrawer("episodes");
+                      hideOSD();
+                    }}
+                    style={s.menuBtn}
+                    focusedStyle={s.menuBtnFocused}
+                  >
+                    <List size={scale(18)} color="#fff" />
+                    <Text style={s.menuBtnText}>Episodios</Text>
+                  </Focusable>
+                )}
+
+                <Focusable
+                  onPress={() => {
+                    setActiveDrawer("subs");
+                    hideOSD();
+                  }}
+                  style={s.menuBtn}
+                  focusedStyle={s.menuBtnFocused}
+                >
+                  <MessageSquare size={scale(18)} color="#fff" />
+                  <Text style={s.menuBtnText}>Subtítulos</Text>
+                </Focusable>
+
+                <Focusable
+                  onPress={() => {
+                    setActiveDrawer("audio");
+                    hideOSD();
+                  }}
+                  style={s.menuBtn}
+                  focusedStyle={s.menuBtnFocused}
+                >
+                  <Languages size={scale(18)} color="#fff" />
+                  <Text style={s.menuBtnText}>Audio</Text>
+                </Focusable>
+              </View>
+
+              {/* Grupo Central: Reproducción, Salto 10s y Navegación de Episodio */}
+              <View style={s.mainControlsCenter}>
+                <Focusable
+                  onPress={restart}
+                  style={s.controlActionBtn}
+                  focusedStyle={s.controlActionBtnFocused}
+                >
+                  <RotateCcw size={scale(20)} color="#fff" />
+                  <Text style={s.actionTxt}>Reiniciar</Text>
+                </Focusable>
+
+                <Focusable
+                  onPress={() => seekRelative(-10)}
+                  style={s.controlActionBtn}
+                  focusedStyle={s.controlActionBtnFocused}
+                >
+                  <RotateCcw size={scale(22)} color="#fff" />
+                  <Text style={s.actionTxt}>-10s</Text>
+                </Focusable>
+
+                {hasPrev && (
+                  <Focusable
+                    onPress={goPrev}
+                    style={s.roundBtn}
+                    focusedStyle={s.roundBtnFocused}
+                  >
+                    <SkipBack size={scale(22)} color="#fff" />
+                  </Focusable>
+                )}
+
+                {/* Botón Principal PLAY/PAUSE */}
+                <Focusable
+                  hasTVPreferredFocus
+                  onPress={togglePlayPause}
+                  scaleFocused={1.12}
+                  style={s.playBtn}
+                  focusedStyle={s.playBtnFocused}
+                >
+                  {isPlaying ? (
+                    <Pause size={scale(32)} color="#000" fill="#000" />
+                  ) : (
+                    <Play
+                      size={scale(32)}
+                      color="#000"
+                      fill="#000"
+                      style={{ marginLeft: scale(4) }}
+                    />
+                  )}
+                </Focusable>
+
+                {hasNext && (
+                  <Focusable
+                    onPress={goNext}
+                    style={s.roundBtn}
+                    focusedStyle={s.roundBtnFocused}
+                  >
+                    <SkipForward size={scale(22)} color="#fff" />
+                  </Focusable>
+                )}
+
+                <Focusable
+                  onPress={() => seekRelative(10)}
+                  style={s.controlActionBtn}
+                  focusedStyle={s.controlActionBtnFocused}
+                >
+                  <RotateCw size={scale(22)} color="#fff" />
+                  <Text style={s.actionTxt}>+10s</Text>
+                </Focusable>
+              </View>
+
+              {/* Grupo Derecho: Tamaño de pantalla (aspect ratio) y Control de Volumen */}
+              <View style={s.sideControlsRight}>
+                <Focusable
+                  onPress={toggleResizeMode}
+                  style={s.menuBtn}
+                  focusedStyle={s.menuBtnFocused}
+                >
+                  {resizeMode === "cover" ? (
+                    <Minimize size={scale(18)} color="#fff" />
+                  ) : (
+                    <Maximize2 size={scale(18)} color="#fff" />
+                  )}
+                  <Text style={s.menuBtnText}>
+                    {resizeMode === "cover" ? "Llenar" : "Ajustar"}
+                  </Text>
+                </Focusable>
+
+                <Focusable
+                  onPress={cycleVolume}
+                  style={s.menuBtn}
+                  focusedStyle={s.menuBtnFocused}
+                >
+                  {isMuted ? (
+                    <VolumeX size={scale(18)} color="#f87171" />
+                  ) : volume <= 0.5 ? (
+                    <Volume1 size={scale(18)} color="#fff" />
+                  ) : (
+                    <Volume2 size={scale(18)} color="#fff" />
+                  )}
+                  <Text style={s.menuBtnText}>
+                    {isMuted ? "Mute" : `${Math.round(volume * 100)}%`}
+                  </Text>
+                </Focusable>
+              </View>
+            </View>
           </LinearGradient>
         </View>
       )}
 
-      {/* ── RIGHT SIDEBAR DRAWERS ── */}
+      {/* ── RIGHT SIDEBAR DRAWERS (EPISODIOS / SUBS / AUDIO) ── */}
       {activeDrawer && (
         <View style={s.sidebarOverlay}>
-          <Pressable
+          <Focusable
             style={StyleSheet.absoluteFill}
             onPress={() => {
               setActiveDrawer(null);
@@ -640,251 +741,192 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
           />
           <View style={s.sidebar}>
             <LinearGradient
-              colors={["rgba(10,12,18,0.98)", "rgba(10,12,18,0.95)"]}
+              colors={["rgba(10,13,20,0.98)", "rgba(8,10,16,0.96)"]}
               style={StyleSheet.absoluteFill}
             />
             <View style={s.sidebarHeader}>
-              <Text style={s.sidebarTitle}>
-                {activeDrawer === "episodes"
-                  ? "Episodios"
-                  : activeDrawer === "subs"
-                  ? "Subtítulos"
-                  : "Audio e Idioma"}
-              </Text>
-              <Pressable
-                focusable
+              <View>
+                <Text style={s.sidebarTitle}>
+                  {activeDrawer === "episodes"
+                    ? "Episodios y Temporadas"
+                    : activeDrawer === "subs"
+                    ? "Subtítulos"
+                    : "Pistas de Audio"}
+                </Text>
+                <Text style={s.sidebarSub}>{mainTitle}</Text>
+              </View>
+              <Focusable
                 onPress={() => {
                   setActiveDrawer(null);
                   triggerOSD();
                 }}
-                style={({ focused }: any) => [s.closeBtn, focused && s.closeBtnFocused]}
+                style={s.closeBtn}
+                focusedStyle={s.closeBtnFocused}
               >
                 <X size={scale(20)} color="#fff" />
-              </Pressable>
+              </Focusable>
             </View>
 
-            {/* Episodes List */}
+            {/* Lista de Episodios */}
             {activeDrawer === "episodes" && (
               <ScrollView contentContainerStyle={{ padding: scale(20), gap: scale(16) }}>
-                {content?.seasons?.map((se: any, sIdx: number) => {
-                  const isExpanded = Boolean(expandedSeasons[se.number]);
-                  return (
-                    <View key={se.id || sIdx} style={{ gap: scale(8) }}>
-                      {/* Season Accordion Header */}
-                      <Pressable
-                        focusable
-                        onPress={() =>
-                          setExpandedSeasons((prev) => ({
-                            ...prev,
-                            [se.number]: !prev[se.number],
-                          }))
-                        }
-                        style={({ focused }: any) => [
-                          s.seasonHeader,
-                          focused && s.seasonHeaderFocused,
-                        ]}
-                      >
-                        {({ focused }: any) => (
-                          <>
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: scale(10) }}>
-                              {isExpanded ? (
-                                <ChevronDown size={scale(18)} color={focused ? "#000" : "#fff"} />
-                              ) : (
-                                <ChevronRight size={scale(18)} color={focused ? "#000" : "#fff"} />
-                              )}
-                              <Text
-                                style={[s.seasonTitle, focused && s.seasonTitleFocused]}
-                              >
-                                Temporada {se.number}
-                              </Text>
-                            </View>
-                            <Text style={[s.seasonCount, focused && s.seasonCountFocused]}>
-                              {se.episodes?.length || 0} ep.
-                            </Text>
-                          </>
-                        )}
-                      </Pressable>
+                {content?.seasons && content.seasons.length > 0 ? (
+                  content.seasons.map((se: any, sIdx: number) => {
+                    const isExpanded = Boolean(expandedSeasons[se.number]);
+                    return (
+                      <View key={se.id || sIdx} style={{ gap: scale(8) }}>
+                        <Focusable
+                          onPress={() =>
+                            setExpandedSeasons((prev) => ({
+                              ...prev,
+                              [se.number]: !prev[se.number],
+                            }))
+                          }
+                          style={s.seasonHeader}
+                          focusedStyle={s.seasonHeaderFocused}
+                        >
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: scale(10) }}>
+                            {isExpanded ? (
+                              <ChevronDown size={scale(18)} color="#fff" />
+                            ) : (
+                              <ChevronRight size={scale(18)} color="#fff" />
+                            )}
+                            <Text style={s.seasonTitle}>Temporada {se.number}</Text>
+                          </View>
+                          <Text style={s.seasonCount}>{se.episodes?.length || 0} ep.</Text>
+                        </Focusable>
 
-                      {/* Episode items */}
-                      {isExpanded && (
-                        <View style={s.episodesContainer}>
-                          {se.episodes?.map((ep: any) => {
-                            const isCurrent = String(ep.id) === String(currentEpisodeId);
-                            return (
-                              <Pressable
-                                key={ep.id}
-                                focusable
-                                onPress={() => {
-                                  setCurrentEpisodeId(ep.id);
-                                  setActiveDrawer(null);
-                                  triggerOSD();
-                                }}
-                                style={({ focused }: any) => [
-                                  s.epItem,
-                                  isCurrent && s.epItemActive,
-                                  focused && s.epItemFocused,
-                                ]}
-                              >
-                                {({ focused }: any) => (
-                                  <>
-                                    <View
-                                      style={[
-                                        s.epNum,
-                                        isCurrent && s.epNumActive,
-                                        focused && s.epNumFocused,
-                                      ]}
+                        {isExpanded && (
+                          <View style={s.episodesContainer}>
+                            {se.episodes?.map((ep: any) => {
+                              const isCurrent = String(ep.id) === String(currentEpisodeId);
+                              return (
+                                <Focusable
+                                  key={ep.id}
+                                  onPress={() => {
+                                    setCurrentEpisodeId(ep.id);
+                                    setActiveDrawer(null);
+                                    triggerOSD();
+                                  }}
+                                  style={[s.epItem, isCurrent && s.epItemActive]}
+                                  focusedStyle={s.epItemFocused}
+                                >
+                                  <View style={[s.epNum, isCurrent && s.epNumActive]}>
+                                    <Text style={s.epNumText}>{ep.number}</Text>
+                                  </View>
+                                  <View style={{ flex: 1 }}>
+                                    <Text
+                                      style={[s.epName, isCurrent && s.epNameActive]}
+                                      numberOfLines={1}
                                     >
-                                      <Text
-                                        style={[
-                                          s.epNumText,
-                                          focused && s.epNumTextFocused,
-                                        ]}
-                                      >
-                                        {ep.number}
-                                      </Text>
+                                      {ep.translations?.[0]?.title || `Episodio ${ep.number}`}
+                                    </Text>
+                                    <Text style={s.epMeta}>
+                                      {ep.durationSeconds
+                                        ? `${Math.round(ep.durationSeconds / 60)} min`
+                                        : `T${se.number} E${ep.number}`}
+                                    </Text>
+                                  </View>
+                                  {isCurrent && (
+                                    <View style={s.playingBadge}>
+                                      <Text style={s.playingText}>Viendo</Text>
                                     </View>
-                                    <View style={{ flex: 1 }}>
-                                      <Text
-                                        style={[
-                                          s.epName,
-                                          isCurrent && s.epNameActive,
-                                          focused && s.epNameFocused,
-                                        ]}
-                                        numberOfLines={1}
-                                      >
-                                        {ep.translations?.[0]?.title || `Episodio ${ep.number}`}
-                                      </Text>
-                                      <Text style={[s.epMeta, focused && s.epMetaFocused]}>
-                                        {ep.durationSeconds
-                                          ? `${Math.round(ep.durationSeconds / 60)} min`
-                                          : `T${se.number} E${ep.number}`}
-                                      </Text>
-                                    </View>
-                                    {isCurrent && (
-                                      <View
-                                        style={[
-                                          s.playingBadge,
-                                          focused && s.playingBadgeFocused,
-                                        ]}
-                                      >
-                                        <Text
-                                          style={[
-                                            s.playingText,
-                                            focused && s.playingTextFocused,
-                                          ]}
-                                        >
-                                          Viendo
-                                        </Text>
-                                      </View>
-                                    )}
-                                  </>
-                                )}
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      )}
-                    </View>
-                  );
-                })}
+                                  )}
+                                </Focusable>
+                              );
+                            })}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })
+                ) : (
+                  <View style={{ padding: scale(20), alignItems: "center" }}>
+                    <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: scale(15) }}>
+                      Cargando episodios de la serie...
+                    </Text>
+                  </View>
+                )}
               </ScrollView>
             )}
 
-            {/* Subtitles List */}
+            {/* Lista de Subtítulos */}
             {activeDrawer === "subs" && (
               <ScrollView contentContainerStyle={{ padding: scale(20), gap: scale(12) }}>
-                <Pressable
-                  focusable
+                <Focusable
+                  hasTVPreferredFocus
                   onPress={() => {
                     setSelectedSub("off");
                     setActiveDrawer(null);
                     triggerOSD();
                   }}
-                  style={({ focused }: any) => [
-                    s.trackItem,
-                    selectedSub === "off" && s.trackItemActive,
-                    focused && s.trackItemFocused,
-                  ]}
+                  style={[s.trackItem, selectedSub === "off" && s.trackItemActive]}
+                  focusedStyle={s.trackItemFocused}
                 >
-                  {({ focused }: any) => (
-                    <>
-                      <Text style={[s.trackText, focused && s.trackTextFocused]}>
-                        Desactivados
-                      </Text>
-                      {selectedSub === "off" && (
-                        <Check size={scale(18)} color={focused ? "#000" : C.accent} />
-                      )}
-                    </>
-                  )}
-                </Pressable>
+                  <Text style={s.trackText}>Desactivados</Text>
+                  {selectedSub === "off" && <Check size={scale(18)} color={C.accent} />}
+                </Focusable>
 
                 {subsList.map((sub: any, idx: number) => {
                   const key = String(sub.url || idx);
                   const isSelected = selectedSub === key;
                   return (
-                    <Pressable
+                    <Focusable
                       key={key}
-                      focusable
                       onPress={() => {
                         setSelectedSub(key);
                         setActiveDrawer(null);
                         triggerOSD();
                       }}
-                      style={({ focused }: any) => [
-                        s.trackItem,
-                        isSelected && s.trackItemActive,
-                        focused && s.trackItemFocused,
-                      ]}
+                      style={[s.trackItem, isSelected && s.trackItemActive]}
+                      focusedStyle={s.trackItemFocused}
                     >
-                      {({ focused }: any) => (
-                        <>
-                          <Text style={[s.trackText, focused && s.trackTextFocused]}>
-                            {sub.label || sub.language || `Pista ${idx + 1}`}
-                          </Text>
-                          {isSelected && (
-                            <Check size={scale(18)} color={focused ? "#000" : C.accent} />
-                          )}
-                        </>
-                      )}
-                    </Pressable>
+                      <Text style={s.trackText}>
+                        {sub.label || sub.language || `Pista ${idx + 1}`}
+                      </Text>
+                      {isSelected && <Check size={scale(18)} color={C.accent} />}
+                    </Focusable>
                   );
                 })}
               </ScrollView>
             )}
 
-            {/* Audio List */}
+            {/* Lista de Audios */}
             {activeDrawer === "audio" && (
               <ScrollView contentContainerStyle={{ padding: scale(20), gap: scale(12) }}>
+                <Focusable
+                  hasTVPreferredFocus
+                  onPress={() => {
+                    setSelectedAudio("auto");
+                    setActiveDrawer(null);
+                    triggerOSD();
+                  }}
+                  style={[s.trackItem, selectedAudio === "auto" && s.trackItemActive]}
+                  focusedStyle={s.trackItemFocused}
+                >
+                  <Text style={s.trackText}>Automático (Pista original)</Text>
+                  {selectedAudio === "auto" && <Check size={scale(18)} color={C.accent} />}
+                </Focusable>
+
                 {audioList.map((aud: any, idx: number) => {
                   const key = aud.trackIndex !== undefined ? aud.trackIndex : idx;
-                  const isSelected =
-                    selectedAudio === key || (selectedAudio === "auto" && aud.isDefault);
+                  const isSelected = selectedAudio === key;
                   return (
-                    <Pressable
+                    <Focusable
                       key={key}
-                      focusable
                       onPress={() => {
                         setSelectedAudio(key);
                         setActiveDrawer(null);
                         triggerOSD();
                       }}
-                      style={({ focused }: any) => [
-                        s.trackItem,
-                        isSelected && s.trackItemActive,
-                        focused && s.trackItemFocused,
-                      ]}
+                      style={[s.trackItem, isSelected && s.trackItemActive]}
+                      focusedStyle={s.trackItemFocused}
                     >
-                      {({ focused }: any) => (
-                        <>
-                          <Text style={[s.trackText, focused && s.trackTextFocused]}>
-                            {aud.label || aud.language || `Audio ${idx + 1}`}
-                          </Text>
-                          {isSelected && (
-                            <Check size={scale(18)} color={focused ? "#000" : C.accent} />
-                          )}
-                        </>
-                      )}
-                    </Pressable>
+                      <Text style={s.trackText}>
+                        {aud.label || aud.language || `Audio ${idx + 1}`}
+                      </Text>
+                      {isSelected && <Check size={scale(18)} color={C.accent} />}
+                    </Focusable>
                   );
                 })}
               </ScrollView>
@@ -893,52 +935,36 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
         </View>
       )}
 
-      {/* ── EXIT CONFIRMATION MODAL ── */}
+      {/* ── MODAL CONTINUAR VIENDO / SALIR (CON FOCO COMPLETO) ── */}
       {showExitModal && (
         <View style={s.modalOverlay}>
           <View style={s.modalBox}>
-            <Text style={s.modalTitle}>¿Salir del reproductor?</Text>
+            <Text style={s.modalTitle}>¿Salir de la reproducción?</Text>
             <Text style={s.modalSub}>
-              ¿Deseas detener la reproducción y regresar a la pantalla anterior?
+              ¿Deseas continuar viendo este contenido o salir al catálogo?
             </Text>
             <View style={s.modalActions}>
-              <Pressable
-                focusable
+              <Focusable
                 hasTVPreferredFocus
                 onPress={() => {
                   setShowExitModal(false);
                   triggerOSD();
                 }}
-                style={({ focused }: any) => [s.modalBtn, focused && s.modalBtnFocused]}
+                scaleFocused={1.05}
+                style={s.modalBtnContinue}
+                focusedStyle={s.modalBtnContinueFocused}
               >
-                {({ focused }: any) => (
-                  <Text style={[s.modalBtnTxt, focused && s.modalBtnTxtFocused]}>
-                    CONTINUAR VIENDO
-                  </Text>
-                )}
-              </Pressable>
+                <Text style={s.modalBtnContinueTxt}>CONTINUAR VIENDO</Text>
+              </Focusable>
 
-              <Pressable
-                focusable
+              <Focusable
                 onPress={() => router.back()}
-                style={({ focused }: any) => [
-                  s.modalBtn,
-                  s.modalBtnDestructive,
-                  focused && s.modalBtnDestructiveFocused,
-                ]}
+                scaleFocused={1.05}
+                style={s.modalBtnExit}
+                focusedStyle={s.modalBtnExitFocused}
               >
-                {({ focused }: any) => (
-                  <Text
-                    style={[
-                      s.modalBtnTxt,
-                      s.modalBtnTxtDestructive,
-                      focused && s.modalBtnTxtDestructiveFocused,
-                    ]}
-                  >
-                    SÍ, SALIR
-                  </Text>
-                )}
-              </Pressable>
+                <Text style={s.modalBtnExitTxt}>SÍ, SALIR</Text>
+              </Focusable>
             </View>
           </View>
         </View>
@@ -973,6 +999,27 @@ const s = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  toastHUD: {
+    position: "absolute",
+    top: scale(48),
+    alignSelf: "center",
+    backgroundColor: "rgba(10,13,20,0.92)",
+    paddingHorizontal: scale(24),
+    paddingVertical: scale(12),
+    borderRadius: scale(24),
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    zIndex: 999,
+    shadowColor: "#000",
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+  },
+  toastHUDText: {
+    color: "#fff",
+    fontSize: scale(16),
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
   centerOverlay: {
     ...(StyleSheet.absoluteFill as any),
     justifyContent: "center",
@@ -983,7 +1030,7 @@ const s = StyleSheet.create({
     width: scale(96),
     height: scale(96),
     borderRadius: scale(48),
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.65)",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
@@ -1021,17 +1068,13 @@ const s = StyleSheet.create({
     borderColor: "transparent",
   },
   btnFocused: {
-    backgroundColor: "#fff",
-    borderColor: C.accent,
-    transform: [{ scale: 1.05 }],
+    backgroundColor: C.accent,
+    borderColor: "#fff",
   },
   btnText: {
     color: "#fff",
     fontWeight: "800",
     fontSize: scale(15),
-  },
-  btnTextFocused: {
-    color: "#000",
   },
 
   // ── OSD ──
@@ -1043,126 +1086,60 @@ const s = StyleSheet.create({
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: scale(40),
-    paddingBottom: scale(28),
+    paddingTop: scale(36),
+    paddingBottom: scale(24),
     paddingHorizontal: scale(48),
     gap: scale(20),
   },
+  topBackBtn: {
+    width: scale(44),
+    height: scale(44),
+    borderRadius: scale(22),
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  topBackBtnFocused: {
+    backgroundColor: C.accent,
+    borderColor: "#fff",
+  },
   title: {
-    fontSize: scale(28),
+    fontSize: scale(26),
     fontWeight: "900",
     color: "#fff",
     letterSpacing: -0.3,
   },
   subTitle: {
-    fontSize: scale(16),
+    fontSize: scale(15),
     fontWeight: "600",
-    color: "rgba(255,255,255,0.65)",
-    marginTop: scale(4),
+    color: "rgba(255,255,255,0.7)",
+    marginTop: scale(2),
+  },
+  topBadgesRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(10),
+  },
+  qualityBadge: {
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(4),
+    borderRadius: scale(6),
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  qualityBadgeText: {
+    color: "#fff",
+    fontSize: scale(12),
+    fontWeight: "900",
   },
 
   bottomBar: {
     paddingHorizontal: scale(48),
-    paddingBottom: scale(36),
-    paddingTop: scale(50),
-  },
-  controlsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: scale(24),
-  },
-  sideControls: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(12),
-    minWidth: scale(260),
-  },
-  mainControls: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(16),
-  },
-
-  roundBtn: {
-    width: scale(48),
-    height: scale(48),
-    borderRadius: scale(24),
-    backgroundColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  roundBtnFocused: {
-    backgroundColor: "#fff",
-    borderColor: C.accent,
-    transform: [{ scale: 1.1 }],
-  },
-
-  controlActionBtn: {
-    width: scale(56),
-    height: scale(56),
-    borderRadius: scale(28),
-    backgroundColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  controlActionBtnFocused: {
-    backgroundColor: "#fff",
-    borderColor: C.accent,
-    transform: [{ scale: 1.1 }],
-  },
-  actionTxt: {
-    fontSize: scale(11),
-    fontWeight: "700",
-    color: "#fff",
-    marginTop: scale(2),
-  },
-  actionTxtFocused: {
-    color: "#000",
-  },
-
-  playBtn: {
-    width: scale(68),
-    height: scale(68),
-    borderRadius: scale(34),
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 3,
-    borderColor: "#fff",
-  },
-  playBtnFocused: {
-    backgroundColor: C.accent,
-    borderColor: C.accent,
-    transform: [{ scale: 1.15 }],
-  },
-
-  menuBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(8),
-    paddingHorizontal: scale(14),
-    paddingVertical: scale(10),
-    borderRadius: scale(12),
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  menuBtnFocused: {
-    backgroundColor: "#fff",
-    borderColor: C.accent,
-  },
-  menuBtnText: {
-    fontSize: scale(14),
-    fontWeight: "700",
-    color: "#fff",
-  },
-  menuBtnTextFocused: {
-    color: "#000",
+    paddingBottom: scale(32),
+    paddingTop: scale(40),
   },
 
   // ── Scrubbing Progress Bar ──
@@ -1170,20 +1147,22 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: scale(16),
-    paddingVertical: scale(8),
-    paddingHorizontal: scale(12),
-    borderRadius: scale(12),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(14),
+    borderRadius: scale(14),
+    backgroundColor: "rgba(0,0,0,0.35)",
     borderWidth: 2,
     borderColor: "transparent",
+    marginBottom: scale(20),
   },
   progressWrapperFocused: {
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderColor: "rgba(255,255,255,0.3)",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderColor: C.accent,
   },
   timeText: {
     fontSize: scale(15),
-    fontWeight: "700",
-    color: "rgba(255,255,255,0.85)",
+    fontWeight: "800",
+    color: "#fff",
     fontVariant: ["tabular-nums"],
     width: scale(72),
     textAlign: "center",
@@ -1192,7 +1171,7 @@ const s = StyleSheet.create({
     flex: 1,
     height: scale(8),
     borderRadius: scale(4),
-    backgroundColor: "rgba(255,255,255,0.22)",
+    backgroundColor: "rgba(255,255,255,0.2)",
     justifyContent: "center",
   },
   progressBarFill: {
@@ -1210,6 +1189,105 @@ const s = StyleSheet.create({
     borderRadius: scale(9),
     backgroundColor: "#fff",
     marginLeft: scale(-9),
+    borderWidth: 2,
+    borderColor: C.accent,
+  },
+
+  // ── Controls Row ──
+  controlsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  sideControlsLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(12),
+    minWidth: scale(300),
+  },
+  mainControlsCenter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(14),
+  },
+  sideControlsRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: scale(12),
+    minWidth: scale(300),
+  },
+
+  roundBtn: {
+    width: scale(48),
+    height: scale(48),
+    borderRadius: scale(24),
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  roundBtnFocused: {
+    backgroundColor: C.accent,
+    borderColor: "#fff",
+  },
+
+  controlActionBtn: {
+    width: scale(56),
+    height: scale(56),
+    borderRadius: scale(28),
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  controlActionBtnFocused: {
+    backgroundColor: C.accent,
+    borderColor: "#fff",
+  },
+  actionTxt: {
+    fontSize: scale(11),
+    fontWeight: "800",
+    color: "#fff",
+    marginTop: scale(2),
+  },
+
+  playBtn: {
+    width: scale(68),
+    height: scale(68),
+    borderRadius: scale(34),
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 3,
+    borderColor: "#fff",
+  },
+  playBtnFocused: {
+    backgroundColor: C.accent,
+    borderColor: "#fff",
+  },
+
+  menuBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(8),
+    paddingHorizontal: scale(14),
+    paddingVertical: scale(10),
+    borderRadius: scale(12),
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  menuBtnFocused: {
+    backgroundColor: C.accent,
+    borderColor: "#fff",
+  },
+  menuBtnText: {
+    fontSize: scale(14),
+    fontWeight: "800",
+    color: "#fff",
   },
 
   // ── Sidebar Drawers ──
@@ -1221,7 +1299,7 @@ const s = StyleSheet.create({
     zIndex: 50,
   },
   sidebar: {
-    width: scale(460),
+    width: scale(480),
     height: "100%",
     borderLeftWidth: 1,
     borderLeftColor: "rgba(255,255,255,0.12)",
@@ -1239,6 +1317,11 @@ const s = StyleSheet.create({
     fontWeight: "900",
     color: "#fff",
   },
+  sidebarSub: {
+    fontSize: scale(14),
+    color: "rgba(255,255,255,0.6)",
+    marginTop: scale(2),
+  },
   closeBtn: {
     width: scale(38),
     height: scale(38),
@@ -1246,9 +1329,12 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.1)",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "transparent",
   },
   closeBtnFocused: {
     backgroundColor: C.accent,
+    borderColor: "#fff",
   },
 
   seasonHeader: {
@@ -1256,14 +1342,14 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: scale(16),
-    paddingVertical: scale(12),
-    borderRadius: scale(10),
+    paddingVertical: scale(14),
+    borderRadius: scale(12),
     backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 2,
     borderColor: "transparent",
   },
   seasonHeaderFocused: {
-    backgroundColor: "#fff",
+    backgroundColor: "rgba(255,255,255,0.18)",
     borderColor: C.accent,
   },
   seasonTitle: {
@@ -1271,16 +1357,10 @@ const s = StyleSheet.create({
     fontWeight: "800",
     color: "#fff",
   },
-  seasonTitleFocused: {
-    color: "#000",
-  },
   seasonCount: {
     fontSize: scale(13),
     fontWeight: "700",
-    color: "rgba(255,255,255,0.5)",
-  },
-  seasonCountFocused: {
-    color: "#000",
+    color: "rgba(255,255,255,0.6)",
   },
 
   episodesContainer: {
@@ -1305,9 +1385,8 @@ const s = StyleSheet.create({
     borderColor: "rgba(255,183,3,0.35)",
   },
   epItemFocused: {
-    backgroundColor: "#fff",
+    backgroundColor: "rgba(255,255,255,0.15)",
     borderColor: C.accent,
-    transform: [{ scale: 1.02 }],
   },
   epNum: {
     width: scale(32),
@@ -1320,15 +1399,9 @@ const s = StyleSheet.create({
   epNumActive: {
     backgroundColor: C.accent,
   },
-  epNumFocused: {
-    backgroundColor: "#000",
-  },
   epNumText: {
     fontSize: scale(14),
     fontWeight: "800",
-    color: "#fff",
-  },
-  epNumTextFocused: {
     color: "#fff",
   },
   epName: {
@@ -1340,16 +1413,10 @@ const s = StyleSheet.create({
     color: C.accent,
     fontWeight: "900",
   },
-  epNameFocused: {
-    color: "#000",
-  },
   epMeta: {
     fontSize: scale(12),
     color: "rgba(255,255,255,0.5)",
     marginTop: scale(2),
-  },
-  epMetaFocused: {
-    color: "rgba(0,0,0,0.65)",
   },
   playingBadge: {
     paddingHorizontal: scale(8),
@@ -1357,16 +1424,10 @@ const s = StyleSheet.create({
     borderRadius: scale(6),
     backgroundColor: C.accent,
   },
-  playingBadgeFocused: {
-    backgroundColor: "#000",
-  },
   playingText: {
     fontSize: scale(11),
     fontWeight: "900",
     color: "#000",
-  },
-  playingTextFocused: {
-    color: "#fff",
   },
 
   trackItem: {
@@ -1384,36 +1445,35 @@ const s = StyleSheet.create({
     borderColor: "rgba(255,183,3,0.3)",
   },
   trackItemFocused: {
-    backgroundColor: "#fff",
+    backgroundColor: "rgba(255,255,255,0.18)",
     borderColor: C.accent,
-    transform: [{ scale: 1.02 }],
   },
   trackText: {
     fontSize: scale(16),
     fontWeight: "700",
     color: "#fff",
   },
-  trackTextFocused: {
-    color: "#000",
-  },
 
   // ── Exit Modal ──
   modalOverlay: {
     ...(StyleSheet.absoluteFill as any),
-    backgroundColor: "rgba(0,0,0,0.85)",
+    backgroundColor: "rgba(0,0,0,0.88)",
     justifyContent: "center",
     alignItems: "center",
     zIndex: 100,
   },
   modalBox: {
     width: scale(520),
-    backgroundColor: "#16161f",
+    backgroundColor: "#131722",
     borderRadius: scale(20),
     padding: scale(36),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
     alignItems: "center",
     gap: scale(16),
+    shadowColor: "#000",
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
   },
   modalTitle: {
     fontSize: scale(24),
@@ -1422,7 +1482,7 @@ const s = StyleSheet.create({
   },
   modalSub: {
     fontSize: scale(15),
-    color: "rgba(255,255,255,0.65)",
+    color: "rgba(255,255,255,0.7)",
     textAlign: "center",
     lineHeight: scale(22),
     marginBottom: scale(8),
@@ -1432,40 +1492,42 @@ const s = StyleSheet.create({
     gap: scale(16),
     width: "100%",
   },
-  modalBtn: {
-    flex: 1,
-    height: scale(48),
+  modalBtnContinue: {
+    flex: 1.2,
+    height: scale(50),
     borderRadius: scale(12),
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.12)",
+    backgroundColor: C.accent,
     borderWidth: 2,
-    borderColor: "transparent",
-  },
-  modalBtnFocused: {
-    backgroundColor: "#fff",
     borderColor: C.accent,
-    transform: [{ scale: 1.05 }],
   },
-  modalBtnTxt: {
+  modalBtnContinueFocused: {
+    borderColor: "#fff",
+    backgroundColor: "#ffc300",
+  },
+  modalBtnContinueTxt: {
     fontSize: scale(14),
-    fontWeight: "800",
-    color: "#fff",
-  },
-  modalBtnTxtFocused: {
+    fontWeight: "900",
     color: "#000",
   },
-  modalBtnDestructive: {
+  modalBtnExit: {
+    flex: 1,
+    height: scale(50),
+    borderRadius: scale(12),
+    justifyContent: "center",
+    alignItems: "center",
     backgroundColor: "rgba(239, 68, 68, 0.15)",
+    borderWidth: 2,
+    borderColor: "rgba(239, 68, 68, 0.4)",
   },
-  modalBtnDestructiveFocused: {
+  modalBtnExitFocused: {
     backgroundColor: "#ef4444",
-    borderColor: "#f87171",
+    borderColor: "#fff",
   },
-  modalBtnTxtDestructive: {
+  modalBtnExitTxt: {
+    fontSize: scale(14),
+    fontWeight: "900",
     color: "#f87171",
-  },
-  modalBtnTxtDestructiveFocused: {
-    color: "#fff",
   },
 });

@@ -125,6 +125,19 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
 
   const hasAnyTrap = trapFocusRight || trapFocusLeft || trapFocusUp || trapFocusDown;
 
+  const setInnerRef = useCallback(
+    (node: any) => {
+      innerRef.current = node;
+      if (Platform.OS !== "web" && hasAnyTrap && node) {
+        const handle = safeFindNodeHandle(node);
+        if (typeof handle === "number" && handle > 0) {
+          setSelfNodeHandle(handle);
+        }
+      }
+    },
+    [hasAnyTrap],
+  );
+
   // Actualizar handle del nodo nativo para trampas de foco (solo plataformas nativas)
   const updateSelfHandle = useCallback(() => {
     if (Platform.OS === "web") return;
@@ -265,7 +278,7 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
 
   return (
     <AnimatedPressable
-      ref={innerRef}
+      ref={setInnerRef}
       focusable={!disabled}
       disabled={disabled}
       onFocus={handleFocus}

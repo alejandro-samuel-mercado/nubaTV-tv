@@ -16,6 +16,7 @@ interface Props {
   onFocusItem?: (item: NexoContentItem) => void;
   nextFocusLeft?: number;
   nextFocusRight?: number;
+  trapFocusLeft?: boolean;
   trapFocusRight?: boolean;
   hasTVPreferredFocus?: boolean;
 }
@@ -28,6 +29,7 @@ function PosterCard({
   onFocusItem,
   nextFocusLeft,
   nextFocusRight,
+  trapFocusLeft,
   trapFocusRight,
   hasTVPreferredFocus,
 }: Props) {
@@ -37,6 +39,7 @@ function PosterCard({
       onFocus={onFocusItem ? () => onFocusItem(item) : undefined}
       nextFocusLeft={nextFocusLeft}
       nextFocusRight={nextFocusRight}
+      trapFocusLeft={trapFocusLeft}
       trapFocusRight={trapFocusRight}
       hasTVPreferredFocus={hasTVPreferredFocus}
       scaleFocused={1.02}
