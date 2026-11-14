@@ -129,14 +129,12 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
     };
   }, []);
 
-  // Asegurar foco nativo/web cuando hasTVPreferredFocus pasa a true dinámicamente (ej. listas y modales)
+  // En navegador web, react-native-web ignora hasTVPreferredFocus, por lo que aplicamos .focus() solo en web.
+  // IMPORTANTE: En Android TV NUNCA usar setNativeProps({ hasTVPreferredFocus: true }) porque Fabric
+  // persiste nativeProps_DEPRECATED en cada re-render (ej. en onBlur) y re-enfoca el botón en bucle.
   useEffect(() => {
-    if ((rest as any).hasTVPreferredFocus && innerRef.current) {
-      if (Platform.OS === "web") {
-        innerRef.current.focus?.();
-      } else {
-        innerRef.current.setNativeProps?.({ hasTVPreferredFocus: true });
-      }
+    if (Platform.OS === "web" && (rest as any).hasTVPreferredFocus && innerRef.current) {
+      innerRef.current.focus?.();
     }
   }, [(rest as any).hasTVPreferredFocus]);
 
