@@ -18,12 +18,14 @@ import {
   Tv,
   Volume2,
 } from "lucide-react-native";
-import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
+  findNodeHandle,
   FlatList,
   Linking,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -33,6 +35,7 @@ import BackdropBackground from "../components/tv/BackdropBackground";
 import Focusable from "../components/tv/Focusable";
 import RemoteImage from "../components/tv/RemoteImage";
 import ViewAllCard from "../components/tv/ViewAllCard";
+import { useGlobal } from "../contexts/GlobalContext";
 import { useSidebarHandle } from "../hooks/useNavThrottle";
 import { scale } from "../lib/scale";
 import { C } from "../lib/tvColors";
@@ -46,10 +49,10 @@ import { getItemAsync, setItemAsync } from "../utils/storage";
 
 const { height: SH, width: SW } = Dimensions.get("window");
 
-// ── Medidas estandarizadas y curvadas ─────────────────────────────────────────
-const POSTER_W = scale(125);
-const POSTER_H = scale(180);
-const CARD_GAP = scale(14);
+// ── Medidas estandarizadas y curvadas (−5% más compactas) ────────────────────
+const POSTER_W = scale(119);
+const POSTER_H = scale(171);
+const CARD_GAP = scale(13);
 
 const fmtDuration = (mins?: number) => {
   if (!mins) return "";
@@ -74,55 +77,112 @@ const pickTitle = (o: any, fb = "") =>
 const CurvedPosterCard = memo(function CurvedPosterCard({
   item,
   onPress,
+  onFocus,
+  onLayout,
+  focusRef,
+  nextFocusUp,
+  nextFocusDown,
+  nextFocusLeft,
+  trapFocusLeft,
+  trapFocusRight,
+  trapFocusDown,
   accentColor = C.accent,
 }: {
   item: NexoContentItem;
   onPress: (item: NexoContentItem) => void;
+  onFocus?: () => void;
+  onLayout?: () => void;
+  focusRef?: React.Ref<any>;
+  nextFocusUp?: number;
+  nextFocusDown?: number;
+  nextFocusLeft?: number;
+  trapFocusLeft?: boolean;
+  trapFocusRight?: boolean;
+  trapFocusDown?: boolean;
   accentColor?: string;
 }) {
   return (
     <Focusable
+      ref={focusRef}
       onPress={() => onPress(item)}
+      onFocus={onFocus}
+      onLayout={onLayout}
+      nextFocusUp={nextFocusUp}
+      nextFocusDown={nextFocusDown}
+      nextFocusLeft={nextFocusLeft}
+      trapFocusLeft={trapFocusLeft}
+      trapFocusRight={trapFocusRight}
+      trapFocusDown={trapFocusDown}
       style={s.card}
       focusedStyle={[s.cardFocused, { borderColor: accentColor, shadowColor: accentColor }]}
       scaleFocused={1.02}
     >
-      <RemoteImage
-        uri={item.posterUrl || item.backdropUrl}
-        style={StyleSheet.absoluteFill as any}
-        contentFit="cover"
-        transition={150}
-      />
-      <LinearGradient
-        colors={["transparent", "rgba(5,5,8,0.92)"]}
-        style={s.cardGrad}
-      />
+      <View style={s.cardInner}>
+        <RemoteImage
+          uri={item.posterUrl || item.backdropUrl}
+          style={StyleSheet.absoluteFill as any}
+          contentFit="cover"
+          transition={150}
+        />
+        <LinearGradient
+          colors={["transparent", "rgba(5,5,8,0.92)"]}
+          style={s.cardGrad}
+        />
 
-      {item.rating ? (
-        <View style={[s.cardRating, { backgroundColor: accentColor }]}>
-          <Star size={scale(9)} color="#000" fill="#000" />
-          <Text style={s.cardRatingTxt}>{Number(item.rating).toFixed(1)}</Text>
+        {item.rating ? (
+          <View style={[s.cardRating, { backgroundColor: accentColor }]}>
+            <Star size={scale(9)} color="#000" fill="#000" />
+            <Text style={s.cardRatingTxt}>{Number(item.rating).toFixed(1)}</Text>
+          </View>
+        ) : null}
+
+        <View style={s.cardInfo}>
+          <Text style={s.cardTitle} numberOfLines={2}>
+            {item.title}
+          </Text>
+          <Text style={[s.cardMeta, { color: accentColor }]}>
+            {TYPE_LABEL[item.type] || item.type}
+            {item.releaseYear ? ` • ${item.releaseYear}` : ""}
+          </Text>
         </View>
-      ) : null}
-
-      <View style={s.cardInfo}>
-        <Text style={s.cardTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
-        <Text style={[s.cardMeta, { color: accentColor }]}>
-          {TYPE_LABEL[item.type] || item.type}
-          {item.releaseYear ? ` • ${item.releaseYear}` : ""}
-        </Text>
       </View>
     </Focusable>
   );
 });
 
 // ── Card de Reparto Circular y Orgánica ──────────────────────────────────────
-const CastAvatarCard = memo(function CastAvatarCard({ actor }: { actor: any }) {
+const CastAvatarCard = memo(function CastAvatarCard({
+  actor,
+  onFocus,
+  onLayout,
+  focusRef,
+  nextFocusUp,
+  nextFocusDown,
+  nextFocusLeft,
+  trapFocusLeft,
+  trapFocusRight,
+}: {
+  actor: any;
+  onFocus?: () => void;
+  onLayout?: () => void;
+  focusRef?: React.Ref<any>;
+  nextFocusUp?: number;
+  nextFocusDown?: number;
+  nextFocusLeft?: number;
+  trapFocusLeft?: boolean;
+  trapFocusRight?: boolean;
+}) {
   const photo = actor.photo || actor.photoUrl || actor.profileUrl;
   return (
     <Focusable
+      ref={focusRef}
+      onFocus={onFocus}
+      onLayout={onLayout}
+      nextFocusUp={nextFocusUp}
+      nextFocusDown={nextFocusDown}
+      nextFocusLeft={nextFocusLeft}
+      trapFocusLeft={trapFocusLeft}
+      trapFocusRight={trapFocusRight}
       style={s.castCard}
       focusedStyle={s.castCardFocused}
       scaleFocused={1.02}
@@ -151,12 +211,28 @@ const EpisodeCard = memo(function EpisodeCard({
   item,
   currentSeasonNumber,
   onPlay,
+  onFocus,
+  onLayout,
+  focusRef,
+  nextFocusUp,
+  nextFocusDown,
+  nextFocusLeft,
+  trapFocusLeft,
+  trapFocusRight,
 }: {
   ep: any;
   index: number;
   item: NexoContentItem;
   currentSeasonNumber: number;
   onPlay: (epId: string) => void;
+  onFocus?: () => void;
+  onLayout?: () => void;
+  focusRef?: React.Ref<any>;
+  nextFocusUp?: number;
+  nextFocusDown?: number;
+  nextFocusLeft?: number;
+  trapFocusLeft?: boolean;
+  trapFocusRight?: boolean;
 }) {
   const epThumb =
     ep.thumbnailUrl || ep.stillUrl || item.backdropUrl || item.posterUrl;
@@ -164,7 +240,15 @@ const EpisodeCard = memo(function EpisodeCard({
 
   return (
     <Focusable
+      ref={focusRef}
       onPress={() => onPlay(ep.id)}
+      onFocus={onFocus}
+      onLayout={onLayout}
+      nextFocusUp={nextFocusUp}
+      nextFocusDown={nextFocusDown}
+      nextFocusLeft={nextFocusLeft}
+      trapFocusLeft={trapFocusLeft}
+      trapFocusRight={trapFocusRight}
       style={s.epCard}
       focusedStyle={s.epCardFocused}
       scaleFocused={1.02}
@@ -290,6 +374,7 @@ export default function DetailScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const router = useRouter();
   const sidebarHandle = useSidebarHandle();
+  const { isVodFavorite, toggleVodFavorite } = useGlobal();
 
   const [fontsLoaded] = useFonts({
     Bangers: Bangers_400Regular,
@@ -298,38 +383,17 @@ export default function DetailScreen() {
   const [item, setItem] = useState<NexoContentItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [seasonIdx, setSeasonIdx] = useState(0);
-  const [inMyList, setInMyList] = useState(false);
 
   // Secciones adicionales
   const [related, setRelated] = useState<NexoContentItem[]>([]);
   const [trending, setTrending] = useState<NexoContentItem[]>([]);
 
-  // Cargar estado de favoritos
-  useEffect(() => {
-    if (!slug) return;
-    getItemAsync("local_favorites").then((raw) => {
-      try {
-        const list = JSON.parse(raw || "[]");
-        if (list.includes(String(slug))) setInMyList(true);
-      } catch {}
-    });
-  }, [slug]);
+  const inMyList = isVodFavorite(item?.slug || String(slug || ""));
 
-  const toggleFavorite = useCallback(async () => {
-    if (!slug) return;
-    try {
-      const raw = await getItemAsync("local_favorites");
-      let list: string[] = JSON.parse(raw || "[]");
-      const next = !inMyList;
-      if (next) {
-        if (!list.includes(String(slug))) list.push(String(slug));
-      } else {
-        list = list.filter((x: string) => x !== String(slug));
-      }
-      await setItemAsync("local_favorites", JSON.stringify(list));
-      setInMyList(next);
-    } catch {}
-  }, [slug, inMyList]);
+  const toggleFavorite = useCallback(() => {
+    if (!item) return;
+    toggleVodFavorite(item);
+  }, [item, toggleVodFavorite]);
 
   // Cargar Detalle y Colecciones Curadas
   useEffect(() => {
@@ -474,6 +538,123 @@ export default function DetailScreen() {
   const country = c.country || c.originCountry || "Internacional";
   const trailerUrl = c.trailerUrl;
 
+  // ── Coordinación profesional de Scroll + Foco vertical entre Hero, Reparto y Filas ──
+  const scrollRef = useRef<ScrollView>(null);
+  const sectionLayouts = useRef<Record<string, number>>({});
+  const activeSectionRef = useRef<string | null>(null);
+  const scrollTimerRef = useRef<any>(null);
+  const handleSyncTimer = useRef<any>(null);
+
+  const backBtnRef = useRef<any>(null);
+  const playBtnRef = useRef<any>(null);
+  const firstCastRef = useRef<any>(null);
+  const firstSeasonRef = useRef<any>(null);
+  const firstEpRef = useRef<any>(null);
+  const firstRelatedRef = useRef<any>(null);
+  const firstTrendingRef = useRef<any>(null);
+
+  const [navHandles, setNavHandles] = useState<{
+    backBtn?: number;
+    playBtn?: number;
+    firstCast?: number;
+    firstSeason?: number;
+    firstEp?: number;
+    firstRelated?: number;
+    firstTrending?: number;
+  }>({});
+
+  const updateNavHandles = useCallback(() => {
+    if (Platform.OS === "web") return;
+    const resolve = (node: any) => {
+      if (!node) return undefined;
+      try {
+        const h = findNodeHandle(node);
+        return typeof h === "number" && h > 0 ? h : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const next = {
+      backBtn: resolve(backBtnRef.current),
+      playBtn: resolve(playBtnRef.current),
+      firstCast: resolve(firstCastRef.current),
+      firstSeason: resolve(firstSeasonRef.current),
+      firstEp: resolve(firstEpRef.current),
+      firstRelated: resolve(firstRelatedRef.current),
+      firstTrending: resolve(firstTrendingRef.current),
+    };
+    setNavHandles((prev) =>
+      prev.backBtn === next.backBtn &&
+      prev.playBtn === next.playBtn &&
+      prev.firstCast === next.firstCast &&
+      prev.firstSeason === next.firstSeason &&
+      prev.firstEp === next.firstEp &&
+      prev.firstRelated === next.firstRelated &&
+      prev.firstTrending === next.firstTrending
+        ? prev
+        : next,
+    );
+  }, []);
+
+  const scheduleHandleSync = useCallback(() => {
+    if (Platform.OS === "web") return;
+    if (handleSyncTimer.current) clearTimeout(handleSyncTimer.current);
+    handleSyncTimer.current = setTimeout(() => {
+      handleSyncTimer.current = null;
+      updateNavHandles();
+    }, 50);
+  }, [updateNavHandles]);
+
+  useEffect(() => {
+    sectionLayouts.current = {};
+    activeSectionRef.current = null;
+  }, [slug]);
+
+  useEffect(() => {
+    scheduleHandleSync();
+  }, [item, seasonIdx, related.length, trending.length, scheduleHandleSync]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+      if (handleSyncTimer.current) clearTimeout(handleSyncTimer.current);
+    };
+  }, []);
+
+  const handleHeroFocus = useCallback(() => {
+    activeSectionRef.current = "hero";
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = setTimeout(() => {
+      scrollTimerRef.current = null;
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+    }, 25);
+  }, []);
+
+  const handleSectionFocus = useCallback((sectionKey: string) => {
+    if (activeSectionRef.current === sectionKey) return;
+    activeSectionRef.current = sectionKey;
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = setTimeout(() => {
+      scrollTimerRef.current = null;
+      const targetY = sectionLayouts.current[sectionKey];
+      if (typeof targetY === "number" && scrollRef.current) {
+        const scrollY = Math.max(0, targetY - scale(18));
+        scrollRef.current.scrollTo({ y: scrollY, animated: true });
+      }
+    }, 25);
+  }, []);
+
+  // Destinos verticales deterministas para que nunca se salte Reparto ni quede el scroll a medias
+  const episodesTopHandle = seasons.length > 1 ? navHandles.firstSeason ?? navHandles.firstEp : navHandles.firstEp;
+  const heroDownHandle =
+    navHandles.firstCast ?? episodesTopHandle ?? navHandles.firstRelated ?? navHandles.firstTrending;
+  const castDownHandle = episodesTopHandle ?? navHandles.firstRelated ?? navHandles.firstTrending;
+  const episodesUpHandle = navHandles.firstCast ?? navHandles.playBtn;
+  const episodesDownHandle = navHandles.firstRelated ?? navHandles.firstTrending;
+  const relatedUpHandle = navHandles.firstEp ?? episodesTopHandle ?? navHandles.firstCast ?? navHandles.playBtn;
+  const trendingUpHandle =
+    navHandles.firstRelated ?? navHandles.firstEp ?? episodesTopHandle ?? navHandles.firstCast ?? navHandles.playBtn;
+
   if (loading) {
     return (
       <View style={s.centerScreen}>
@@ -508,20 +689,33 @@ export default function DetailScreen() {
       <BackdropBackground uri={backdrop} variant="home" />
 
       <ScrollView
+        ref={scrollRef}
         style={s.scroll}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
       >
         {/* ── BOTÓN VOLVER CURVADO Y DISCRETO ── */}
         <Focusable
+          ref={backBtnRef}
           onPress={() => router.back()}
+          onFocus={handleHeroFocus}
+          onLayout={scheduleHandleSync}
           style={s.backBtn}
           focusedStyle={s.backBtnFocused}
-          scaleFocused={1.06}
+          scaleFocused={1.05}
           nextFocusLeft={sidebarHandle ?? undefined}
+          nextFocusDown={navHandles.playBtn}
+          trapFocusUp
         >
-          <ArrowLeft size={scale(13)} color="rgba(255,255,255,0.85)" />
-          <Text style={s.backBtnTxt}>Volver</Text>
+          {({ focused }) => (
+            <>
+              <ArrowLeft size={scale(13)} color={focused ? "#000000" : "rgba(255,255,255,0.85)"} />
+              <Text style={[s.backBtnTxt, focused && { color: "#000000", fontWeight: "900" }]}>
+                Volver
+              </Text>
+            </>
+          )}
         </Focusable>
 
         {/* ── HERO SPOTLIGHT ASIMÉTRICO: PORTADA EMPUJADA A LA DERECHA CON EFECTOS 3D ── */}
@@ -616,41 +810,70 @@ export default function DetailScreen() {
             <View style={s.buttonsRow}>
               {/* Botón Reproducir */}
               <Focusable
+                ref={playBtnRef}
                 hasTVPreferredFocus
                 onPress={() => play(isSeries ? firstEpisode?.id : undefined)}
+                onFocus={handleHeroFocus}
+                onLayout={scheduleHandleSync}
                 style={s.btnPlay}
                 focusedStyle={s.btnPlayFocused}
+                scaleFocused={1.04}
                 nextFocusLeft={sidebarHandle ?? undefined}
+                nextFocusUp={navHandles.backBtn}
+                nextFocusDown={heroDownHandle}
               >
-                <Play size={scale(16)} color="#000" fill="#000" />
-                <Text style={s.btnPlayTxt}>
-                  {isSeries ? "Reproducir T1 E1" : "Reproducir"}
-                </Text>
+                {({ focused }) => (
+                  <>
+                    <Play size={scale(16)} color="#000000" fill="#000000" />
+                    <Text style={[s.btnPlayTxt, focused && { color: "#000000" }]}>
+                      {isSeries ? "Reproducir T1 E1" : "Reproducir"}
+                    </Text>
+                  </>
+                )}
               </Focusable>
 
               {/* Botón Tráiler */}
               {!!trailerUrl && (
                 <Focusable
                   onPress={handleTrailer}
+                  onFocus={handleHeroFocus}
                   style={s.btnTrailer}
                   focusedStyle={s.btnTrailerFocused}
+                  nextFocusUp={navHandles.backBtn}
+                  nextFocusDown={heroDownHandle}
                 >
-                  <MonitorPlay size={scale(16)} color="#ffffff" />
-                  <Text style={s.btnTrailerTxt}>Tráiler</Text>
+                  {({ focused }) => (
+                    <>
+                      <MonitorPlay size={scale(16)} color={focused ? "#000000" : "#ffffff"} />
+                      <Text
+                        style={[
+                          s.btnTrailerTxt,
+                          focused && { color: "#000000", fontWeight: "900" },
+                        ]}
+                      >
+                        Tráiler
+                      </Text>
+                    </>
+                  )}
                 </Focusable>
               )}
 
               {/* Botón Favorito Curvado */}
               <Focusable
                 onPress={toggleFavorite}
+                onFocus={handleHeroFocus}
                 style={[s.btnIcon, inMyList && s.btnIconActive]}
                 focusedStyle={s.btnIconFocused}
+                nextFocusUp={navHandles.backBtn}
+                nextFocusDown={heroDownHandle}
               >
-                <Heart
-                  size={scale(18)}
-                  color={inMyList ? C.accent : "#ffffff"}
-                  fill={inMyList ? C.accent : "none"}
-                />
+                {({ focused }) => (
+                  <Heart
+                    size={scale(18)}
+                    color={focused ? "#000000" : (inMyList ? C.accent : "#ffffff")}
+                    fill={focused ? (inMyList ? "#000000" : "none") : (inMyList ? C.accent : "none")}
+                  />
+                )}
               </Focusable>
             </View>
           </View>
@@ -701,15 +924,36 @@ export default function DetailScreen() {
 
         {/* ── REPARTO PRINCIPAL (AVATARES CIRCULARES CON DOBLE ANILLO) ── */}
         {cast.length > 0 && (
-          <View style={s.section}>
+          <View
+            style={s.section}
+            onLayout={(e) => {
+              sectionLayouts.current["cast"] = e.nativeEvent.layout.y;
+            }}
+          >
             <SectionHead title="Reparto Principal" accentColor="#ffb703" />
             <FlatList
               data={cast.slice(0, 16)}
               horizontal
               showsHorizontalScrollIndicator={false}
               keyExtractor={(a, i) => String(a.id ?? i)}
+              style={{ overflow: "visible" }}
               contentContainerStyle={s.castRow}
-              renderItem={({ item: actor }) => <CastAvatarCard actor={actor} />}
+              initialNumToRender={8}
+              maxToRenderPerBatch={6}
+              windowSize={5}
+              renderItem={({ item: actor, index }) => (
+                <CastAvatarCard
+                  actor={actor}
+                  focusRef={index === 0 ? firstCastRef : undefined}
+                  onLayout={index === 0 ? scheduleHandleSync : undefined}
+                  onFocus={() => handleSectionFocus("cast")}
+                  nextFocusUp={navHandles.playBtn}
+                  nextFocusDown={castDownHandle}
+                  nextFocusLeft={index === 0 ? (sidebarHandle ?? undefined) : undefined}
+                  trapFocusLeft={index === 0 && !sidebarHandle}
+                  trapFocusRight={index === Math.min(cast.length, 16) - 1}
+                />
+              )}
             />
           </View>
         )}
@@ -766,7 +1010,12 @@ export default function DetailScreen() {
 
         {/* ── EPISODIOS Y TEMPORADAS (PARA SERIES) ── */}
         {isSeries && (
-          <View style={s.section}>
+          <View
+            style={s.section}
+            onLayout={(e) => {
+              sectionLayouts.current["episodes"] = e.nativeEvent.layout.y;
+            }}
+          >
             <SectionHead
               title="Episodios y Temporadas"
               subtitle={`${seasons.length} ${
@@ -782,14 +1031,26 @@ export default function DetailScreen() {
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={(s, i) => String(s.id ?? i)}
+                style={{ overflow: "visible" }}
                 contentContainerStyle={s.seasonList}
                 extraData={seasonIdx}
+                initialNumToRender={8}
+                maxToRenderPerBatch={6}
+                windowSize={5}
                 renderItem={({ item: se, index }) => {
                   const on = index === seasonIdx;
                   const epCount = se.episodes?.length || 0;
                   return (
                     <Focusable
+                      ref={index === 0 ? firstSeasonRef : undefined}
+                      onLayout={index === 0 ? scheduleHandleSync : undefined}
                       onPress={() => setSeasonIdx(index)}
+                      onFocus={() => handleSectionFocus("episodes")}
+                      nextFocusUp={episodesUpHandle}
+                      nextFocusDown={navHandles.firstEp}
+                      nextFocusLeft={index === 0 ? (sidebarHandle ?? undefined) : undefined}
+                      trapFocusLeft={index === 0 && !sidebarHandle}
+                      trapFocusRight={index === seasons.length - 1}
                       style={[s.seasonCapsule, on && s.seasonCapsuleActive]}
                       focusedStyle={s.seasonCapsuleFocused}
                       scaleFocused={1.04}
@@ -814,7 +1075,11 @@ export default function DetailScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               keyExtractor={(ep, i) => String(ep.id ?? i)}
+              style={{ overflow: "visible" }}
               contentContainerStyle={s.epList}
+              initialNumToRender={6}
+              maxToRenderPerBatch={4}
+              windowSize={5}
               renderItem={({ item: ep, index }) => (
                 <EpisodeCard
                   ep={ep}
@@ -822,6 +1087,14 @@ export default function DetailScreen() {
                   item={item}
                   currentSeasonNumber={currentSeason?.number || 1}
                   onPlay={play}
+                  focusRef={index === 0 ? firstEpRef : undefined}
+                  onLayout={index === 0 ? scheduleHandleSync : undefined}
+                  onFocus={() => handleSectionFocus("episodes")}
+                  nextFocusUp={seasons.length > 1 ? navHandles.firstSeason : episodesUpHandle}
+                  nextFocusDown={episodesDownHandle}
+                  nextFocusLeft={index === 0 ? (sidebarHandle ?? undefined) : undefined}
+                  trapFocusLeft={index === 0 && !sidebarHandle}
+                  trapFocusRight={index === (currentSeason?.episodes?.length || 1) - 1}
                 />
               )}
             />
@@ -830,19 +1103,35 @@ export default function DetailScreen() {
 
         {/* ── TÍTULOS SIMILARES Y RECOMENDADOS (CURADOS, SIN RELLENO) ── */}
         {related.length > 0 && (
-          <View style={s.section}>
+          <View
+            style={s.section}
+            onLayout={(e) => {
+              sectionLayouts.current["related"] = e.nativeEvent.layout.y;
+            }}
+          >
             <SectionHead title="Títulos Similares" accentColor="#ffba08" />
             <FlatList
               data={related}
               horizontal
               showsHorizontalScrollIndicator={false}
               keyExtractor={(r, i) => String(r.id ?? i)}
+              style={{ overflow: "visible" }}
               contentContainerStyle={s.rowTrack}
-              renderItem={({ item: r }) => (
+              initialNumToRender={6}
+              maxToRenderPerBatch={4}
+              windowSize={5}
+              renderItem={({ item: r, index }) => (
                 <CurvedPosterCard
                   item={r}
                   onPress={handleContentPress}
                   accentColor="#ffba08"
+                  focusRef={index === 0 ? firstRelatedRef : undefined}
+                  onLayout={index === 0 ? scheduleHandleSync : undefined}
+                  onFocus={() => handleSectionFocus("related")}
+                  nextFocusUp={relatedUpHandle}
+                  nextFocusDown={navHandles.firstTrending}
+                  nextFocusLeft={index === 0 ? (sidebarHandle ?? undefined) : undefined}
+                  trapFocusLeft={index === 0 && !sidebarHandle}
                 />
               )}
               ListFooterComponent={
@@ -850,11 +1139,14 @@ export default function DetailScreen() {
                   <ViewAllCard
                     width={POSTER_W}
                     height={POSTER_H}
+                    onFocus={() => handleSectionFocus("related")}
+                    nextFocusUp={relatedUpHandle}
+                    nextFocusDown={navHandles.firstTrending}
                     onPress={() =>
                       router.push({
                         pathname: "/(tv)/explore",
-                        params: item.genres?.[0]?.name
-                          ? { genre: item.genres[0].name }
+                        params: item.genres?.[0]?.id
+                          ? { genreId: item.genres[0].id }
                           : { type: item.type },
                       } as any)
                     }
@@ -870,7 +1162,12 @@ export default function DetailScreen() {
 
         {/* ── TENDENCIAS EN NUBATV (SOLO SI EXISTEN Y DIFERENTES) ── */}
         {trending.length > 0 && (
-          <View style={s.section}>
+          <View
+            style={s.section}
+            onLayout={(e) => {
+              sectionLayouts.current["trending"] = e.nativeEvent.layout.y;
+            }}
+          >
             <SectionHead
               title="Tendencias en Nuba TV"
               accentColor="#ef4444"
@@ -881,12 +1178,23 @@ export default function DetailScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               keyExtractor={(r, i) => String(r.id ?? i)}
+              style={{ overflow: "visible" }}
               contentContainerStyle={s.rowTrack}
-              renderItem={({ item: r }) => (
+              initialNumToRender={6}
+              maxToRenderPerBatch={4}
+              windowSize={5}
+              renderItem={({ item: r, index }) => (
                 <CurvedPosterCard
                   item={r}
                   onPress={handleContentPress}
                   accentColor="#ef4444"
+                  focusRef={index === 0 ? firstTrendingRef : undefined}
+                  onLayout={index === 0 ? scheduleHandleSync : undefined}
+                  onFocus={() => handleSectionFocus("trending")}
+                  nextFocusUp={trendingUpHandle}
+                  nextFocusLeft={index === 0 ? (sidebarHandle ?? undefined) : undefined}
+                  trapFocusLeft={index === 0 && !sidebarHandle}
+                  trapFocusDown
                 />
               )}
               ListFooterComponent={
@@ -894,6 +1202,9 @@ export default function DetailScreen() {
                   <ViewAllCard
                     width={POSTER_W}
                     height={POSTER_H}
+                    onFocus={() => handleSectionFocus("trending")}
+                    nextFocusUp={trendingUpHandle}
+                    trapFocusDown
                     onPress={() =>
                       router.push({
                         pathname: "/(tv)/explore",
@@ -926,8 +1237,8 @@ const s = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: scale(52),
-    paddingTop: scale(36),
-    paddingBottom: scale(36),
+    paddingTop: scale(18),
+    paddingBottom: scale(180),
   },
   centerScreen: {
     flex: 1,
@@ -968,62 +1279,63 @@ const s = StyleSheet.create({
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(6),
+    gap: scale(5.5),
     alignSelf: "flex-start",
     backgroundColor: "rgba(0, 0, 0, 0.45)",
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: "rgba(255, 255, 255, 0.14)",
-    paddingHorizontal: scale(14),
-    paddingVertical: scale(6.5),
-    borderRadius: scale(18),
-    marginBottom: scale(20),
+    paddingHorizontal: scale(12.5),
+    paddingVertical: scale(5),
+    borderRadius: scale(16),
+    marginBottom: scale(9),
   },
   backBtnFocused: {
-    backgroundColor: "rgba(255, 255, 255, 0.25)",
+    backgroundColor: C.accent,
     borderColor: "#ffffff",
   },
   backBtnTxt: {
     color: "rgba(255, 255, 255, 0.9)",
-    fontSize: scale(12),
+    fontSize: scale(11),
     fontWeight: "700",
   },
 
-  // ── HERO POD: ASIMÉTRICO, PORTADA A LA DERECHA CON EFECTOS 3D ─────────────
+  // ── HERO POD: ASIMÉTRICO, PORTADA A LA DERECHA CON EFECTOS 3D (−10%) ───────
   heroPod: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: scale(44),
+    marginBottom: scale(20),
   },
   heroLeft: {
     flex: 1,
-    maxWidth: scale(660),
+    maxWidth: scale(594),
   },
   categoryChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(6),
+    gap: scale(5.5),
     backgroundColor: "rgba(255, 183, 3, 0.12)",
     borderWidth: 1,
     borderColor: "rgba(255, 183, 3, 0.3)",
-    paddingHorizontal: scale(12),
-    paddingVertical: scale(4.5),
-    borderRadius: scale(16),
+    paddingHorizontal: scale(11),
+    paddingVertical: scale(3.5),
+    borderRadius: scale(14),
     alignSelf: "flex-start",
-    marginBottom: scale(10),
+    marginBottom: scale(7),
   },
   categoryChipTxt: {
     color: C.accent,
-    fontSize: scale(11.5),
+    fontSize: scale(10.5),
     fontWeight: "800",
     letterSpacing: 0.8,
   },
   heroTitle: {
     color: "#ffffff",
-    fontSize: scale(42),
+    fontSize: scale(30.5),
     fontWeight: "900",
-    lineHeight: scale(48),
-    marginBottom: scale(10),
+    lineHeight: scale(34),
+    marginBottom: scale(12),
+    includeFontPadding: false,
     textShadowColor: "rgba(255, 183, 3, 0.25)",
     textShadowOffset: { width: 0, height: scale(2) },
     textShadowRadius: scale(10),
@@ -1032,19 +1344,19 @@ const s = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: scale(8),
-    marginBottom: scale(12),
+    gap: scale(7),
+    marginBottom: scale(10),
   },
   metaCapsule: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(5),
+    gap: scale(4.5),
     backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(4),
-    borderRadius: scale(14),
+    paddingHorizontal: scale(9),
+    paddingVertical: scale(3.5),
+    borderRadius: scale(12),
   },
   metaCapsuleAge: {
     borderColor: "rgba(255,255,255,0.35)",
@@ -1055,101 +1367,103 @@ const s = StyleSheet.create({
   },
   metaCapsuleTxt: {
     color: "rgba(255,255,255,0.88)",
-    fontSize: scale(11.5),
+    fontSize: scale(10.5),
     fontWeight: "700",
   },
   metaCapsuleImdbTxt: {
     color: "#000000",
-    fontSize: scale(11.5),
+    fontSize: scale(10.5),
     fontWeight: "900",
   },
   genresRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: scale(6),
-    marginBottom: scale(12),
+    gap: scale(5.5),
+    marginBottom: scale(10),
   },
   genreBubble: {
     backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(3.5),
-    borderRadius: scale(12),
+    paddingHorizontal: scale(9),
+    paddingVertical: scale(3),
+    borderRadius: scale(11),
   },
   genreBubbleTxt: {
     color: "rgba(255,255,255,0.7)",
-    fontSize: scale(11.5),
+    fontSize: scale(10.5),
     fontWeight: "600",
   },
   heroDesc: {
-    fontSize: scale(14),
-    lineHeight: scale(22),
+    fontSize: scale(12.5),
+    lineHeight: scale(20),
     color: "rgba(255,255,255,0.8)",
-    marginBottom: scale(12),
+    marginBottom: scale(10),
   },
   heroDirector: {
-    fontSize: scale(12.5),
+    fontSize: scale(11.5),
     color: "rgba(255,255,255,0.6)",
-    marginBottom: scale(16),
+    marginBottom: scale(14),
   },
   heroDirectorStrong: {
     color: "rgba(255,255,255,0.9)",
     fontWeight: "800",
   },
 
-  // ── BOTONES DE ACCIÓN CURVADOS ─────────────────────────────────────────────
+  // ── BOTONES DE ACCIÓN CURVADOS (−10%) ──────────────────────────────────────
   buttonsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(12),
+    gap: scale(10),
   },
   btnPlay: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(10),
+    gap: scale(9),
     backgroundColor: C.accent,
-    paddingHorizontal: scale(28),
-    height: scale(48),
-    borderRadius: scale(24),
+    paddingHorizontal: scale(23),
+    height: scale(40),
+    borderRadius: scale(20),
+    borderWidth: 2,
+    borderColor: "transparent",
   },
   btnPlayFocused: {
     backgroundColor: "#ffffff",
-    transform: [{ scale: 1.05 }],
+    borderColor: C.accent,
     shadowColor: "#ffffff",
     shadowRadius: scale(14),
     shadowOpacity: 0.6,
   },
   btnPlayTxt: {
     color: "#000000",
-    fontSize: scale(14),
+    fontSize: scale(12.5),
     fontWeight: "900",
     letterSpacing: 0.3,
   },
   btnTrailer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(8),
+    gap: scale(7),
     backgroundColor: "rgba(255,255,255,0.1)",
     borderWidth: 1.5,
     borderColor: "rgba(255,255,255,0.22)",
-    paddingHorizontal: scale(18),
-    height: scale(48),
-    borderRadius: scale(24),
+    paddingHorizontal: scale(16),
+    height: scale(40),
+    borderRadius: scale(20),
   },
   btnTrailerFocused: {
-    backgroundColor: "rgba(255,255,255,0.25)",
+    backgroundColor: C.accent,
     borderColor: "#ffffff",
   },
   btnTrailerTxt: {
     color: "#ffffff",
-    fontSize: scale(13),
+    fontSize: scale(11.5),
     fontWeight: "800",
   },
   btnIcon: {
-    width: scale(48),
-    height: scale(48),
-    borderRadius: scale(24),
+    width: scale(40),
+    height: scale(40),
+    borderRadius: scale(20),
     backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1.5,
     borderColor: "rgba(255,255,255,0.2)",
@@ -1161,59 +1475,59 @@ const s = StyleSheet.create({
     borderColor: C.accent,
   },
   btnIconFocused: {
-    backgroundColor: "rgba(255,255,255,0.25)",
+    backgroundColor: C.accent,
     borderColor: "#ffffff",
   },
 
-  // ── MÓDULO DERECHO: PORTADA 3D CON HALO Y FORMA ANGULADA ──────────────────
+  // ── MÓDULO DERECHO: PORTADA 3D CON HALO Y FORMA ANGULADA (−10%) ────────────
   heroRight: {
-    marginLeft: scale(36),
+    marginLeft: scale(32),
     alignItems: "center",
     justifyContent: "center",
   },
   posterPodWrap: {
     position: "relative",
-    width: scale(235),
-    height: scale(345),
+    width: scale(187),
+    height: scale(274),
     justifyContent: "center",
     alignItems: "center",
   },
   posterGlowAura: {
     position: "absolute",
-    top: scale(-12),
-    left: scale(-12),
-    right: scale(-12),
-    bottom: scale(-12),
-    borderRadius: scale(32),
+    top: scale(-11),
+    left: scale(-11),
+    right: scale(-11),
+    bottom: scale(-11),
+    borderRadius: scale(29),
     backgroundColor: C.accent,
     opacity: 0.22,
     shadowColor: C.accent,
-    shadowRadius: scale(36),
+    shadowRadius: scale(32),
     shadowOpacity: 0.9,
   },
   posterBackFrame: {
     position: "absolute",
-    width: scale(230),
-    height: scale(340),
-    borderRadius: scale(24),
+    width: scale(184),
+    height: scale(270),
+    borderRadius: scale(20),
     backgroundColor: "rgba(255, 183, 3, 0.08)",
     borderWidth: 1.5,
     borderColor: "rgba(255, 183, 3, 0.35)",
     transform: [{ rotate: "3.5deg" }],
   },
   posterPod: {
-    width: scale(235),
-    height: scale(345),
-    borderRadius: scale(24),
+    width: scale(187),
+    height: scale(274),
+    borderRadius: scale(20),
     overflow: "hidden",
     borderWidth: 2,
     borderColor: "rgba(255, 255, 255, 0.22)",
     backgroundColor: "#0d0b14",
     elevation: 16,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: scale(12) },
+    shadowOffset: { width: 0, height: scale(11) },
     shadowOpacity: 0.85,
-    shadowRadius: scale(24),
+    shadowRadius: scale(22),
   },
   posterPodImg: {
     width: "100%",
@@ -1235,48 +1549,48 @@ const s = StyleSheet.create({
   },
   posterCornerBadge: {
     position: "absolute",
-    top: scale(12),
-    right: scale(12),
+    top: scale(10),
+    right: scale(10),
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(4),
+    gap: scale(3.5),
     backgroundColor: "rgba(0, 0, 0, 0.8)",
     borderWidth: 1,
     borderColor: "rgba(255, 183, 3, 0.5)",
-    paddingHorizontal: scale(9),
-    paddingVertical: scale(4),
-    borderRadius: scale(10),
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(3.5),
+    borderRadius: scale(9),
   },
   posterCornerBadgeTxt: {
     color: C.accent,
-    fontSize: scale(9.5),
+    fontSize: scale(8.5),
     fontWeight: "900",
     letterSpacing: 0.5,
   },
 
-  // ── SECCIÓN ────────────────────────────────────────────────────────────────
+  // ── SECCIÓN (−5%) ──────────────────────────────────────────────────────────
   section: {
-    marginBottom: scale(38),
+    marginBottom: scale(21),
   },
   sectionHead: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: scale(16),
+    marginBottom: scale(9.5),
   },
   sectionAccentBar: {
     width: scale(4),
-    height: scale(20),
+    height: scale(19),
     borderRadius: scale(2),
-    marginRight: scale(10),
+    marginRight: scale(9.5),
   },
   sectionTitle: {
     color: "#ffffff",
-    fontSize: scale(20),
+    fontSize: scale(19),
     fontWeight: "800",
   },
   sectionSub: {
     color: "rgba(255,255,255,0.5)",
-    fontSize: scale(12),
+    fontSize: scale(11.5),
     marginTop: scale(2),
   },
   sectionDividerLine: {
@@ -1285,29 +1599,37 @@ const s = StyleSheet.create({
     borderRadius: 1,
   },
 
-  // ── REPARTO (CIRCULAR CON DOBLE ANILLO) ────────────────────────────────────
+  // ── REPARTO (CIRCULAR CON DOBLE ANILLO, −5%) ───────────────────────────────
   castRow: {
-    gap: scale(18),
-    paddingRight: scale(36),
+    gap: scale(13),
+    paddingVertical: scale(8),
+    paddingLeft: scale(6),
+    paddingRight: scale(34),
   },
   castCard: {
-    width: scale(88),
+    width: scale(89),
     alignItems: "center",
+    paddingVertical: scale(5.5),
+    paddingHorizontal: scale(4),
+    borderRadius: scale(13),
+    borderWidth: 2,
+    borderColor: "transparent",
   },
   castCardFocused: {
-    transform: [{ scale: 1.08 }],
+    backgroundColor: "rgba(255, 183, 3, 0.16)",
+    borderColor: C.accent,
   },
   castAvatarRing: {
-    width: scale(70),
-    height: scale(70),
-    borderRadius: scale(35),
+    width: scale(66),
+    height: scale(66),
+    borderRadius: scale(33),
     overflow: "hidden",
     backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 2,
     borderColor: "rgba(255, 183, 3, 0.35)",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: scale(8),
+    marginBottom: scale(7.5),
   },
   castAvatarImg: {
     width: "100%",
@@ -1315,58 +1637,58 @@ const s = StyleSheet.create({
   },
   castName: {
     color: "#ffffff",
-    fontSize: scale(11.5),
+    fontSize: scale(11),
     fontWeight: "700",
     textAlign: "center",
   },
   castRole: {
     color: "rgba(255, 183, 3, 0.8)",
-    fontSize: scale(10),
+    fontSize: scale(9.5),
     fontWeight: "600",
     textAlign: "center",
     marginTop: scale(2),
   },
 
-  // ── BENTO MOSAICO: FICHA TÉCNICA CON MARCAS DE AGUA ────────────────────────
+  // ── BENTO MOSAICO: FICHA TÉCNICA CON MARCAS DE AGUA (−5%) ──────────────────
   bentoGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: scale(12),
+    gap: scale(11),
   },
   bentoTile: {
-    width: (SW - scale(104) - scale(36)) / 4,
-    minWidth: scale(180),
+    width: (SW - scale(104) - scale(33)) / 4,
+    minWidth: scale(171),
     position: "relative",
     overflow: "hidden",
     backgroundColor: "rgba(14, 12, 20, 0.65)",
     borderWidth: 1.5,
     borderColor: "rgba(255, 255, 255, 0.08)",
-    borderRadius: scale(18),
-    padding: scale(14),
+    borderRadius: scale(17),
+    padding: scale(13),
   },
   bentoTileTopGlow: {
     position: "absolute",
     top: 0,
-    left: scale(20),
-    right: scale(20),
+    left: scale(19),
+    right: scale(19),
     height: scale(2),
     borderRadius: scale(1),
   },
   bentoWatermark: {
     position: "absolute",
-    right: scale(-12),
-    bottom: scale(-12),
+    right: scale(-11),
+    bottom: scale(-11),
     opacity: 0.07,
   },
   bentoTileInner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(10),
+    gap: scale(9.5),
   },
   bentoTileIconWrap: {
-    width: scale(38),
-    height: scale(38),
-    borderRadius: scale(14),
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(13),
     borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
@@ -1375,7 +1697,7 @@ const s = StyleSheet.create({
     flex: 1,
   },
   bentoTileTitle: {
-    fontSize: scale(10.5),
+    fontSize: scale(10),
     fontWeight: "800",
     textTransform: "uppercase",
     letterSpacing: 0.6,
@@ -1383,53 +1705,55 @@ const s = StyleSheet.create({
   },
   bentoTileL1: {
     color: "#ffffff",
-    fontSize: scale(12.5),
+    fontSize: scale(12),
     fontWeight: "700",
   },
   bentoTileL2: {
     color: "rgba(255,255,255,0.55)",
-    fontSize: scale(11),
+    fontSize: scale(10.5),
     fontWeight: "500",
     marginTop: scale(1),
   },
   tagsDock: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: scale(6),
-    marginTop: scale(14),
+    gap: scale(5.5),
+    marginTop: scale(13),
   },
   tagBubble: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(5),
+    gap: scale(4.5),
     backgroundColor: "rgba(255, 183, 3, 0.08)",
     borderWidth: 1,
     borderColor: "rgba(255, 183, 3, 0.25)",
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(4.5),
-    borderRadius: scale(12),
+    paddingHorizontal: scale(9.5),
+    paddingVertical: scale(4),
+    borderRadius: scale(11),
   },
   tagBubbleTxt: {
     color: "#ffe082",
-    fontSize: scale(11),
+    fontSize: scale(10.5),
     fontWeight: "700",
   },
 
-  // ── EPISODIOS Y TEMPORADAS ─────────────────────────────────────────────────
+  // ── EPISODIOS Y TEMPORADAS (−5%) ───────────────────────────────────────────
   seasonList: {
-    gap: scale(10),
-    marginBottom: scale(14),
+    gap: scale(9.5),
+    marginBottom: scale(13),
+    paddingVertical: scale(5.5),
+    paddingHorizontal: scale(4),
   },
   seasonCapsule: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(8),
+    gap: scale(7.5),
     backgroundColor: "rgba(255,255,255,0.05)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
-    paddingHorizontal: scale(14),
-    paddingVertical: scale(7),
-    borderRadius: scale(20),
+    paddingHorizontal: scale(13),
+    paddingVertical: scale(6.5),
+    borderRadius: scale(19),
   },
   seasonCapsuleActive: {
     backgroundColor: "rgba(255,183,3,0.18)",
@@ -1441,7 +1765,7 @@ const s = StyleSheet.create({
   },
   seasonCapsuleTxt: {
     color: "rgba(255,255,255,0.8)",
-    fontSize: scale(12),
+    fontSize: scale(11.5),
     fontWeight: "700",
   },
   seasonCapsuleTxtActive: {
@@ -1450,16 +1774,16 @@ const s = StyleSheet.create({
   },
   seasonCountBadge: {
     backgroundColor: "rgba(255,255,255,0.1)",
-    paddingHorizontal: scale(7),
+    paddingHorizontal: scale(6.5),
     paddingVertical: scale(2),
-    borderRadius: scale(10),
+    borderRadius: scale(9.5),
   },
   seasonCountBadgeActive: {
     backgroundColor: C.accent,
   },
   seasonCountBadgeTxt: {
     color: "#ffffff",
-    fontSize: scale(10),
+    fontSize: scale(9.5),
     fontWeight: "800",
   },
   seasonCountBadgeTxtActive: {
@@ -1467,15 +1791,16 @@ const s = StyleSheet.create({
     fontWeight: "900",
   },
   epList: {
-    gap: scale(16),
-    paddingRight: scale(36),
+    gap: scale(15),
+    paddingVertical: scale(9.5),
+    paddingLeft: scale(6),
+    paddingRight: scale(34),
   },
   epCard: {
-    width: scale(240),
-    borderRadius: scale(16),
-    overflow: "hidden",
+    width: scale(228),
+    borderRadius: scale(15),
     backgroundColor: "rgba(255,255,255,0.04)",
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: "rgba(255,255,255,0.08)",
   },
   epCardFocused: {
@@ -1486,9 +1811,12 @@ const s = StyleSheet.create({
   },
   epThumbWrap: {
     width: "100%",
-    height: scale(135),
+    height: scale(128),
     position: "relative",
     backgroundColor: "#111116",
+    borderTopLeftRadius: scale(13),
+    borderTopRightRadius: scale(13),
+    overflow: "hidden",
   },
   epPlayOverlay: {
     position: "absolute",
@@ -1500,9 +1828,9 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   epPlayCircle: {
-    width: scale(36),
-    height: scale(36),
-    borderRadius: scale(18),
+    width: scale(34),
+    height: scale(34),
+    borderRadius: scale(17),
     backgroundColor: C.accent,
     justifyContent: "center",
     alignItems: "center",
@@ -1510,24 +1838,24 @@ const s = StyleSheet.create({
   },
   epDurBadge: {
     position: "absolute",
-    bottom: scale(6),
-    right: scale(6),
+    bottom: scale(5.5),
+    right: scale(5.5),
     backgroundColor: "rgba(0,0,0,0.8)",
-    paddingHorizontal: scale(6),
+    paddingHorizontal: scale(5.5),
     paddingVertical: scale(2),
-    borderRadius: scale(6),
+    borderRadius: scale(5.5),
   },
   epDurText: {
     color: "#ffffff",
-    fontSize: scale(10),
+    fontSize: scale(9.5),
     fontWeight: "700",
   },
   epMeta: {
-    padding: scale(10),
+    padding: scale(9.5),
   },
   epBadge: {
     color: C.accent,
-    fontSize: scale(10),
+    fontSize: scale(9.5),
     fontWeight: "800",
     textTransform: "uppercase",
     marginBottom: scale(2),
@@ -1535,29 +1863,36 @@ const s = StyleSheet.create({
   epTitle: {
     color: "#ffffff",
     fontWeight: "700",
-    fontSize: scale(12),
+    fontSize: scale(11.5),
     marginBottom: scale(2),
   },
   epDesc: {
     color: "rgba(255,255,255,0.5)",
-    fontSize: scale(10.5),
-    lineHeight: scale(14),
+    fontSize: scale(10),
+    lineHeight: scale(13.5),
   },
 
-  // ── FILAS DE CONTENIDO (CARRUSELES) ────────────────────────────────────────
+  // ── FILAS DE CONTENIDO (CARRUSELES, −5%) ───────────────────────────────────
   rowTrack: {
     gap: CARD_GAP,
-    paddingVertical: scale(14),
-    paddingRight: scale(36),
+    paddingVertical: scale(13),
+    paddingLeft: scale(6),
+    paddingRight: scale(34),
   },
   card: {
     width: POSTER_W,
     height: POSTER_H,
-    borderRadius: scale(14),
-    overflow: "hidden",
+    borderRadius: scale(13),
     backgroundColor: "rgba(255,255,255,0.05)",
     borderWidth: 1.5,
     borderColor: "rgba(255,255,255,0.08)",
+  },
+  cardInner: {
+    flex: 1,
+    borderRadius: scale(11),
+    overflow: "hidden",
+    backgroundColor: "#0d0b14",
+    position: "relative",
   },
   cardFocused: {
     borderColor: C.accent,
@@ -1574,35 +1909,35 @@ const s = StyleSheet.create({
   },
   cardRating: {
     position: "absolute",
-    top: scale(7),
-    right: scale(7),
+    top: scale(6.5),
+    right: scale(6.5),
     flexDirection: "row",
     alignItems: "center",
     gap: scale(3),
-    paddingHorizontal: scale(6),
+    paddingHorizontal: scale(5.5),
     paddingVertical: scale(2),
-    borderRadius: scale(6),
+    borderRadius: scale(5.5),
   },
   cardRatingTxt: {
     color: "#000",
     fontWeight: "900",
-    fontSize: scale(9.5),
+    fontSize: scale(9),
   },
   cardInfo: {
     position: "absolute",
-    left: scale(8),
-    right: scale(8),
-    bottom: scale(8),
+    left: scale(7.5),
+    right: scale(7.5),
+    bottom: scale(7.5),
   },
   cardTitle: {
     color: "#ffffff",
     fontWeight: "700",
-    fontSize: scale(11.5),
-    lineHeight: scale(15),
+    fontSize: scale(11),
+    lineHeight: scale(14),
     marginBottom: scale(2),
   },
   cardMeta: {
-    fontSize: scale(9.5),
+    fontSize: scale(9),
     fontWeight: "600",
   },
 });

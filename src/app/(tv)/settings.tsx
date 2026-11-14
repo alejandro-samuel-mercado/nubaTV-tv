@@ -1,11 +1,9 @@
 import { useRouter } from "expo-router";
 import {
   ArrowRight,
-  Check,
   Info,
   LogOut,
   MonitorPlay,
-  RefreshCw,
   Shield,
   Tv,
   UserRound,
@@ -14,6 +12,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Switch, Text, View } from "react-native";
 import Focusable from "../../components/tv/Focusable";
 import { useGlobal } from "../../contexts/GlobalContext";
+import { useSidebarHandle } from "../../hooks/useNavThrottle";
 import { scale } from "../../lib/scale";
 import { C } from "../../lib/tvColors";
 import { getItemAsync, setItemAsync } from "../../utils/storage";
@@ -23,14 +22,11 @@ const SETTINGS_STORAGE_KEY = "nubatv_tv_settings";
 
 type SectionId = "account" | "parental" | "playback" | "about";
 
-type QualityMode = "Auto" | "1080p FHD" | "4K UHD";
-
 type AppSettings = {
   parentalLock: boolean;
   hideRestricted: boolean;
   autoPlayNext: boolean;
   subtitlesEnabled: boolean;
-  defaultQuality: QualityMode;
 };
 
 const defaultSettings: AppSettings = {
@@ -38,7 +34,6 @@ const defaultSettings: AppSettings = {
   hideRestricted: true,
   autoPlayNext: true,
   subtitlesEnabled: false,
-  defaultQuality: "Auto",
 };
 
 // Exactamente las 4 secciones solicitadas
@@ -50,18 +45,16 @@ const MENU_ITEMS: Array<{
 }> = [
   { id: "account", label: "Cuenta", icon: UserRound, subtitle: "Estado de la cuenta y suscripción" },
   { id: "parental", label: "Control parental", icon: Shield, subtitle: "Filtros de contenido y restricciones" },
-  { id: "playback", label: "Reproducción", icon: MonitorPlay, subtitle: "Opciones de video, audio y calidad" },
+  { id: "playback", label: "Reproducción", icon: MonitorPlay, subtitle: "Opciones de video y subtítulos" },
   { id: "about", label: "Acerca de", icon: Info, subtitle: "Información del sistema y versión" },
 ];
 
-const qualityOptions: QualityMode[] = ["Auto", "1080p FHD", "4K UHD"];
-
 export default function SettingsScreen() {
   const router = useRouter();
-  const { user, logout, refreshAuth } = useGlobal();
+  const { user, logout } = useGlobal();
+  const sidebarHandle = useSidebarHandle();
   const [active, setActive] = useState<SectionId>("account");
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
-  const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -127,17 +120,6 @@ export default function SettingsScreen() {
     router.replace("/(auth)/login");
   };
 
-  const handleRefresh = async () => {
-    try {
-      await refreshAuth();
-      setRefreshMsg("Credenciales actualizadas correctamente");
-      setTimeout(() => setRefreshMsg(null), 3000);
-    } catch {
-      setRefreshMsg("No se pudo actualizar");
-      setTimeout(() => setRefreshMsg(null), 3000);
-    }
-  };
-
   const renderSettingRow = ({
     label,
     description,
@@ -182,30 +164,20 @@ export default function SettingsScreen() {
             ))}
           </View>
 
-          {refreshMsg && (
-            <View style={s.toastSuccess}>
-              <Check size={scale(16)} color="#22c55e" />
-              <Text style={s.toastSuccessText}>{refreshMsg}</Text>
-            </View>
-          )}
-
           <View style={s.accountActions}>
-            <Focusable
-              onPress={handleRefresh}
-              style={s.btnSecondary}
-              focusedStyle={s.btnSecondaryFocused}
-            >
-              <RefreshCw size={scale(18)} color="#fff" />
-              <Text style={s.btnSecondaryText}>Actualizar cuenta</Text>
-            </Focusable>
-
             <Focusable
               onPress={handleLogout}
               style={s.btnDanger}
               focusedStyle={s.btnDangerFocused}
             >
-              <LogOut size={scale(18)} color="#fff" />
-              <Text style={s.btnDangerText}>Cerrar sesión</Text>
+              {({ focused }) => (
+                <>
+                  <LogOut size={scale(18)} color={focused ? "#fff" : "#f87171"} />
+                  <Text style={[s.btnDangerText, focused && { color: "#fff" }]}>
+                    Cerrar sesión
+                  </Text>
+                </>
+              )}
             </Focusable>
           </View>
         </View>
@@ -247,30 +219,6 @@ export default function SettingsScreen() {
             onToggle: () =>
               updateSetting("subtitlesEnabled", !settings.subtitlesEnabled),
           })}
-
-          <View style={s.segmentedBox}>
-            <Text style={s.segmentGroupTitle}>Calidad predeterminada de reproducción</Text>
-            <Text style={s.segmentGroupSubtitle}>
-              Selecciona la resolución objetivo para transmisiones en vivo y VOD
-            </Text>
-            <View style={s.segmentedRow}>
-              {qualityOptions.map((option) => {
-                const selected = settings.defaultQuality === option;
-                return (
-                  <Focusable
-                    key={option}
-                    onPress={() => updateSetting("defaultQuality", option)}
-                    style={[s.segmentButton, selected && s.segmentButtonActive]}
-                    focusedStyle={s.segmentButtonFocused}
-                  >
-                    <Text style={[s.segmentText, selected && s.segmentTextActive]}>
-                      {option}
-                    </Text>
-                  </Focusable>
-                );
-              })}
-            </View>
-          </View>
         </View>
       );
     }
@@ -295,9 +243,9 @@ export default function SettingsScreen() {
               <Text style={s.aboutItemValue}>Conectado • nubaTV Cloud</Text>
             </View>
             <View style={s.aboutItem}>
-              <Text style={s.aboutItemLabel}>Estado de Licencia</Text>
+              <Text style={s.aboutItemLabel}>Estado de suscripción</Text>
               <Text style={[s.aboutItemValue, { color: "#22c55e" }]}>
-                {user?.isActive ? "Licencia Activa" : "Licencia Estándar"}
+                {user?.isActive ? "Suscripción Activa" : "Plan Estándar"}
               </Text>
             </View>
           </View>
@@ -323,6 +271,8 @@ export default function SettingsScreen() {
               return (
                 <Focusable
                   key={item.id}
+                  hasTVPreferredFocus={item.id === "account"}
+                  nextFocusLeft={sidebarHandle ?? undefined}
                   onPress={() => setActive(item.id)}
                   scaleFocused={1.02}
                   style={[s.menuItem, selected && s.menuItemActive]}
@@ -564,48 +514,10 @@ const s = StyleSheet.create({
     fontSize: scale(15),
     fontWeight: "800",
   },
-  toastSuccess: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(8),
-    backgroundColor: "rgba(34, 197, 94, 0.15)",
-    paddingHorizontal: scale(16),
-    paddingVertical: scale(10),
-    borderRadius: scale(10),
-    borderWidth: 1,
-    borderColor: "rgba(34, 197, 94, 0.4)",
-    marginBottom: scale(12),
-  },
-  toastSuccessText: {
-    color: "#22c55e",
-    fontSize: scale(14),
-    fontWeight: "700",
-  },
   accountActions: {
     flexDirection: "row",
     gap: scale(14),
     marginTop: scale(12),
-  },
-  btnSecondary: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: scale(10),
-    height: scale(48),
-    borderRadius: scale(12),
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.15)",
-  },
-  btnSecondaryFocused: {
-    backgroundColor: "#fff",
-    borderColor: C.accent,
-  },
-  btnSecondaryText: {
-    color: "#fff",
-    fontSize: scale(15),
-    fontWeight: "800",
   },
   btnDanger: {
     flex: 1,
@@ -654,55 +566,6 @@ const s = StyleSheet.create({
     color: "rgba(255,255,255,0.55)",
     fontSize: scale(13),
     marginTop: scale(4),
-  },
-
-  // ── Segmented Controls ──
-  segmentedBox: {
-    padding: scale(18),
-    borderRadius: scale(14),
-    backgroundColor: "rgba(255,255,255,0.04)",
-    gap: scale(12),
-  },
-  segmentGroupTitle: {
-    color: "#fff",
-    fontSize: scale(16),
-    fontWeight: "800",
-  },
-  segmentGroupSubtitle: {
-    color: "rgba(255,255,255,0.55)",
-    fontSize: scale(13),
-    marginTop: scale(-6),
-  },
-  segmentedRow: {
-    flexDirection: "row",
-    gap: scale(10),
-  },
-  segmentButton: {
-    flex: 1,
-    height: scale(44),
-    borderRadius: scale(10),
-    backgroundColor: "rgba(255,255,255,0.08)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "transparent",
-  },
-  segmentButtonActive: {
-    backgroundColor: "rgba(255,183,3,0.18)",
-    borderColor: C.accent,
-  },
-  segmentButtonFocused: {
-    borderColor: "#fff",
-    backgroundColor: C.accent,
-  },
-  segmentText: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: scale(14),
-    fontWeight: "700",
-  },
-  segmentTextActive: {
-    color: "#fff",
-    fontWeight: "900",
   },
 
   // ── About Section ──

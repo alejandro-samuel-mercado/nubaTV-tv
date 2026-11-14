@@ -725,8 +725,14 @@ export default function CatalogScreen({
                     style={s.btnPlay}
                     focusedStyle={s.btnPlayFocused}
                   >
-                    <Play size={scale(15)} color="#000" fill="#000" />
-                    <Text style={s.btnPlayText}>Reproducir</Text>
+                    {({ focused }) => (
+                      <>
+                        <Play size={scale(15)} color="#000000" fill="#000000" />
+                        <Text style={[s.btnPlayText, focused && { color: "#000000" }]}>
+                          Reproducir
+                        </Text>
+                      </>
+                    )}
                   </Focusable>
 
                   <Focusable
@@ -734,8 +740,19 @@ export default function CatalogScreen({
                     style={s.btnDetails}
                     focusedStyle={s.btnDetailsFocused}
                   >
-                    <Info size={scale(15)} color="#fff" />
-                    <Text style={s.btnDetailsText}>Ver Información</Text>
+                    {({ focused }) => (
+                      <>
+                        <Info size={scale(15)} color={focused ? "#000000" : "#ffffff"} />
+                        <Text
+                          style={[
+                            s.btnDetailsText,
+                            focused && { color: "#000000", fontWeight: "900" },
+                          ]}
+                        >
+                          Ver Información
+                        </Text>
+                      </>
+                    )}
                   </Focusable>
                 </View>
               </View>
@@ -1025,8 +1042,8 @@ const s = StyleSheet.create({
     borderColor: "transparent",
   },
   btnPlayFocused: {
-    backgroundColor: "#fff",
-    borderColor: "#fff",
+    backgroundColor: "#ffffff",
+    borderColor: C.accent,
   },
   btnPlayText: { color: "#000", fontSize: scale(15), fontWeight: "900" },
 
@@ -1042,8 +1059,8 @@ const s = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.2)",
   },
   btnDetailsFocused: {
-    backgroundColor: "rgba(255,255,255,0.28)",
-    borderColor: "#fff",
+    backgroundColor: C.accent,
+    borderColor: "#ffffff",
   },
   btnDetailsText: { color: "#fff", fontSize: scale(14.5), fontWeight: "800" },
 

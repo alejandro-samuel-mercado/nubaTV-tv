@@ -25,8 +25,14 @@ import {
       View,
 } from "react-native";
 
+import { useFonts, Bangers_400Regular } from "@expo-google-fonts/bangers";
 import { useGlobal } from "../../contexts/GlobalContext";
-import { setGlobalSidebarNodeHandle } from "../../hooks/useNavThrottle";
+import {
+  setGlobalSidebarNodeHandle,
+  usePreferredContentHandle,
+} from "../../hooks/useNavThrottle";
+import { preloadRouteData, startBackgroundPreload } from "../../services/nexoplay";
+import GlobalExitModal from "../../components/tv/GlobalExitModal";
 
 import { scale } from "../../lib/scale";
 import { C } from "../../lib/tvColors";
@@ -63,16 +69,16 @@ const NAV_ITEMS = [
     route: "/(tv)/series",
   },
   {
-    key: "kids",
-    label: "Kids",
-    icon: Smile,
-    route: "/(tv)/kids",
-  },
-  {
     key: "anime",
     label: "Anime",
     icon: Flame,
     route: "/(tv)/anime",
+  },
+  {
+    key: "kids",
+    label: "Kids",
+    icon: Smile,
+    route: "/(tv)/kids",
   },
   {
     key: "premieres",
@@ -100,45 +106,48 @@ const SidebarButton = forwardRef<
     item: (typeof NAV_ITEMS)[0];
     isActive: boolean;
     isExpanded: boolean;
+    focused: boolean;
+    focusable?: boolean;
     nextFocusUp?: number;
     nextFocusDown?: number;
     nextFocusLeft?: number;
     nextFocusRight?: number;
     onItemFocus?: (key: string) => void;
     onItemBlur?: (key: string) => void;
+    onItemPress?: (item: (typeof NAV_ITEMS)[0], isActive: boolean) => void;
   }
 >(function SidebarButton(
   {
     item,
     isActive,
     isExpanded,
+    focused,
+    focusable = true,
     nextFocusUp,
     nextFocusDown,
     nextFocusLeft,
     nextFocusRight,
     onItemFocus,
     onItemBlur,
+    onItemPress,
   },
   ref,
 ) {
-  const router = useRouter();
-  const [focused, setFocused] = useState(false);
   const Icon = item.icon;
 
   const handleFocus = () => {
-    setFocused(true);
     onItemFocus?.(item.key);
   };
 
   const handleBlur = () => {
-    setFocused(false);
     onItemBlur?.(item.key);
   };
 
   return (
     <TVPressable
       ref={ref}
-      focusable
+      focusable={focusable}
+      accessible={focusable}
       accessibilityRole="button"
       accessibilityLabel={item.label}
       onFocus={handleFocus}
@@ -147,9 +156,8 @@ const SidebarButton = forwardRef<
       nextFocusDown={nextFocusDown}
       nextFocusLeft={nextFocusLeft}
       nextFocusRight={nextFocusRight}
-      // replace: no apila pantallas y el botón Atrás no recorre el menú.
       onPress={() => {
-        if (!isActive) router.replace(item.route as any);
+        onItemPress?.(item, isActive);
       }}
       style={[
         s.navBtn,
@@ -167,7 +175,7 @@ const SidebarButton = forwardRef<
         {/* Contenedor fijo del ícono para evitar cambios de posición. */}
         <View style={s.iconBox}>
           <Icon
-            size={scale(22)}
+            size={scale(20)}
             color={
               focused
                 ? "#000"
@@ -214,11 +222,28 @@ const SidebarButton = forwardRef<
 
 export default function TVLayout() {
   const { loading } = useGlobal();
+  const router = useRouter();
   const pathname = usePathname();
   const isPlayerScreen = pathname.includes("/player");
+  const preferredContentHandle = usePreferredContentHandle();
+
+  // Cargar la fuente Bangers una sola vez a nivel de layout global para que
+  // las páginas (movies, series, anime, kids, premieres) no bloqueen su primer render
+  useFonts({
+    Bangers: Bangers_400Regular,
+  });
 
   const [focusedSidebarKey, setFocusedSidebarKey] =
     useState<string | null>(null);
+  const [isDismissing, setIsDismissing] = useState(false);
+
+  const stackRef = useRef<any>(null);
+  const suppressExpandRef = useRef(false);
+  const isDismissingRef = useRef(false);
+  const suppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dismissStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dismissEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sidebarWidth = useRef(
     new Animated.Value(SIDEBAR_W),
@@ -227,13 +252,23 @@ export default function TVLayout() {
   const sidebarBg = useRef(new Animated.Value(0)).current;
 
   const navRefs = useRef<Record<string, any>>({});
+  const navHandlesRef = useRef<Record<string, number>>({});
   const [navHandles, setNavHandles] = useState<Record<string, number>>({});
 
   const isSidebarExpanded = focusedSidebarKey !== null;
 
-  // Actualiza y registra los handles de los botones del sidebar para
-  // atrapar la navegación dentro de la barra y vincular el foco desde el contenido
-  const updateHandles = useCallback(() => {
+  useEffect(() => {
+    startBackgroundPreload();
+    return () => {
+      if (suppressTimerRef.current) clearTimeout(suppressTimerRef.current);
+      if (dismissStartTimerRef.current) clearTimeout(dismissStartTimerRef.current);
+      if (dismissEndTimerRef.current) clearTimeout(dismissEndTimerRef.current);
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+    };
+  }, []);
+
+  // Sincronizar handles de los botones del sidebar una sola vez tras montar
+  const syncSidebarHandles = useCallback(() => {
     if (Platform.OS === "web") return;
     const handles: Record<string, number> = {};
     for (const item of NAV_ITEMS) {
@@ -247,44 +282,138 @@ export default function TVLayout() {
         } catch {}
       }
     }
-    setNavHandles(handles);
+    navHandlesRef.current = handles;
+    setNavHandles((prev) => {
+      const keys = Object.keys(handles);
+      if (
+        keys.length === Object.keys(prev).length &&
+        keys.every((k) => prev[k] === handles[k])
+      ) {
+        return prev;
+      }
+      return handles;
+    });
+  }, []);
 
+  useEffect(() => {
+    syncSidebarHandles();
+    const t = setTimeout(syncSidebarHandles, 60);
+    return () => clearTimeout(t);
+  }, [syncSidebarHandles]);
+
+  // Al cambiar de ruta, apuntar el handle global al botón activo sin recalcular findNodeHandle
+  useEffect(() => {
+    if (Platform.OS === "web") return;
     const active = NAV_ITEMS.find((item) => {
       const path = routeToPath(item.route);
       return pathname === path || pathname === `${path}/`;
     });
-    const targetKey = focusedSidebarKey ?? active?.key ?? NAV_ITEMS[0].key;
-    const handle = handles[targetKey];
+    const targetKey = active?.key ?? NAV_ITEMS[0].key;
+    const handle = navHandlesRef.current[targetKey];
     if (handle) {
       setGlobalSidebarNodeHandle(handle);
+    } else {
+      syncSidebarHandles();
+      const retryHandle = navHandlesRef.current[targetKey];
+      if (retryHandle) setGlobalSidebarNodeHandle(retryHandle);
     }
-  }, [pathname, focusedSidebarKey]);
-
-  useEffect(() => {
-    updateHandles();
-    const t = setTimeout(updateHandles, 80);
-    return () => clearTimeout(t);
-  }, [updateHandles, isSidebarExpanded]);
+  }, [pathname, syncSidebarHandles]);
 
   const handleItemFocus = useCallback((key: string) => {
-    setFocusedSidebarKey(key);
-    const h = navHandles[key];
-    if (h) setGlobalSidebarNodeHandle(h);
-  }, [navHandles]);
+    if (blurTimerRef.current) {
+      clearTimeout(blurTimerRef.current);
+      blurTimerRef.current = null;
+    }
+    preloadRouteData(key);
+    if (suppressExpandRef.current || isDismissingRef.current) return;
+    setFocusedSidebarKey((prev) => (prev === key ? prev : key));
+  }, []);
 
-  // Se conservan las animaciones de ancho y fondo.
+  const handleItemBlur = useCallback((key: string) => {
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+    blurTimerRef.current = setTimeout(() => {
+      setFocusedSidebarKey((current) => (current === key ? null : current));
+    }, 30);
+  }, []);
+
+  // Al presionar un ítem: cierra la barra lateral al instante (0ms), navega y
+  // devuelve el foco nativo al contenido de la pantalla sin bloquear la animación.
+  const handleItemPress = useCallback(
+    (item: (typeof NAV_ITEMS)[0], active: boolean) => {
+      if (suppressTimerRef.current) clearTimeout(suppressTimerRef.current);
+      if (dismissStartTimerRef.current) clearTimeout(dismissStartTimerRef.current);
+      if (dismissEndTimerRef.current) clearTimeout(dismissEndTimerRef.current);
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+
+      preloadRouteData(item.key);
+      suppressExpandRef.current = true;
+      setFocusedSidebarKey(null);
+
+      // Colapsar la barra lateral de inmediato antes de iniciar el montaje de la nueva página
+      sidebarWidth.stopAnimation();
+      sidebarWidth.setValue(SIDEBAR_W);
+      sidebarBg.stopAnimation();
+      sidebarBg.setValue(0);
+
+      if (Platform.OS === "web") {
+        if (!active) {
+          router.replace(item.route as any);
+        }
+        (navRefs.current[item.key] as any)?.blur?.();
+        const focusContentWeb = () => {
+          const target = stackRef.current?.querySelector?.(
+            'button, [tabindex="0"], a[href], input, [role="button"]',
+          );
+          target?.focus?.();
+        };
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(focusContentWeb);
+        }
+        dismissEndTimerRef.current = setTimeout(focusContentWeb, 60);
+        suppressTimerRef.current = setTimeout(() => {
+          suppressExpandRef.current = false;
+        }, 180);
+        return;
+      }
+
+      // En Android TV deshabilitar momentáneamente accessible/focusable limpia
+      // el foco nativo del botón lateral y permite que pase al contenido al instante.
+      isDismissingRef.current = true;
+      setIsDismissing(true);
+
+      if (!active) {
+        router.replace(item.route as any);
+      }
+
+      dismissEndTimerRef.current = setTimeout(() => {
+        isDismissingRef.current = false;
+        setIsDismissing(false);
+      }, 90);
+
+      suppressTimerRef.current = setTimeout(
+        () => {
+          suppressExpandRef.current = false;
+        },
+        active ? 120 : 160,
+      );
+    },
+    [router, sidebarWidth, sidebarBg],
+  );
+
+  // Animación rápida al abrir y cerrar por desenfoque lateral
   useEffect(() => {
+    const duration = isSidebarExpanded ? 130 : 95;
     Animated.parallel([
       Animated.timing(sidebarWidth, {
         toValue: isSidebarExpanded
           ? SIDEBAR_EXPANDED_W
           : SIDEBAR_W,
-        duration: 200,
+        duration,
         useNativeDriver: false,
       }),
       Animated.timing(sidebarBg, {
         toValue: isSidebarExpanded ? 1 : 0,
-        duration: 200,
+        duration,
         useNativeDriver: false,
       }),
     ]).start();
@@ -314,7 +443,7 @@ export default function TVLayout() {
 
   return (
     <View style={s.root}>
-      <View style={s.stackLayer}>
+      <View ref={stackRef} style={s.stackLayer}>
         <Stack
           screenOptions={{
             headerShown: false,
@@ -376,21 +505,24 @@ export default function TVLayout() {
                   item={item}
                   isActive={getIsActive(item)}
                   isExpanded={isSidebarExpanded}
+                  focused={focusedSidebarKey === item.key}
+                  focusable={!isDismissing}
                   nextFocusUp={upHandle ?? selfHandle}
                   nextFocusDown={downHandle ?? selfHandle}
                   nextFocusLeft={selfHandle}
+                  nextFocusRight={preferredContentHandle ?? undefined}
                   onItemFocus={handleItemFocus}
-                  onItemBlur={(key) =>
-                    setFocusedSidebarKey((current) =>
-                      current === key ? null : current,
-                    )
-                  }
+                  onItemPress={handleItemPress}
+                  onItemBlur={handleItemBlur}
                 />
               );
             })}
           </TVFocusGuide>
         </Animated.View>
       )}
+
+      {/* Aviso de 1ra pulsación y ventana de confirmación para salir de la app */}
+      <GlobalExitModal />
     </View>
   );
 }
@@ -423,9 +555,8 @@ const s = StyleSheet.create({
     zIndex: 200,
     elevation: 20,
     alignItems: "stretch",
-    paddingTop: scale(48),
-    paddingBottom: scale(24),
-    // Se conserva el comportamiento original del contenedor.
+    paddingTop: scale(18),
+    paddingBottom: scale(16),
   },
 
   sidebarBorder: {
@@ -438,18 +569,18 @@ const s = StyleSheet.create({
   },
 
   brandArea: {
-    width: scale(40),
-    height: scale(40),
+    width: scale(38),
+    height: scale(38),
     borderRadius: scale(10),
     backgroundColor: C.accent,
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
-    marginBottom: scale(20),
+    marginBottom: scale(14),
   },
 
   brandLetter: {
-    fontSize: scale(20),
+    fontSize: scale(19),
     fontWeight: "900",
     color: "#000",
     letterSpacing: -0.5,
@@ -458,13 +589,13 @@ const s = StyleSheet.create({
   navList: {
     flex: 1,
     justifyContent: "center",
-    gap: scale(6),
+    gap: scale(4),
     paddingHorizontal: scale(10),
   },
 
   navBtn: {
-    height: scale(48),
-    borderRadius: scale(12),
+    height: scale(40),
+    borderRadius: scale(10),
 
     // El borde ya no lo dibuja el propio botón.
     borderWidth: 0,
@@ -493,8 +624,8 @@ const s = StyleSheet.create({
 
   // Caja fija del ícono.
   iconBox: {
-    width: scale(44),
-    height: scale(44),
+    width: scale(40),
+    height: scale(40),
     alignItems: "center",
     justifyContent: "center",
   },
@@ -527,6 +658,6 @@ const s = StyleSheet.create({
   selectionOutline: {
     ...(StyleSheet.absoluteFill as any),
     borderWidth: 1,
-    borderRadius: scale(12),
+    borderRadius: scale(10),
   },
 });

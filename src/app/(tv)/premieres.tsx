@@ -25,11 +25,14 @@ import Focusable from "../../components/tv/Focusable";
 import HeroGridSeeAllCard from "../../components/tv/HeroGridSeeAllCard";
 import RemoteImage, { prefetchImages } from "../../components/tv/RemoteImage";
 import ViewAllCard from "../../components/tv/ViewAllCard";
-import { useSidebarHandle } from "../../hooks/useNavThrottle";
+import { useHeroScrollToTop, useSidebarHandle } from "../../hooks/useNavThrottle";
 import { scale } from "../../lib/scale";
 import {
   getContentList,
+  getContentListSync,
+  getPageCache,
   NexoContentItem,
+  setPageCache,
 } from "../../services/nexoplay";
 
 const { height: SH } = Dimensions.get("window");
@@ -37,7 +40,7 @@ const { height: SH } = Dimensions.get("window");
 // ── Medidas del Layout Estrenos ───────────────────────────────────────────────
 const CONTENT_LEFT_PAD = scale(96);
 const CARD_GAP = scale(14);
-const HERO_H = Math.max(scale(440), Math.round(SH * 0.65));
+const HERO_H = Math.max(scale(374), Math.round(SH * 0.55));
 
 // Cards del catálogo Estrenos (Filas inferiores)
 const POSTER_W = scale(125);
@@ -57,11 +60,17 @@ const PREMIERES_COLORS = {
 };
 
 const keyById = (i: NexoContentItem) => i.id;
+const getRowItemLayout = (_: any, index: number) => ({
+  length: POSTER_W + CARD_GAP,
+  offset: (POSTER_W + CARD_GAP) * index,
+  index,
+});
 
 // ── Tarjeta de Contenido para las Filas de Estrenos ──────────────────────────
 const PremiereCard = memo(function PremiereCard({
   item,
   onPress,
+  onFocus,
   accentColor = PREMIERES_COLORS.gold,
   nextFocusLeft,
   nextFocusRight,
@@ -70,6 +79,7 @@ const PremiereCard = memo(function PremiereCard({
 }: {
   item: NexoContentItem;
   onPress: (item: NexoContentItem) => void;
+  onFocus?: () => void;
   accentColor?: string;
   nextFocusLeft?: number;
   nextFocusRight?: number;
@@ -79,6 +89,7 @@ const PremiereCard = memo(function PremiereCard({
   return (
     <Focusable
       onPress={() => onPress(item)}
+      onFocus={onFocus}
       nextFocusLeft={nextFocusLeft}
       nextFocusRight={nextFocusRight}
       trapFocusLeft={trapFocusLeft}
@@ -87,35 +98,37 @@ const PremiereCard = memo(function PremiereCard({
       focusedStyle={[s.cardFocused, { borderColor: accentColor }]}
       scaleFocused={1.02}
     >
-      <RemoteImage
-        uri={item.posterUrl || item.backdropUrl}
-        style={StyleSheet.absoluteFill as any}
-        contentFit="cover"
-        transition={150}
-      />
-      <LinearGradient
-        colors={["transparent", "rgba(12,8,3,0.92)"]}
-        style={s.cardGrad}
-      />
+      <View style={s.cardInner}>
+        <RemoteImage
+          uri={item.posterUrl || item.backdropUrl}
+          style={StyleSheet.absoluteFill as any}
+          contentFit="cover"
+          transition={150}
+        />
+        <LinearGradient
+          colors={["transparent", "rgba(12,8,3,0.92)"]}
+          style={s.cardGrad}
+        />
 
-      {item.rating ? (
-        <View style={[s.cardRating, { backgroundColor: accentColor }]}>
-          <Star size={scale(9)} color="#000" fill="#000" />
-          <Text style={s.cardRatingTxt}>{item.rating.toFixed(1)}</Text>
-        </View>
-      ) : null}
+        {item.rating ? (
+          <View style={[s.cardRating, { backgroundColor: accentColor }]}>
+            <Star size={scale(9)} color="#000" fill="#000" />
+            <Text style={s.cardRatingTxt}>{item.rating.toFixed(1)}</Text>
+          </View>
+        ) : null}
 
-      <View style={s.cardInfo}>
-        <Text style={s.cardTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
-        <View style={s.cardMetaRow}>
-          <Text style={[s.cardType, { color: accentColor }]}>
-            {item.type === "MOVIE" ? "Película" : item.type === "SERIES" ? "Serie" : "Estreno"}
+        <View style={s.cardInfo}>
+          <Text style={s.cardTitle} numberOfLines={2}>
+            {item.title}
           </Text>
-          {item.releaseYear ? (
-            <Text style={s.cardYear}> • {item.releaseYear}</Text>
-          ) : null}
+          <View style={s.cardMetaRow}>
+            <Text style={[s.cardType, { color: accentColor }]}>
+              {item.type === "MOVIE" ? "Película" : item.type === "SERIES" ? "Serie" : "Estreno"}
+            </Text>
+            {item.releaseYear ? (
+              <Text style={s.cardYear}> • {item.releaseYear}</Text>
+            ) : null}
+          </View>
         </View>
       </View>
     </Focusable>
@@ -130,6 +143,7 @@ const PremiereRow = memo(function PremiereRow({
   accentColor,
   icon: Icon,
   onPress,
+  onRowFocus,
   onViewAll,
   viewAllSublabel = "Ver más",
 }: {
@@ -139,6 +153,7 @@ const PremiereRow = memo(function PremiereRow({
   accentColor: string;
   icon: any;
   onPress: (item: NexoContentItem) => void;
+  onRowFocus?: () => void;
   onViewAll?: () => void;
   viewAllSublabel?: string;
 }) {
@@ -161,14 +176,17 @@ const PremiereRow = memo(function PremiereRow({
         keyExtractor={keyById}
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={{ overflow: "visible" }}
         contentContainerStyle={s.rowTrack}
-        initialNumToRender={6}
-        maxToRenderPerBatch={4}
-        windowSize={5}
+        getItemLayout={getRowItemLayout}
+        initialNumToRender={5}
+        maxToRenderPerBatch={3}
+        windowSize={3}
         renderItem={({ item, index }) => (
           <PremiereCard
             item={item}
             onPress={onPress}
+            onFocus={onRowFocus}
             accentColor={accentColor}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
             trapFocusLeft={index === 0 && !sidebarHandle}
@@ -182,6 +200,7 @@ const PremiereRow = memo(function PremiereRow({
                 width={POSTER_W}
                 height={POSTER_H}
                 onPress={onViewAll}
+                onFocus={onRowFocus}
                 label="Ver todo"
                 sublabel={viewAllSublabel}
                 accentColor={accentColor}
@@ -194,104 +213,225 @@ const PremiereRow = memo(function PremiereRow({
   );
 });
 
+interface PremieresPageState {
+  pool: NexoContentItem[];
+  cinema: NexoContentItem[];
+  series: NexoContentItem[];
+  trending: NexoContentItem[];
+  topRated: NexoContentItem[];
+  animated: NexoContentItem[];
+}
+
+function buildPremieresPageState(
+  recentMovies: NexoContentItem[],
+  recentSeries: NexoContentItem[],
+  recentAnime: NexoContentItem[],
+  popularMovies: NexoContentItem[],
+  popularSeries: NexoContentItem[],
+  popularAnime: NexoContentItem[],
+): PremieresPageState {
+  const currentYear = new Date().getFullYear();
+  const isCurrentYearPremiere = (x: NexoContentItem) =>
+    Boolean(x && (x.releaseYear || 0) >= currentYear);
+
+  const dedupe = (arr: NexoContentItem[]) => {
+    const seen = new Set<string>();
+    return arr.filter((it) => {
+      if (!it || !it.id || seen.has(it.id)) return false;
+      seen.add(it.id);
+      return true;
+    });
+  };
+
+  const shuffleArray = <T,>(arr: T[]): T[] => {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = copy[i];
+      copy[i] = copy[j];
+      copy[j] = tmp;
+    }
+    return copy;
+  };
+
+  const moviesCurYear = dedupe([...recentMovies, ...popularMovies]).filter(
+    isCurrentYearPremiere,
+  );
+  const seriesCurYear = dedupe([...recentSeries, ...popularSeries]).filter(
+    isCurrentYearPremiere,
+  );
+  const animeCurYear = dedupe([...recentAnime, ...popularAnime]).filter(
+    isCurrentYearPremiere,
+  );
+
+  const pickDistinct = (items: NexoContentItem[], used: Set<string>, limit = 20) => {
+    const list: NexoContentItem[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it || !it.id || used.has(it.id)) continue;
+      used.add(it.id);
+      list.push(it);
+      if (list.length >= limit) break;
+    }
+    return list;
+  };
+
+  const usedIds = new Set<string>();
+
+  const cinema = pickDistinct(moviesCurYear, usedIds, 20);
+  const series = pickDistinct(seriesCurYear, usedIds, 20);
+
+  const hasAnimGenre = (x: NexoContentItem) =>
+    x.genres?.some((g) => {
+      const n = g.name.toLowerCase();
+      return n.includes("animación") || n.includes("animacion");
+    }) ?? false;
+  const animated = pickDistinct(
+    dedupe([
+      ...animeCurYear,
+      ...moviesCurYear.filter(hasAnimGenre),
+      ...seriesCurYear.filter(hasAnimGenre),
+    ]),
+    usedIds,
+    20,
+  );
+
+  const popularPremieres = dedupe([
+    ...popularMovies.filter(isCurrentYearPremiere),
+    ...popularSeries.filter(isCurrentYearPremiere),
+    ...popularAnime.filter(isCurrentYearPremiere),
+    ...moviesCurYear,
+    ...seriesCurYear,
+    ...animeCurYear,
+  ]);
+  const trending = pickDistinct(shuffleArray(popularPremieres), usedIds, 20);
+
+  const ratedPremieres = dedupe([
+    ...moviesCurYear,
+    ...seriesCurYear,
+    ...animeCurYear,
+  ]).sort((a, b) => (b.rating || 0) - (a.rating || 0));
+  const topRated = pickDistinct(ratedPremieres, usedIds, 20);
+
+  const hasArtwork = (x: NexoContentItem) =>
+    Boolean(x && (x.backdropUrl || x.posterUrl));
+  const randomMoviesHero = shuffleArray(moviesCurYear.filter(hasArtwork)).slice(0, 6);
+  const randomSeriesHero = shuffleArray(seriesCurYear.filter(hasArtwork)).slice(0, 6);
+  const randomAnimeHero = shuffleArray(animeCurYear.filter(hasArtwork)).slice(0, 6);
+
+  const pool = shuffleArray(
+    dedupe([...randomMoviesHero, ...randomSeriesHero, ...randomAnimeHero]),
+  );
+
+  const state: PremieresPageState = {
+    pool,
+    cinema,
+    series,
+    trending,
+    topRated,
+    animated,
+  };
+  setPageCache("page:premieres", state);
+  return state;
+}
+
+function getInitialPremieresState(): PremieresPageState | null {
+  const cached = getPageCache<PremieresPageState>("page:premieres");
+  if (cached && cached.pool.length > 0) return cached;
+  const recentMovies = getContentListSync({ type: "MOVIE", sort: "recent", limit: 45 });
+  const recentSeries = getContentListSync({ type: "SERIES", sort: "recent", limit: 45 });
+  const recentAnime = getContentListSync({ type: "ANIME", sort: "recent", limit: 45 });
+  const popularMovies = getContentListSync({ type: "MOVIE", sort: "popular", limit: 45 });
+  const popularSeries = getContentListSync({ type: "SERIES", sort: "popular", limit: 45 });
+  const popularAnime = getContentListSync({ type: "ANIME", sort: "popular", limit: 45 });
+  if (
+    recentMovies &&
+    recentSeries &&
+    recentAnime &&
+    popularMovies &&
+    popularSeries &&
+    popularAnime
+  ) {
+    return buildPremieresPageState(
+      recentMovies,
+      recentSeries,
+      recentAnime,
+      popularMovies,
+      popularSeries,
+      popularAnime,
+    );
+  }
+  return null;
+}
+
 export default function PremieresScreen() {
   const router = useRouter();
   const sidebarHandle = useSidebarHandle();
+  const { scrollRef, handleHeroFocus, cancelHeroScroll } = useHeroScrollToTop();
 
-  const [fontsLoaded] = useFonts({
+  useFonts({
     Bangers: Bangers_400Regular,
   });
 
-  const [loading, setLoading] = useState(true);
+  const initialPremieres = useMemo(() => getInitialPremieresState(), []);
+  const [loading, setLoading] = useState(() => !initialPremieres);
   const [heroIdx, setHeroIdx] = useState(0);
   const [userInteracted, setUserInteracted] = useState(false);
 
   // Colecciones de Estrenos Reales
-  const [heroPool, setHeroPool] = useState<NexoContentItem[]>([]);
-  const [cinemaPremieres, setCinemaPremieres] = useState<NexoContentItem[]>([]);
-  const [seriesPremieres, setSeriesPremieres] = useState<NexoContentItem[]>([]);
-  const [topRatedPremieres, setTopRatedPremieres] = useState<NexoContentItem[]>([]);
-  const [animatedPremieres, setAnimatedPremieres] = useState<NexoContentItem[]>([]);
-  const [trendingPremieres, setTrendingPremieres] = useState<NexoContentItem[]>([]);
+  const [heroPool, setHeroPool] = useState<NexoContentItem[]>(() => initialPremieres?.pool ?? []);
+  const [cinemaPremieres, setCinemaPremieres] = useState<NexoContentItem[]>(() => initialPremieres?.cinema ?? []);
+  const [seriesPremieres, setSeriesPremieres] = useState<NexoContentItem[]>(() => initialPremieres?.series ?? []);
+  const [topRatedPremieres, setTopRatedPremieres] = useState<NexoContentItem[]>(() => initialPremieres?.topRated ?? []);
+  const [animatedPremieres, setAnimatedPremieres] = useState<NexoContentItem[]>(() => initialPremieres?.animated ?? []);
+  const [trendingPremieres, setTrendingPremieres] = useState<NexoContentItem[]>(() => initialPremieres?.trending ?? []);
 
-  // ── Cargar contenido de estrenos reales desde la API con distribución única ─
+  // ── Cargar contenido de estrenos reales del año actual desde la API ─────────
   useEffect(() => {
+    if (initialPremieres) {
+      prefetchImages(initialPremieres.pool.slice(0, 6).map((x) => x.backdropUrl || x.posterUrl || ""));
+      return;
+    }
+
     let cancelled = false;
 
     (async () => {
       try {
-        const [recentMovies, recentSeries, recentAnime, popularAll, topRatedAll, p2Movies, p2Series] = await Promise.all([
-          getContentList({ type: "MOVIE", sort: "recent", limit: 35 }),
-          getContentList({ type: "SERIES", sort: "recent", limit: 35 }),
-          getContentList({ type: "ANIME", sort: "recent", limit: 30 }),
-          getContentList({ sort: "popular", limit: 35 }),
-          getContentList({ sort: "rating", limit: 35 }),
-          getContentList({ type: "MOVIE", sort: "recent", page: 2, limit: 35 }),
-          getContentList({ type: "SERIES", sort: "recent", page: 2, limit: 35 }),
+        const [
+          recentMovies,
+          recentSeries,
+          recentAnime,
+          popularMovies,
+          popularSeries,
+          popularAnime,
+        ] = await Promise.all([
+          getContentList({ type: "MOVIE", sort: "recent", limit: 45 }),
+          getContentList({ type: "SERIES", sort: "recent", limit: 45 }),
+          getContentList({ type: "ANIME", sort: "recent", limit: 45 }),
+          getContentList({ type: "MOVIE", sort: "popular", limit: 45 }),
+          getContentList({ type: "SERIES", sort: "popular", limit: 45 }),
+          getContentList({ type: "ANIME", sort: "popular", limit: 45 }),
         ]);
 
         if (cancelled) return;
 
-        // Ordenar estrictamente por año más reciente
-        const sortByYear = (arr: NexoContentItem[]) =>
-          [...arr].sort((a, b) => (b.releaseYear || 0) - (a.releaseYear || 0));
-
-        // Función de extracción única: garantiza que ninguna fila repita contenido de otra
-        const pickDistinct = (items: NexoContentItem[], used: Set<string>, limit = 16) => {
-          const list: NexoContentItem[] = [];
-          for (let i = 0; i < items.length; i++) {
-            const it = items[i];
-            if (!it || !it.id || used.has(it.id)) continue;
-            used.add(it.id);
-            list.push(it);
-            if (list.length >= limit) break;
-          }
-          return list;
-        };
-
-        const usedIds = new Set<string>();
-
-        // 1. Estrenos de Cine
-        const cinema = pickDistinct(sortByYear(recentMovies), usedIds, 16);
-
-        // 2. Nuevas Series y Temporadas
-        const series = pickDistinct(sortByYear(recentSeries), usedIds, 16);
-
-        // 3. Tendencias de Estreno (sin repetir de las anteriores)
-        const popularPremieres = sortByYear(
-          popularAll.filter((x) => (x.releaseYear || 0) >= 2023)
+        const state = buildPremieresPageState(
+          recentMovies,
+          recentSeries,
+          recentAnime,
+          popularMovies,
+          popularSeries,
+          popularAnime,
         );
-        const trending = pickDistinct(popularPremieres, usedIds, 16);
 
-        // 4. Estrenos Mejor Valorados (sin repetir)
-        const ratedPremieres = topRatedAll
-          .filter((x) => (x.releaseYear || 0) >= 2023)
-          .sort((a, b) => (b.rating || 0) - (a.rating || 0));
-        const topRated = pickDistinct(ratedPremieres, usedIds, 16);
+        setHeroPool(state.pool);
+        setCinemaPremieres(state.cinema);
+        setSeriesPremieres(state.series);
+        setTrendingPremieres(state.trending);
+        setTopRatedPremieres(state.topRated);
+        setAnimatedPremieres(state.animated);
 
-        // 5. Estrenos de Animación y Anime
-        const animated = pickDistinct(sortByYear(recentAnime), usedIds, 16);
-
-        // Si alguna lista necesita completar, recurrir a las páginas 2 de novedades
-        const p2Combined = sortByYear([...p2Movies, ...p2Series]);
-        if (trending.length < 12) trending.push(...pickDistinct(p2Combined, usedIds, 12 - trending.length));
-        if (topRated.length < 12) topRated.push(...pickDistinct(p2Combined, usedIds, 12 - topRated.length));
-
-        // Pool del Hero: Los lanzamientos más destacados con portada de alta calidad
-        const pool = [
-          ...cinema.slice(0, 5),
-          ...series.slice(0, 5),
-          ...animated.slice(0, 3),
-        ].filter((x) => Boolean(x.backdropUrl || x.posterUrl));
-
-        setHeroPool(pool);
-        setCinemaPremieres(cinema);
-        setSeriesPremieres(series);
-        setTrendingPremieres(trending);
-        setTopRatedPremieres(topRated);
-        setAnimatedPremieres(animated);
-
-        prefetchImages(pool.slice(0, 6).map((x) => x.backdropUrl || x.posterUrl || ""));
+        prefetchImages(state.pool.slice(0, 6).map((x) => x.backdropUrl || x.posterUrl || ""));
       } catch (err) {
         console.warn("Error cargando PremieresScreen:", err);
       } finally {
@@ -302,25 +442,9 @@ export default function PremieresScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialPremieres]);
 
-  // ── Auto-rotación del Hero cada 7.5 segundos ──────────────────────────────
-  useEffect(() => {
-    if (heroPool.length < 5 || userInteracted) return;
-    const timer = setInterval(() => {
-      setHeroIdx((i) => (i + 1) % heroPool.length);
-    }, 7500);
-    return () => clearInterval(timer);
-  }, [heroPool.length, userInteracted]);
-
-  // Si el usuario interactúa, reanudar rotación tras 22 segundos
-  useEffect(() => {
-    if (!userInteracted) return;
-    const timeout = setTimeout(() => setUserInteracted(false), 22000);
-    return () => clearTimeout(timeout);
-  }, [userInteracted, heroIdx]);
-
-  // Item principal del Hero (3/4 de la pantalla izquierda)
+  // El Hero y las 3 portadas del 2x2 se mantienen estáticos durante toda la sesión de la app
   const activeHero = heroPool[heroIdx] || heroPool[0] || null;
 
   // Las 3 portadas que acompañan a la tarjeta "Ver Todo" en la cuadrícula 2x2 derecha
@@ -349,7 +473,7 @@ export default function PremieresScreen() {
     [router],
   );
 
-  if (loading || !fontsLoaded) {
+  if (loading && heroPool.length === 0) {
     return (
       <View style={s.centerLoad}>
         <ActivityIndicator size="large" color={PREMIERES_COLORS.gold} />
@@ -376,6 +500,7 @@ export default function PremieresScreen() {
       </View>
 
       <ScrollView
+        ref={scrollRef}
         style={s.scroll}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -390,8 +515,9 @@ export default function PremieresScreen() {
                 uri={activeHero.backdropUrl || activeHero.posterUrl}
                 style={StyleSheet.absoluteFill as any}
                 contentFit="cover"
-                transition={200}
+                transition={360}
                 priority="high"
+                disableRecycling
               />
               {/* Degradados cinematográficos */}
               <LinearGradient
@@ -472,21 +598,40 @@ export default function PremieresScreen() {
                   <Focusable
                     hasTVPreferredFocus
                     onPress={() => handlePlay(activeHero)}
+                    onFocus={handleHeroFocus}
                     nextFocusLeft={sidebarHandle ?? undefined}
                     style={s.btnPlay}
                     focusedStyle={s.btnPlayFocused}
                   >
-                    <Play size={scale(16)} color="#000" fill="#000" />
-                    <Text style={s.btnPlayTxt}>Reproducir</Text>
+                    {({ focused }) => (
+                      <>
+                        <Play size={scale(16)} color="#000000" fill="#000000" />
+                        <Text style={[s.btnPlayTxt, focused && { color: "#000000" }]}>
+                          Reproducir
+                        </Text>
+                      </>
+                    )}
                   </Focusable>
 
                   <Focusable
                     onPress={() => handleOpenDetail(activeHero)}
+                    onFocus={handleHeroFocus}
                     style={s.btnDetail}
                     focusedStyle={s.btnDetailFocused}
                   >
-                    <Info size={scale(15)} color="#ffffff" />
-                    <Text style={s.btnDetailTxt}>Ver Información</Text>
+                    {({ focused }) => (
+                      <>
+                        <Info size={scale(15)} color={focused ? "#000000" : "#ffffff"} />
+                        <Text
+                          style={[
+                            s.btnDetailTxt,
+                            focused && { color: "#000000", fontWeight: "900" },
+                          ]}
+                        >
+                          Ver Información
+                        </Text>
+                      </>
+                    )}
                   </Focusable>
                 </View>
               </View>
@@ -497,36 +642,40 @@ export default function PremieresScreen() {
               {candidateCovers.map((item, idx) => {
                 return (
                   <Focusable
-                    key={item.id || idx}
+                    key={`hero-slot-${idx}`}
                     onPress={() => handleOpenDetail(item)}
+                    onFocus={handleHeroFocus}
                     trapFocusRight={idx === 1}
                     scaleFocused={1.02}
                     style={s.gridCard}
                     focusedStyle={s.gridCardFocused}
                   >
-                    <RemoteImage
-                      uri={item.posterUrl || item.backdropUrl}
-                      style={StyleSheet.absoluteFill as any}
-                      contentFit="cover"
-                      transition={150}
-                    />
-                    <LinearGradient
-                      colors={["transparent", "rgba(12,8,3,0.88)"]}
-                      style={s.gridCardGrad}
-                    />
-                    {item.rating ? (
-                      <View style={s.gridCardRating}>
-                        <Star size={scale(8.5)} color="#000" fill="#000" />
-                        <Text style={s.gridCardRatingTxt}>
-                          {item.rating.toFixed(1)}
+                    <View style={s.gridCardInner}>
+                      <RemoteImage
+                        uri={item.posterUrl || item.backdropUrl}
+                        style={StyleSheet.absoluteFill as any}
+                        contentFit="cover"
+                        transition={240}
+                        disableRecycling
+                      />
+                      <LinearGradient
+                        colors={["transparent", "rgba(12,8,3,0.88)"]}
+                        style={s.gridCardGrad}
+                      />
+                      {item.rating ? (
+                        <View style={s.gridCardRating}>
+                          <Star size={scale(8.5)} color="#000" fill="#000" />
+                          <Text style={s.gridCardRatingTxt}>
+                            {item.rating.toFixed(1)}
+                          </Text>
+                        </View>
+                      ) : null}
+                      <View style={s.gridCardInfo}>
+                        <Text style={s.gridCardTitle} numberOfLines={1}>
+                          {item.title}
                         </Text>
+                        <Text style={s.gridCardYear}>{item.releaseYear || "Estreno"}</Text>
                       </View>
-                    ) : null}
-                    <View style={s.gridCardInfo}>
-                      <Text style={s.gridCardTitle} numberOfLines={1}>
-                        {item.title}
-                      </Text>
-                      <Text style={s.gridCardYear}>{item.releaseYear || "Estreno"}</Text>
                     </View>
                   </Focusable>
                 );
@@ -536,6 +685,7 @@ export default function PremieresScreen() {
               <HeroGridSeeAllCard
                 accentColor={PREMIERES_COLORS.gold}
                 title="Ver todo"
+                onFocus={handleHeroFocus}
                 onPress={() =>
                   router.push({
                     pathname: "/(tv)/explore",
@@ -557,6 +707,7 @@ export default function PremieresScreen() {
             accentColor={PREMIERES_COLORS.gold}
             icon={Film}
             onPress={handleOpenDetail}
+            onRowFocus={cancelHeroScroll}
             onViewAll={() =>
               router.push({
                 pathname: "/(tv)/explore",
@@ -573,6 +724,7 @@ export default function PremieresScreen() {
             accentColor={PREMIERES_COLORS.orange}
             icon={Tv}
             onPress={handleOpenDetail}
+            onRowFocus={cancelHeroScroll}
             onViewAll={() =>
               router.push({
                 pathname: "/(tv)/explore",
@@ -589,10 +741,11 @@ export default function PremieresScreen() {
             accentColor={PREMIERES_COLORS.crimson}
             icon={Flame}
             onPress={handleOpenDetail}
+            onRowFocus={cancelHeroScroll}
             onViewAll={() =>
               router.push({
                 pathname: "/(tv)/explore",
-                params: { sort: "popular" },
+                params: { sort: "recent" },
               } as any)
             }
           />
@@ -605,10 +758,11 @@ export default function PremieresScreen() {
             accentColor={PREMIERES_COLORS.emerald}
             icon={Star}
             onPress={handleOpenDetail}
+            onRowFocus={cancelHeroScroll}
             onViewAll={() =>
               router.push({
                 pathname: "/(tv)/explore",
-                params: { sort: "rating" },
+                params: { sort: "recent" },
               } as any)
             }
           />
@@ -621,6 +775,7 @@ export default function PremieresScreen() {
             accentColor={PREMIERES_COLORS.cyan}
             icon={Sparkles}
             onPress={handleOpenDetail}
+            onRowFocus={cancelHeroScroll}
             onViewAll={() =>
               router.push({
                 pathname: "/(tv)/explore",
@@ -670,15 +825,15 @@ const s = StyleSheet.create({
     height: HERO_H,
     flexDirection: "row",
     alignItems: "stretch",
-    gap: scale(14),
+    gap: scale(12),
     marginBottom: scale(24),
   },
 
   // Hero Principal (3/4 Izquierda)
   heroMainLeft: {
-    flex: 2.7,
+    flex: 2.35,
     height: "100%",
-    borderRadius: scale(20),
+    borderRadius: scale(18),
     overflow: "hidden",
     backgroundColor: PREMIERES_COLORS.bgSurface,
     borderWidth: 2,
@@ -691,36 +846,37 @@ const s = StyleSheet.create({
     justifyContent: "flex-end",
   },
   heroMainContent: {
-    paddingHorizontal: scale(28),
-    paddingBottom: scale(24),
+    paddingHorizontal: scale(22),
+    paddingBottom: scale(14),
     zIndex: 2,
   },
   heroTagChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(6),
+    gap: scale(5),
     backgroundColor: "rgba(255, 183, 3, 0.2)",
     borderWidth: 1.2,
     borderColor: PREMIERES_COLORS.gold,
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(4),
-    borderRadius: scale(8),
+    paddingHorizontal: scale(9),
+    paddingVertical: scale(3),
+    borderRadius: scale(7),
     alignSelf: "flex-start",
-    marginBottom: scale(8),
+    marginBottom: scale(6),
   },
   heroTagTxt: {
     color: PREMIERES_COLORS.gold,
-    fontSize: scale(10.5),
+    fontSize: scale(9.5),
     fontWeight: "900",
-    letterSpacing: 0.8,
+    letterSpacing: 0.7,
   },
   heroTitle: {
     fontFamily: "Bangers",
-    fontSize: scale(46),
+    fontSize: scale(28),
     color: "#ffffff",
     letterSpacing: 0.8,
-    marginBottom: scale(8),
-    lineHeight: scale(48),
+    marginBottom: scale(12),
+    lineHeight: scale(31),
+    includeFontPadding: false,
     textShadowColor: "rgba(0,0,0,0.9)",
     textShadowOffset: { width: 1, height: 2 },
     textShadowRadius: 8,
@@ -728,8 +884,8 @@ const s = StyleSheet.create({
   heroMetaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(8),
-    marginBottom: scale(10),
+    gap: scale(7),
+    marginBottom: scale(7),
     flexWrap: "wrap",
   },
   metaBadgeRating: {
@@ -737,22 +893,22 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: scale(4),
     backgroundColor: PREMIERES_COLORS.gold,
-    paddingHorizontal: scale(8),
-    paddingVertical: scale(2.5),
-    borderRadius: scale(6),
+    paddingHorizontal: scale(7),
+    paddingVertical: scale(2),
+    borderRadius: scale(5),
   },
   metaBadgeRatingTxt: {
     color: "#000000",
-    fontSize: scale(11),
+    fontSize: scale(10),
     fontWeight: "900",
   },
   metaBadge: {
     backgroundColor: "rgba(255, 255, 255, 0.12)",
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.2)",
-    paddingHorizontal: scale(8),
-    paddingVertical: scale(2.5),
-    borderRadius: scale(6),
+    paddingHorizontal: scale(7),
+    paddingVertical: scale(2),
+    borderRadius: scale(5),
   },
   metaBadgeAlt: {
     backgroundColor: "rgba(255, 190, 11, 0.15)",
@@ -760,83 +916,90 @@ const s = StyleSheet.create({
   },
   metaBadgeTxt: {
     color: "#ffffff",
-    fontSize: scale(11),
+    fontSize: scale(10),
     fontWeight: "800",
   },
   metaYearText: {
     color: "rgba(255, 255, 255, 0.75)",
-    fontSize: scale(12),
+    fontSize: scale(11),
     fontWeight: "700",
   },
   heroDesc: {
     color: "rgba(255, 255, 255, 0.85)",
-    fontSize: scale(13),
-    lineHeight: scale(19),
-    marginBottom: scale(14),
-    maxWidth: scale(680),
+    fontSize: scale(12),
+    lineHeight: scale(16.5),
+    marginBottom: scale(11),
+    maxWidth: scale(480),
   },
   heroBtnRow: {
     flexDirection: "row",
-    gap: scale(12),
+    gap: scale(10),
   },
   btnPlay: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(8),
+    gap: scale(7),
     backgroundColor: PREMIERES_COLORS.gold,
-    paddingHorizontal: scale(22),
-    height: scale(42),
-    borderRadius: scale(10),
+    paddingHorizontal: scale(18),
+    height: scale(36),
+    borderRadius: scale(9),
     borderWidth: 2,
     borderColor: "transparent",
   },
   btnPlayFocused: {
     backgroundColor: "#ffffff",
-    borderColor: "#ffffff",
+    borderColor: PREMIERES_COLORS.gold,
   },
   btnPlayTxt: {
     color: "#000000",
-    fontSize: scale(14),
+    fontSize: scale(12.5),
     fontWeight: "900",
   },
   btnDetail: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(8),
+    gap: scale(7),
     backgroundColor: "rgba(255, 255, 255, 0.12)",
-    paddingHorizontal: scale(20),
-    height: scale(42),
-    borderRadius: scale(10),
+    paddingHorizontal: scale(16),
+    height: scale(36),
+    borderRadius: scale(9),
     borderWidth: 1.5,
     borderColor: "rgba(255, 255, 255, 0.25)",
   },
   btnDetailFocused: {
-    backgroundColor: "rgba(255, 255, 255, 0.25)",
+    backgroundColor: PREMIERES_COLORS.amber,
     borderColor: "#ffffff",
   },
   btnDetailTxt: {
     color: "#ffffff",
-    fontSize: scale(13.5),
+    fontSize: scale(12),
     fontWeight: "800",
   },
 
   // 2. Rejilla Derecha 2x2
   heroRightGrid: {
-    flex: 1.3,
+    flex: 1.65,
     height: "100%",
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
     alignContent: "space-between",
+    overflow: "visible",
+    padding: scale(3),
   },
   gridCard: {
     width: "48.5%",
     height: "48.5%",
     borderRadius: scale(14),
-    overflow: "hidden",
     backgroundColor: PREMIERES_COLORS.bgSurface,
     borderWidth: 2,
     borderColor: "rgba(255, 255, 255, 0.08)",
+  },
+  gridCardInner: {
+    flex: 1,
+    borderRadius: scale(12),
+    overflow: "hidden",
+    backgroundColor: PREMIERES_COLORS.bgSurface,
     position: "relative",
     justifyContent: "flex-end",
     padding: scale(10),
@@ -923,7 +1086,8 @@ const s = StyleSheet.create({
   },
   rowTrack: {
     gap: CARD_GAP,
-    paddingVertical: scale(8),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(6),
   },
 
   // Card de Catálogo
@@ -931,10 +1095,15 @@ const s = StyleSheet.create({
     width: POSTER_W,
     height: POSTER_H,
     borderRadius: scale(12),
-    overflow: "hidden",
     backgroundColor: PREMIERES_COLORS.bgSurface,
     borderWidth: 2,
     borderColor: "rgba(255, 255, 255, 0.08)",
+  },
+  cardInner: {
+    flex: 1,
+    borderRadius: scale(10),
+    overflow: "hidden",
+    backgroundColor: PREMIERES_COLORS.bgSurface,
     position: "relative",
     justifyContent: "flex-end",
     padding: scale(8),

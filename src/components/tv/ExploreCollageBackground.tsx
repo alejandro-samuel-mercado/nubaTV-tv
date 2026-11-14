@@ -7,76 +7,58 @@ import RemoteImage, { prefetchImages } from "./RemoteImage";
 
 const { width: SW, height: SH } = Dimensions.get("window");
 
-// Dimensiones de las baldosas del collage
-const TILE_W = scale(180);
-const TILE_H = scale(115);
-const COLS_PER_ROW = Math.ceil(SW / (TILE_W + scale(12))) + 2; // ~9 columnas
-const NUM_ROWS = 4; // 4 filas para cubrir toda la pantalla con holgura
-const TOTAL_TILES = COLS_PER_ROW * NUM_ROWS; // ~36 baldosas
+// Dimensiones de las baldosas del collage (optimizadas para mínimo uso de GPU/VRAM en TV)
+const TILE_W = scale(240);
+const TILE_H = scale(145);
+const COLS_PER_ROW = Math.ceil(SW / (TILE_W + scale(12))) + 1; // ~5 columnas
+const NUM_ROWS = 3; // 3 filas cubren la pantalla sin sobrecargar texturas
+const TOTAL_TILES = COLS_PER_ROW * NUM_ROWS;
 
 /**
  * ExploreCollageBackground:
- * Fondo de collage / mosaico para la pantalla Explorar.
+ * Fondo de collage / mosaico ligero para la pantalla Explorar.
  * - Compuesto por portadas y banners reales con baja opacidad.
- * - Va cambiando periódicamente de forma aleatoria y suave (hardware cross-fade).
- * - Cubierto por degradados de niebla y viñeta para mantener excelente contraste y legibilidad.
+ * - Sin intervalos de re-renderizado que compitan con la navegación del catálogo.
  */
 function ExploreCollageBackground({
   items,
 }: {
   items?: NexoContentItem[];
 }) {
-  const [artworks, setArtworks] = useState<string[]>([]);
-  const [seed, setSeed] = useState(0);
+  const [fallbackArtworks, setFallbackArtworks] = useState<string[]>([]);
 
-  // Cargar un pool diverso de portadas y banners si no hay suficientes
-  useEffect(() => {
-    let cancelled = false;
-
-    // Si ya tenemos items externos, extraer sus imágenes
-    const initialUrls = (items || [])
-      .flatMap((it) => [it.backdropUrl, it.posterUrl])
+  const itemUrls = useMemo(() => {
+    return (items || [])
+      .slice(0, 24)
+      .map((it) => it.backdropUrl || it.posterUrl)
       .filter((u): u is string => Boolean(u));
+  }, [items]);
 
-    if (initialUrls.length >= 20) {
-      setArtworks(initialUrls);
-      prefetchImages(initialUrls.slice(0, 24));
-      return;
-    }
+  const artworks = itemUrls.length >= 6 ? itemUrls : fallbackArtworks;
 
-    // Si faltan, consultar API en paralelo para obtener ~60 imágenes reales
-    Promise.all([
-      getContentList({ sort: "popular", limit: 24 }),
-      getContentList({ sort: "recent", limit: 24 }),
-    ])
-      .then(([pop, rec]) => {
-        if (cancelled) return;
-        const pool = [...pop, ...rec];
-        const urls = pool
-          .flatMap((it) => [it.backdropUrl, it.posterUrl])
-          .filter((u): u is string => Boolean(u));
-        // Mezclar aleatoriamente
-        const shuffled = [...urls].sort(() => Math.random() - 0.5);
-        setArtworks(shuffled);
-        prefetchImages(shuffled.slice(0, 30));
-      })
-      .catch((e) => console.warn("Collage load error:", e));
+  // Cargar un pool ligero solo si pasados 350ms no hay items externos
+  useEffect(() => {
+    if (itemUrls.length >= 6 || fallbackArtworks.length > 0) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      getContentList({ sort: "popular", limit: 18 })
+        .then((pop) => {
+          if (cancelled) return;
+          const urls = pop
+            .map((it) => it.backdropUrl || it.posterUrl)
+            .filter((u): u is string => Boolean(u));
+          setFallbackArtworks(urls);
+        })
+        .catch(() => {});
+    }, 350);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, []);
+  }, [itemUrls.length, fallbackArtworks.length]);
 
-  // Rotar o cambiar las portadas del collage cada 10 segundos
-  useEffect(() => {
-    if (artworks.length < 5) return;
-    const interval = setInterval(() => {
-      setSeed((prev) => prev + 1);
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [artworks.length]);
-
-  // Generar las baldosas organizadas en 4 filas desfasadas
+  // Generar las baldosas organizadas en 3 filas desfasadas
   const rows = useMemo(() => {
     if (!artworks.length) return [];
     const res: { id: string; url: string }[][] = [];
@@ -85,8 +67,7 @@ function ExploreCollageBackground({
       const rowTiles: { id: string; url: string }[] = [];
       for (let c = 0; c < COLS_PER_ROW; c++) {
         const tileIdx = r * COLS_PER_ROW + c;
-        // Fórmula de rotación suave con saltos pseudo-aleatorios
-        const imgIdx = (tileIdx * 3 + seed * 7) % artworks.length;
+        const imgIdx = (tileIdx * 3) % artworks.length;
         rowTiles.push({
           id: `r${r}-c${c}`,
           url: artworks[imgIdx] || "",
@@ -95,7 +76,7 @@ function ExploreCollageBackground({
       res.push(rowTiles);
     }
     return res;
-  }, [artworks, seed]);
+  }, [artworks]);
 
   return (
     <View style={s.root} pointerEvents="none">
@@ -118,8 +99,9 @@ function ExploreCollageBackground({
                     uri={tile.url}
                     style={StyleSheet.absoluteFill as any}
                     contentFit="cover"
-                    transition={800}
+                    transition={200}
                     priority="low"
+                    disableRecycling
                   />
                   {/* Tinte oscuro individual por baldosa */}
                   <View style={s.tileDarkener} />

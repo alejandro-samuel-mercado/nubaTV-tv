@@ -9,13 +9,17 @@ interface Props {
   width: number;
   height: number;
   onPress: () => void;
+  onFocus?: () => void;
   label?: string;
   sublabel?: string;
   accentColor?: string;
   borderRadius?: number;
   nextFocusLeft?: number;
   nextFocusRight?: number;
+  nextFocusUp?: number;
+  nextFocusDown?: number;
   trapFocusRight?: boolean;
+  trapFocusDown?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -23,24 +27,32 @@ function ViewAllCard({
   width,
   height,
   onPress,
+  onFocus,
   label = "Ver todo",
   sublabel,
   accentColor = C.accent,
   borderRadius = scale(12),
   nextFocusLeft,
   nextFocusRight,
+  nextFocusUp,
+  nextFocusDown,
   trapFocusRight = true,
+  trapFocusDown,
   style,
 }: Props) {
   return (
     <Focusable
       onPress={onPress}
+      onFocus={onFocus}
       nextFocusLeft={nextFocusLeft}
       nextFocusRight={nextFocusRight}
+      nextFocusUp={nextFocusUp}
+      nextFocusDown={nextFocusDown}
       trapFocusRight={trapFocusRight}
+      trapFocusDown={trapFocusDown}
       borderRadius={borderRadius}
       focusRingColor={accentColor}
-      scaleValue={1.04}
+      scaleValue={1.02}
       style={[
         s.root,
         {
@@ -101,7 +113,6 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.03)",
     borderWidth: 1.5,
     borderColor: "rgba(255, 255, 255, 0.1)",
-    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },

@@ -54,12 +54,18 @@ import RemoteImage from '../components/tv/RemoteImage';
 import VodPlayer from '../components/tv/VodPlayer';
 import WebPlayer from '../components/tv/WebPlayer';
 import { API_URL, Channel, useGlobal } from '../contexts/GlobalContext';
+import { useTVRemoteKey } from '../hooks/useNavThrottle';
 import { recordRecentChannel } from '../utils/recentChannels';
 import { scale } from '../lib/scale';
 import { C } from '../lib/tvColors';
 
 const TVFocusGuide: any =
   (require('react-native') as any).TVFocusGuideView ?? View;
+
+// Medidas fijas de fila de canal en la Guía para scroll instantáneo al canal activo
+const PLAYER_CH_ITEM_H = scale(60);
+const PLAYER_CH_ITEM_GAP = scale(6);
+const PLAYER_CH_STRIDE = PLAYER_CH_ITEM_H + PLAYER_CH_ITEM_GAP;
 
 const safeFindNodeHandle = (node: any): number | undefined => {
   if (Platform.OS === 'web' || !node) return undefined;
@@ -70,11 +76,6 @@ const safeFindNodeHandle = (node: any): number | undefined => {
     return undefined;
   }
 };
-
-const useTVEventHandlerSafe: (handler: (evt: any) => void) => void =
-  Platform.OS !== 'web'
-    ? (require('react-native') as any).useTVEventHandler ?? (() => {})
-    : () => {};
 
 export default function PlayerScreen() {
   const { slug, episodeId, channelId, channelUrl } = useLocalSearchParams<{
@@ -114,6 +115,9 @@ function OSDActionButton({
   accentColor,
   hasPreferredFocus,
   isHero,
+  trapFocusLeft,
+  trapFocusRight,
+  trapFocusUp = true,
 }: {
   icon: any;
   label?: string;
@@ -123,6 +127,9 @@ function OSDActionButton({
   accentColor?: string;
   hasPreferredFocus?: boolean;
   isHero?: boolean;
+  trapFocusLeft?: boolean;
+  trapFocusRight?: boolean;
+  trapFocusUp?: boolean;
 }) {
   const iconSize = isHero ? scale(24) : scale(18);
 
@@ -131,6 +138,11 @@ function OSDActionButton({
       hasTVPreferredFocus={hasPreferredFocus}
       onPress={onPress}
       onFocus={onFocus}
+      throttleMs={0}
+      trapFocusLeft={trapFocusLeft}
+      trapFocusRight={trapFocusRight}
+      trapFocusUp={trapFocusUp}
+      trapFocusDown={true}
       animateScale={false}
       showFocusRing={false}
       style={[
@@ -216,8 +228,20 @@ function ChannelPlayer({
   const [guideSearch, setGuideSearch] = useState('');
   const [currentTime, setCurrentTime] = useState('');
   const [focusedAction, setFocusedAction] = useState('Pausar Transmisión');
-  const [focusedDockIdx, setFocusedDockIdx] = useState(1);
-  const categoryDebounceTimer = useRef<any>(null);
+  const focusedDockIdxRef = useRef(1);
+  const isDockFocusedRef = useRef(false);
+  const dockEdgeEnteredAtRef = useRef(0);
+  const lastZapTimeRef = useRef(0);
+  const updateDockIdx = useCallback((idx: number) => {
+    const prev = focusedDockIdxRef.current;
+    focusedDockIdxRef.current = idx;
+    isDockFocusedRef.current = true;
+    if ((idx === 0 || idx === 8) && prev !== idx) {
+      dockEdgeEnteredAtRef.current = Date.now();
+    }
+  }, []);
+  const [osdFocusReady, setOsdFocusReady] = useState(false);
+  const [guideFocusReady, setGuideFocusReady] = useState(false);
 
   // HUD de notificación flotante rápida (Volumen, Silencio, Sincronizado, etc.)
   const [hud, setHud] = useState<{ text: string; icon?: any } | null>(null);
@@ -227,8 +251,14 @@ function ChannelPlayer({
   // Refs y Handles para sincronizar foco entre Ventana 1 y Ventana 2 de la Guía
   const catRefs = useRef<Record<string, any>>({});
   const [catHandles, setCatHandles] = useState<Record<string, number>>({});
-  const firstChannelRef = useRef<any>(null);
-  const [firstChannelHandle, setFirstChannelHandle] = useState<number | undefined>(undefined);
+  const channelsListRef = useRef<FlatList<Channel>>(null);
+  const guidePaneRef = useRef<'categories' | 'channels'>('categories');
+  const focusedCategoryKeyRef = useRef<string>('all');
+  const selectedCategoryKeyRef = useRef<string>('all');
+  selectedCategoryKeyRef.current = selectedCategoryKey;
+  const channelsRef = useRef(channels);
+  channelsRef.current = channels;
+  const categoriesRef = useRef<GuideCategory[]>([]);
 
   // Reloj digital en vivo en el OSD
   useEffect(() => {
@@ -255,37 +285,57 @@ function ChannelPlayer({
     }, 2400);
   }, []);
 
-  // Mostrar OSD con temporizador de auto-ocultado (5.5s)
+  // Mostrar OSD con temporizador de auto-ocultado (10s)
   const triggerOSD = useCallback(() => {
     setShowOSD(true);
     if (osdTimerRef.current) clearTimeout(osdTimerRef.current);
     if (!showGuide) {
       osdTimerRef.current = setTimeout(() => {
         setShowOSD(false);
-      }, 5500);
+      }, 10000);
     }
   }, [showGuide]);
 
-  // Al cambiar de canal activo, reabrir OSD brevemente y resetear errores
+  useEffect(() => {
+    return () => {
+      if (osdTimerRef.current) clearTimeout(osdTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (showOSD && !showGuide) {
+      focusedDockIdxRef.current = 1;
+      setOsdFocusReady(false);
+      const t = setTimeout(() => setOsdFocusReady(true), 50);
+      return () => clearTimeout(t);
+    }
+    isDockFocusedRef.current = false;
+    focusedDockIdxRef.current = 1;
+    setOsdFocusReady(false);
+  }, [showOSD, showGuide]);
+
+  // Al cambiar de canal activo, resetear estado de error/buffering y registrar en recientes
+  // (sin forzar la apertura del menú OSD para permitir cambio directo con Arriba/Abajo)
   useEffect(() => {
     setWebError(null);
     setIsNativeError(false);
     setIsNativeBuffering(true);
-    triggerOSD();
     if (activeChannel?.id) {
       recordRecentChannel(activeChannel.id);
     }
-  }, [activeChannel, triggerOSD]);
+  }, [activeChannel]);
 
-  // Mantener OSD abierto si la guía está abierta, o manejar temporizador
+  // Iniciar temporizador del OSD al montar y ocultar el OSD cuando se abre la Guía
+  useEffect(() => {
+    triggerOSD();
+  }, [triggerOSD]);
+
   useEffect(() => {
     if (showGuide) {
       if (osdTimerRef.current) clearTimeout(osdTimerRef.current);
       setShowOSD(false); // Ocultar OSD inferior para dejar libre la vista de la Guía dual
-    } else {
-      triggerOSD();
     }
-  }, [showGuide, triggerOSD]);
+  }, [showGuide]);
 
   // ── Controles de Reproducción ──────────────────────────────────────────────
   const togglePlayPause = useCallback(() => {
@@ -344,8 +394,8 @@ function ChannelPlayer({
 
   const handleToggleFav = useCallback(() => {
     if (!activeChannel) return;
-    toggleFavorite(activeChannel.id);
-    const willBeFav = !favSet.has(activeChannel.id);
+    toggleFavorite(activeChannel);
+    const willBeFav = !favSet.has(String(activeChannel.id));
     showHudMessage(willBeFav ? 'Guardado en Favoritos' : 'Eliminado de Favoritos', Star);
     triggerOSD();
   }, [activeChannel, favSet, toggleFavorite, showHudMessage, triggerOSD]);
@@ -370,42 +420,44 @@ function ChannelPlayer({
     showHudMessage(`Anterior: ${target.name}`, SkipBack);
   }, [channels, activeChannel, setActiveChannel, showHudMessage]);
 
-  // Abrir / Cerrar Guía de dos ventanas
+  // Abrir / Cerrar Guía de dos ventanas enfocando directamente el canal actual en reproducción
   const openGuide = useCallback(() => {
+    if (osdTimerRef.current) clearTimeout(osdTimerRef.current);
     setShowOSD(false);
+    setGuideSearch('');
+    const currentCat = categoriesRef.current.find((c) => c.key === selectedCategoryKeyRef.current);
+    const hasActiveInCat =
+      activeChannel && currentCat ? currentCat.filter(activeChannel) : false;
+    const targetCatKey = hasActiveInCat ? selectedCategoryKeyRef.current : 'all';
+    selectedCategoryKeyRef.current = targetCatKey;
+    setSelectedCategoryKey(targetCatKey);
+    focusedCategoryKeyRef.current = targetCatKey;
+    guidePaneRef.current = 'channels';
+    setGuidePane('channels');
     setShowGuide(true);
-    setGuidePane('categories');
-  }, []);
+  }, [activeChannel]);
 
   const closeGuide = useCallback(() => {
-    if (categoryDebounceTimer.current) {
-      clearTimeout(categoryDebounceTimer.current);
-      categoryDebounceTimer.current = null;
-    }
     setShowGuide(false);
-    triggerOSD();
-  }, [triggerOSD]);
+  }, []);
 
-  // Selección fluida con debounce para evitar congelamientos o saltos erráticos
-  // al mantener presionado el d-pad en TV
+  // Al desplazarse por la Ventana 1 no cambia los canales de la derecha;
+  // solo actualiza la lista derecha cuando el usuario presiona OK o Derecha.
   const handleCategoryFocus = useCallback((key: string) => {
+    focusedCategoryKeyRef.current = key;
+    guidePaneRef.current = 'categories';
     setGuidePane('categories');
-    if (categoryDebounceTimer.current) {
-      clearTimeout(categoryDebounceTimer.current);
-    }
-    categoryDebounceTimer.current = setTimeout(() => {
-      setSelectedCategoryKey(key);
-      categoryDebounceTimer.current = null;
-    }, 130);
   }, []);
 
   const handleCategoryPress = useCallback((key: string) => {
-    if (categoryDebounceTimer.current) {
-      clearTimeout(categoryDebounceTimer.current);
-      categoryDebounceTimer.current = null;
-    }
+    focusedCategoryKeyRef.current = key;
     setSelectedCategoryKey(key);
-    setGuidePane('channels');
+    setGuideSearch('');
+    const catObj = categoriesRef.current.find((c) => c.key === key);
+    const hasChannels = Boolean(catObj && channelsRef.current.some(catObj.filter));
+    const nextPane = hasChannels ? 'channels' : 'categories';
+    guidePaneRef.current = nextPane;
+    setGuidePane(nextPane);
   }, []);
 
   // ── Motor Inteligente de Clasificaciones para Ventana 1 ───────────────────
@@ -556,16 +608,21 @@ function ChannelPlayer({
 
   // Actualizar handles de nodos en categorías
   useEffect(() => {
-    if (Platform.OS === 'web') return;
-    const handles: Record<string, number> = {};
-    for (const cat of categories) {
-      const node = catRefs.current[cat.key];
-      if (node) {
-        const h = safeFindNodeHandle(node);
-        if (typeof h === 'number' && h > 0) handles[cat.key] = h;
+    if (Platform.OS === 'web' || !showGuide) return;
+    const syncCatHandles = () => {
+      const handles: Record<string, number> = {};
+      for (const cat of categories) {
+        const node = catRefs.current[cat.key];
+        if (node) {
+          const h = safeFindNodeHandle(node);
+          if (typeof h === 'number' && h > 0) handles[cat.key] = h;
+        }
       }
-    }
-    setCatHandles(handles);
+      setCatHandles(handles);
+    };
+    syncCatHandles();
+    const t = setTimeout(syncCatHandles, 40);
+    return () => clearTimeout(t);
   }, [categories, showGuide]);
 
   // Canales filtrados por la categoría activa en Ventana 1
@@ -586,34 +643,68 @@ function ChannelPlayer({
     );
   }, [categoryChannels, guideSearch]);
 
+  // Índice del canal actual dentro de la lista filtrada para posicionar scroll y foco automáticamente
+  const activeChannelIdx = useMemo(() => {
+    if (!activeChannel?.id) return -1;
+    return displayedChannels.findIndex((c) => c.id === activeChannel.id);
+  }, [displayedChannels, activeChannel?.id]);
+
+  const preferredChannelIdx = activeChannelIdx >= 0 ? activeChannelIdx : 0;
+  const initialScrollIdx = Math.max(0, preferredChannelIdx - 2);
+
+  const getPlayerChannelItemLayout = useCallback(
+    (_: any, index: number) => ({
+      length: PLAYER_CH_STRIDE,
+      offset: PLAYER_CH_STRIDE * index,
+      index,
+    }),
+    [],
+  );
+
+  // Al abrir la guía o cambiar de categoría, desplazar al canal actual y activar el foco sobre él
+  useEffect(() => {
+    if (!showGuide) {
+      setGuideFocusReady(false);
+      return;
+    }
+    setGuideFocusReady(false);
+    const targetOffset = Math.max(0, (preferredChannelIdx - 2) * PLAYER_CH_STRIDE);
+    const scrollTimer = setTimeout(() => {
+      channelsListRef.current?.scrollToOffset?.({ offset: targetOffset, animated: false });
+    }, 10);
+    const focusTimer = setTimeout(() => {
+      channelsListRef.current?.scrollToOffset?.({ offset: targetOffset, animated: false });
+      setGuideFocusReady(true);
+    }, 55);
+    return () => {
+      clearTimeout(scrollTimer);
+      clearTimeout(focusTimer);
+    };
+  }, [showGuide, selectedCategoryKey, preferredChannelIdx]);
+
   const activeCategoryObj = useMemo(() => {
     return categories.find((c) => c.key === selectedCategoryKey) || categories[0];
   }, [categories, selectedCategoryKey]);
 
-  // Actualizar handle del primer canal para nextFocusRight
-  const updateFirstChannelHandle = useCallback(() => {
-    if (Platform.OS === 'web') return;
-    if (firstChannelRef.current) {
-      const h = safeFindNodeHandle(firstChannelRef.current);
-      if (typeof h === 'number' && h > 0) setFirstChannelHandle(h);
-    }
-  }, []);
+  categoriesRef.current = categories;
+  const isError = Platform.OS === 'web' ? Boolean(webError) : isNativeError;
 
-  useEffect(() => {
-    updateFirstChannelHandle();
-    const t = setTimeout(updateFirstChannelHandle, 100);
-    return () => clearTimeout(t);
-  }, [displayedChannels, showGuide, updateFirstChannelHandle]);
-
-  // ── Eventos de Control Remoto / Teclado TV ──────────────────────────────────
-  useTVEventHandlerSafe((evt: any) => {
+  // ── Eventos de Control Remoto / Teclado TV (vía MainActivity -> onTVRemoteKey) ──
+  useTVRemoteKey((evt) => {
     if (!evt || !evt.eventType) return;
     const t = evt.eventType;
+    const isFreshPress = (evt.repeatCount ?? 0) === 0;
 
     // Si la guía dual está abierta:
     if (showGuide) {
-      if (t === 'playPause') {
+      if (t === 'playPause' && isFreshPress) {
         togglePlayPause();
+      } else if (
+        t === 'right' &&
+        isFreshPress &&
+        guidePaneRef.current === 'categories'
+      ) {
+        handleCategoryPress(focusedCategoryKeyRef.current);
       }
       return;
     }
@@ -621,24 +712,61 @@ function ChannelPlayer({
     // Si el OSD está abierto:
     if (showOSD) {
       triggerOSD();
-      if (t === 'playPause') {
+      const canTriggerEdge =
+        isFreshPress || Date.now() - dockEdgeEnteredAtRef.current >= 220;
+      if (t === 'playPause' && isFreshPress) {
         togglePlayPause();
-      } else if (t === 'left' && focusedDockIdx === 0) {
-        // En el extremo izquierdo del dock de botones: presionar izquierda abre la ventana de filtros
+      } else if ((t === 'up' || t === 'down') && !isError) {
+        const now = Date.now();
+        const minZapInterval = isFreshPress ? 80 : 350;
+        if (now - lastZapTimeRef.current >= minZapInterval) {
+          lastZapTimeRef.current = now;
+          if (t === 'up') {
+            nextChannel();
+          } else {
+            prevChannel();
+          }
+        }
+      } else if (
+        t === 'left' &&
+        isDockFocusedRef.current &&
+        focusedDockIdxRef.current === 0 &&
+        canTriggerEdge
+      ) {
+        // En el extremo izquierdo del dock de botones: presionar izquierda abre la guía de canales
         openGuide();
-      } else if (t === 'right' && focusedDockIdx === 8) {
-        // En el extremo derecho del dock de botones: presionar derecha abre la ventana de filtros
+      } else if (
+        t === 'right' &&
+        isDockFocusedRef.current &&
+        focusedDockIdxRef.current === 8 &&
+        canTriggerEdge
+      ) {
+        // En el extremo derecho del dock de botones: presionar derecha abre la guía de canales
         openGuide();
       }
       return;
     }
 
-    // Cuando la pantalla está limpia (sin OSD ni Guía):
-    if (t === 'select' || t === 'up' || t === 'down') {
-      triggerOSD();
-    } else if (t === 'left' || t === 'right') {
+    // Cuando el menú no está visible (sin OSD ni Guía):
+    // - Derecha o Izquierda: abre directamente la barra de filtros de canales
+    // - Arriba o Abajo: cambia de canal de forma directa (sin abrir el menú OSD)
+    // - OK / Select o Menú: muestra el menú de control OSD
+    if (t === 'left' || t === 'right') {
       openGuide();
-    } else if (t === 'playPause') {
+    } else if (t === 'up' || t === 'down') {
+      const now = Date.now();
+      const minZapInterval = isFreshPress ? 80 : 350;
+      if (now - lastZapTimeRef.current >= minZapInterval) {
+        lastZapTimeRef.current = now;
+        if (t === 'up') {
+          nextChannel();
+        } else {
+          prevChannel();
+        }
+      }
+    } else if (t === 'select' || t === 'menu') {
+      triggerOSD();
+    } else if (t === 'playPause' && isFreshPress) {
       togglePlayPause();
     }
   });
@@ -662,7 +790,7 @@ function ChannelPlayer({
     return () => sub.remove();
   }, [showGuide, showOSD, router, closeGuide]);
 
-  // Eventos de Teclado y Click en Navegador Web
+  // Tecla Atrás (Escape / Backspace) en Navegador Web (el resto se maneja vía useTVRemoteKey)
   useEffect(() => {
     if (Platform.OS !== 'web') return;
 
@@ -670,7 +798,6 @@ function ChannelPlayer({
       const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       const isInput = targetTag === 'input' || targetTag === 'textarea';
 
-      // Tecla Atrás / Escape / Backspace: cierra de UNA sola vez
       if (e.key === 'Escape' || (!isInput && e.key === 'Backspace')) {
         e.preventDefault();
         if (showGuide) {
@@ -682,48 +809,6 @@ function ChannelPlayer({
           return;
         }
         router.back();
-        return;
-      }
-
-      if (showGuide) {
-        if (!isInput && (e.key === ' ' || e.key === 'MediaPlayPause')) {
-          e.preventDefault();
-          togglePlayPause();
-        }
-        return;
-      }
-
-      // Si el OSD está abierto:
-      if (showOSD) {
-        triggerOSD();
-        if (e.key === ' ' || e.key === 'MediaPlayPause') {
-          e.preventDefault();
-          togglePlayPause();
-          return;
-        }
-        if (!isInput && e.key === 'ArrowLeft' && focusedDockIdx === 0) {
-          e.preventDefault();
-          openGuide();
-          return;
-        }
-        if (!isInput && e.key === 'ArrowRight' && focusedDockIdx === 8) {
-          e.preventDefault();
-          openGuide();
-          return;
-        }
-        return;
-      }
-
-      // Cuando la pantalla está limpia:
-      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        triggerOSD();
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        e.preventDefault();
-        openGuide();
-      } else if (e.key === 'MediaPlayPause') {
-        e.preventDefault();
-        togglePlayPause();
       }
     };
 
@@ -731,7 +816,7 @@ function ChannelPlayer({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [showGuide, guidePane, showOSD, triggerOSD, openGuide, closeGuide, togglePlayPause, router]);
+  }, [showGuide, showOSD, closeGuide, router]);
 
   if (!activeChannel) {
     return (
@@ -746,7 +831,6 @@ function ChannelPlayer({
     Platform.OS === 'web'
       ? `${API_URL}/proxy?url=${encodeURIComponent(activeChannel.url)}`
       : activeChannel.url;
-  const isError = Platform.OS === 'web' ? Boolean(webError) : isNativeError;
   const isBuffering = Platform.OS === 'web' ? false : isNativeBuffering;
 
   const currentCategoryHandle = catHandles[selectedCategoryKey] || catHandles[categories[0]?.key];
@@ -810,38 +894,53 @@ function ChannelPlayer({
             <View style={s.errorActions}>
               <Focusable
                 hasTVPreferredFocus
+                onFocus={() => {
+                  isDockFocusedRef.current = false;
+                }}
                 onPress={syncLive}
                 animateScale={false}
                 showFocusRing={false}
                 style={s.errorBtn}
                 focusedStyle={s.errorBtnFocused}
               >
-                <RotateCcw size={scale(16)} color="#000" />
-                <Text style={s.errorBtnTxt}>Reintentar conexión</Text>
+                {() => (
+                  <>
+                    <RotateCcw size={scale(16)} color="#000" />
+                    <Text style={s.errorBtnTxt}>Reintentar conexión</Text>
+                  </>
+                )}
               </Focusable>
               <Focusable
+                onFocus={() => {
+                  isDockFocusedRef.current = false;
+                }}
                 onPress={nextChannel}
                 animateScale={false}
                 showFocusRing={false}
                 style={s.errorBtnSecondary}
                 focusedStyle={s.errorBtnSecondaryFocused}
               >
-                <SkipForward size={scale(16)} color="#fff" />
-                <Text style={s.errorBtnSecondaryTxt}>Canal siguiente</Text>
+                {({ focused }) => (
+                  <>
+                    <SkipForward size={scale(16)} color={focused ? '#000' : '#fff'} />
+                    <Text style={[s.errorBtnSecondaryTxt, focused && { color: '#000' }]}>
+                      Canal siguiente
+                    </Text>
+                  </>
+                )}
               </Focusable>
             </View>
           </View>
         </View>
       )}
 
-      {/* ── Capa interactiva a pantalla completa para capturar Click y Foco cuando no hay OSD ni Guía ── */}
+      {/* ── Capa táctil a pantalla completa para mostrar el OSD con toque/clic sin robar teclas TV ── */}
       {!showGuide && !showOSD && (
-        <Focusable
-          hasTVPreferredFocus
-          onPress={() => triggerOSD()}
+        <Pressable
+          focusable={false}
+          accessible={false}
+          onPress={triggerOSD}
           style={StyleSheet.absoluteFill}
-          animateScale={false}
-          showFocusRing={false}
         />
       )}
 
@@ -858,6 +957,8 @@ function ChannelPlayer({
         <View style={s.guideBackdrop} pointerEvents="box-none">
           {/* Backdrop clickeable: click afuera ("en otro lado") cierra la guía inmediatamente */}
           <Pressable
+            focusable={false}
+            accessible={false}
             style={StyleSheet.absoluteFill}
             onPress={closeGuide}
           />
@@ -898,14 +999,14 @@ function ChannelPlayer({
                       ref={(node: any) => {
                         catRefs.current[cat.key] = node;
                       }}
-                      hasTVPreferredFocus={isSelected && guidePane === 'categories'}
+                      hasTVPreferredFocus={guideFocusReady && isSelected && guidePane === 'categories'}
                       onFocus={() => handleCategoryFocus(cat.key)}
                       onPress={() => handleCategoryPress(cat.key)}
-                      nextFocusRight={firstChannelHandle}
+                      trapFocusRight={true}
                       trapFocusLeft={true}
                       trapFocusUp={idx === 0}
                       trapFocusDown={idx === categories.length - 1}
-                      throttleMs={80}
+                      throttleMs={0}
                       animateScale={false}
                       showFocusRing={false}
                       style={[s.catPill, isSelected && s.catPillActive]}
@@ -983,6 +1084,10 @@ function ChannelPlayer({
                   <TextInput
                     value={guideSearch}
                     onChangeText={setGuideSearch}
+                    onFocus={() => {
+                      guidePaneRef.current = 'channels';
+                      setGuidePane('channels');
+                    }}
                     placeholder="Filtrar canal por nombre o país…"
                     placeholderTextColor="rgba(255,255,255,0.35)"
                     style={s.searchInput}
@@ -996,22 +1101,34 @@ function ChannelPlayer({
               </View>
 
               <FlatList
+                ref={channelsListRef}
                 data={displayedChannels}
                 keyExtractor={(item) => item.id}
+                extraData={`${guideFocusReady}-${guidePane}-${activeChannel.id}-${preferredChannelIdx}-${currentCategoryHandle}`}
                 style={s.chList}
                 contentContainerStyle={s.chListContent}
                 initialNumToRender={14}
                 maxToRenderPerBatch={10}
                 windowSize={7}
+                getItemLayout={getPlayerChannelItemLayout}
+                initialScrollIndex={
+                  displayedChannels.length > initialScrollIdx ? initialScrollIdx : 0
+                }
+                onScrollToIndexFailed={() => {}}
+                removeClippedSubviews={false}
                 renderItem={({ item, index }) => {
                   const isCurrent = item.id === activeChannel.id;
                   const isFav = favSet.has(item.id);
 
                   return (
                     <Focusable
-                      ref={index === 0 ? firstChannelRef : undefined}
-                      hasTVPreferredFocus={index === 0 && guidePane === 'channels'}
+                      hasTVPreferredFocus={
+                        guideFocusReady &&
+                        index === preferredChannelIdx &&
+                        guidePane === 'channels'
+                      }
                       onFocus={() => {
+                        guidePaneRef.current = 'channels';
                         setGuidePane('channels');
                       }}
                       onPress={() => {
@@ -1124,6 +1241,8 @@ function ChannelPlayer({
         <View style={s.osdRoot} pointerEvents="box-none">
           {/* Click en cualquier parte libre del reproductor oculta el OSD */}
           <Pressable
+            focusable={false}
+            accessible={false}
             style={StyleSheet.absoluteFill}
             onPress={() => setShowOSD(false)}
           />
@@ -1157,29 +1276,26 @@ function ChannelPlayer({
               ) : null}
 
               <View style={s.osdChannelDetails}>
-                <View style={s.osdBadgeRow}>
-                  <View style={s.badgeLive}>
-                    <View style={s.badgeLiveDot} />
-                    <Text style={s.badgeLiveText}>EN VIVO</Text>
+                {activeChannel.category?.name || activeChannel.country ? (
+                  <View style={s.osdBadgeRow}>
+                    {activeChannel.category?.name ? (
+                      <View style={s.osdTagBadge}>
+                        <Text style={s.osdTagBadgeTxt}>
+                          {activeChannel.category.name.toUpperCase()}
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {activeChannel.country ? (
+                      <View style={s.osdCountryBadge}>
+                        <MapPin size={scale(10)} color="#fff" />
+                        <Text style={s.osdCountryBadgeTxt}>
+                          {activeChannel.country.toUpperCase()}
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
-
-                  {activeChannel.category?.name ? (
-                    <View style={s.osdTagBadge}>
-                      <Text style={s.osdTagBadgeTxt}>
-                        {activeChannel.category.name.toUpperCase()}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {activeChannel.country ? (
-                    <View style={s.osdCountryBadge}>
-                      <MapPin size={scale(10)} color="#fff" />
-                      <Text style={s.osdCountryBadgeTxt}>
-                        {activeChannel.country.toUpperCase()}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
+                ) : null}
 
                 <Text style={s.osdChannelName} numberOfLines={1}>
                   {activeChannel.name}
@@ -1218,23 +1334,26 @@ function ChannelPlayer({
               {/* 1. Canal Anterior */}
               <OSDActionButton
                 icon={SkipBack}
+                trapFocusLeft
+                trapFocusUp={!isError}
                 onPress={prevChannel}
                 onFocus={() => {
                   triggerOSD();
-                  setFocusedDockIdx(0);
+                  updateDockIdx(0);
                   setFocusedAction('Canal Anterior');
                 }}
               />
 
               {/* 2. Pausar / Reanudar (Botón Central Hero) */}
               <OSDActionButton
-                hasPreferredFocus
+                hasPreferredFocus={osdFocusReady && !isError}
                 isHero
+                trapFocusUp={!isError}
                 icon={isPaused ? Play : Pause}
                 onPress={togglePlayPause}
                 onFocus={() => {
                   triggerOSD();
-                  setFocusedDockIdx(1);
+                  updateDockIdx(1);
                   setFocusedAction(isPaused ? 'Reanudar Transmisión' : 'Pausar Transmisión');
                 }}
                 active={isPaused}
@@ -1244,10 +1363,11 @@ function ChannelPlayer({
               {/* 3. Canal Siguiente */}
               <OSDActionButton
                 icon={SkipForward}
+                trapFocusUp={!isError}
                 onPress={nextChannel}
                 onFocus={() => {
                   triggerOSD();
-                  setFocusedDockIdx(2);
+                  updateDockIdx(2);
                   setFocusedAction('Siguiente Canal');
                 }}
               />
@@ -1258,10 +1378,11 @@ function ChannelPlayer({
               {/* 4. Sincronizar Vivo */}
               <OSDActionButton
                 icon={RotateCcw}
+                trapFocusUp={!isError}
                 onPress={syncLive}
                 onFocus={() => {
                   triggerOSD();
-                  setFocusedDockIdx(3);
+                  updateDockIdx(3);
                   setFocusedAction('Sincronizar en Vivo');
                 }}
               />
@@ -1269,10 +1390,11 @@ function ChannelPlayer({
               {/* 5. Guía de Canales (Abre las dos ventanas unidas) */}
               <OSDActionButton
                 icon={List}
+                trapFocusUp={!isError}
                 onPress={openGuide}
                 onFocus={() => {
                   triggerOSD();
-                  setFocusedDockIdx(4);
+                  updateDockIdx(4);
                   setFocusedAction('Guía de Canales');
                 }}
                 accentColor={C.accent}
@@ -1281,10 +1403,11 @@ function ChannelPlayer({
               {/* 6. Silenciar / Reactivar Audio */}
               <OSDActionButton
                 icon={isMuted ? VolumeX : Volume2}
+                trapFocusUp={!isError}
                 onPress={toggleMute}
                 onFocus={() => {
                   triggerOSD();
-                  setFocusedDockIdx(5);
+                  updateDockIdx(5);
                   setFocusedAction(isMuted ? 'Reactivar Sonido' : 'Silenciar Audio');
                 }}
                 active={isMuted}
@@ -1294,10 +1417,11 @@ function ChannelPlayer({
               {/* 7. Favorito */}
               <OSDActionButton
                 icon={Heart}
+                trapFocusUp={!isError}
                 onPress={handleToggleFav}
                 onFocus={() => {
                   triggerOSD();
-                  setFocusedDockIdx(6);
+                  updateDockIdx(6);
                   setFocusedAction(isCurrentFav ? 'Quitar de Favoritos' : 'Guardar en Favoritos');
                 }}
                 active={isCurrentFav}
@@ -1307,10 +1431,11 @@ function ChannelPlayer({
               {/* 8. Ajuste de Pantalla */}
               <OSDActionButton
                 icon={Maximize2}
+                trapFocusUp={!isError}
                 onPress={toggleResizeMode}
                 onFocus={() => {
                   triggerOSD();
-                  setFocusedDockIdx(7);
+                  updateDockIdx(7);
                   setFocusedAction(resizeMode === 'cover' ? 'Ajuste: Llenar Pantalla' : 'Ajuste: Proporción Original');
                 }}
               />
@@ -1318,10 +1443,12 @@ function ChannelPlayer({
               {/* 9. Salir a la lista de canales */}
               <OSDActionButton
                 icon={ArrowLeft}
+                trapFocusRight
+                trapFocusUp={!isError}
                 onPress={() => router.back()}
                 onFocus={() => {
                   triggerOSD();
-                  setFocusedDockIdx(8);
+                  updateDockIdx(8);
                   setFocusedAction('Salir del Reproductor');
                 }}
               />
@@ -1447,7 +1574,7 @@ const s = StyleSheet.create({
     borderRadius: scale(10),
   },
   errorBtnSecondaryFocused: {
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: C.accent,
   },
   errorBtnSecondaryTxt: {
     color: '#ffffff',
@@ -1673,13 +1800,13 @@ const s = StyleSheet.create({
   chListContent: {
     paddingVertical: scale(12),
     paddingHorizontal: scale(14),
-    gap: scale(6),
+    gap: PLAYER_CH_ITEM_GAP,
   },
   chItem: {
+    height: PLAYER_CH_ITEM_H,
     flexDirection: 'row',
     alignItems: 'center',
     gap: scale(12),
-    paddingVertical: scale(8),
     paddingHorizontal: scale(10),
     borderRadius: scale(12),
     backgroundColor: 'rgba(255,255,255,0.02)',

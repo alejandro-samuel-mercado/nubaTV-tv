@@ -44,6 +44,10 @@ function ChannelCard({ channel, isActive, isFav, onPress, onFocus, onToggleFav, 
         s.root,
         isActive && s.rootActive,
       ]}
+      focusedStyle={{
+        borderColor: color || '#ffffff',
+        borderWidth: 2,
+      }}
     >
       {/* Background / Logo */}
       <View style={s.logoContainer}>
@@ -126,10 +130,12 @@ export default memo(
 const s = StyleSheet.create({
   root: {
     width: '100%',
-    aspectRatio: 3/4,
+    height: scale(196),
     backgroundColor: C.bgCard,
     borderRadius: scale(16),
-    overflow: 'visible',   // must be visible so focus border isn't clipped
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
     position: 'relative',
   },
   rootActive: {

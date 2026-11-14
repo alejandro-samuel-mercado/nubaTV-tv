@@ -94,7 +94,7 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
     focusRingColor,
     focusBorderWidth = scale(2.5),
     borderRadius,
-    throttleMs = 80,
+    throttleMs = 32,
     trapFocusRight,
     trapFocusLeft,
     trapFocusUp,
@@ -128,6 +128,17 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
       }
     };
   }, []);
+
+  // Asegurar foco nativo/web cuando hasTVPreferredFocus pasa a true dinámicamente (ej. listas y modales)
+  useEffect(() => {
+    if ((rest as any).hasTVPreferredFocus && innerRef.current) {
+      if (Platform.OS === "web") {
+        innerRef.current.focus?.();
+      } else {
+        innerRef.current.setNativeProps?.({ hasTVPreferredFocus: true });
+      }
+    }
+  }, [(rest as any).hasTVPreferredFocus]);
 
   const handleFocus = useCallback(() => {
     setFocused(true);
@@ -169,22 +180,9 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
     [hasAnyTrap, (rest as any).onLayout],
   );
 
-  // Resolver estilos planos
-  const flatStyle = StyleSheet.flatten(style) || {};
-  const flatFocused = StyleSheet.flatten(focusedStyle) || {};
-
-  const baseTransforms = Array.isArray(flatStyle.transform)
-    ? flatStyle.transform.filter((t: any) => typeof t?.scale !== "number")
-    : [];
-  const focusedTransforms = (focused && Array.isArray(flatFocused.transform))
-    ? flatFocused.transform.filter((t: any) => typeof t?.scale !== "number")
-    : [];
-
-  const combinedTransforms = [
-    ...baseTransforms,
-    ...focusedTransforms,
-    ...(isScaleEnabled && focused ? [{ scale: targetScale }] : []),
-  ];
+  // Aplicar escala directa cuando está enfocado sin invocar StyleSheet.flatten
+  const scaleTransformStyle =
+    isScaleEnabled && focused ? { transform: [{ scale: targetScale }] } : null;
 
   const resolvedNextFocusRight =
     nextFocusRight ?? (trapFocusRight ? selfNodeHandle : undefined);
@@ -211,16 +209,19 @@ const Focusable = React.forwardRef<any, FocusableProps>(function Focusable(
       style={[
         style,
         focused && focusedStyle,
-        combinedTransforms.length > 0 && { transform: combinedTransforms },
-        {
-          zIndex: focused ? 50 : 1,
-        },
+        scaleTransformStyle,
+        focused ? s.focusedZ : s.unfocusedZ,
       ]}
       {...rest}
     >
       {typeof children === "function" ? children({ focused }) : children}
     </TVPressable>
   );
+});
+
+const s = StyleSheet.create({
+  focusedZ: { zIndex: 50 },
+  unfocusedZ: { zIndex: 1 },
 });
 
 export default Focusable;

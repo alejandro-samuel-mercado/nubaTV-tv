@@ -41,11 +41,17 @@ import Focusable from "../../components/tv/Focusable";
 import HeroVideo from "../../components/tv/HeroVideo";
 import RemoteImage, { prefetchImages } from "../../components/tv/RemoteImage";
 import { Channel, useGlobal } from "../../contexts/GlobalContext";
-import { useSidebarHandle } from "../../hooks/useNavThrottle";
+import {
+  setGlobalPreferredContentHandle,
+  useSidebarHandle,
+  useTVRemoteKey,
+} from "../../hooks/useNavThrottle";
 import { scale } from "../../lib/scale";
 import {
   getContentList,
+  getContentListSync,
   getHomepage,
+  getHomepageSync,
   NexoContentItem,
 } from "../../services/nexoplay";
 import {
@@ -73,11 +79,6 @@ const safeFindNodeHandle = (node: any): number | undefined => {
     return undefined;
   }
 };
-
-const useTVEventHandlerSafe: (handler: (evt: any) => void) => void =
-  Platform.OS !== "web"
-    ? (require("react-native") as any).useTVEventHandler ?? (() => { })
-    : () => { };
 
 // ── Medidas del Layout TV ────────────────────────────────────────────────────
 const CONTENT_LEFT_PAD = scale(96);
@@ -221,6 +222,8 @@ const FilterPill = memo(function FilterPill({
   nextFocusLeft,
   nextFocusUp,
   trapFocusRight,
+  nodeRef,
+  onLayout,
 }: {
   id: string;
   label: string;
@@ -232,6 +235,8 @@ const FilterPill = memo(function FilterPill({
   nextFocusLeft?: number;
   nextFocusUp?: number;
   trapFocusRight?: boolean;
+  nodeRef?: (node: any) => void;
+  onLayout?: () => void;
 }) {
   const handlePress = useCallback(() => {
     onPress(id);
@@ -239,6 +244,8 @@ const FilterPill = memo(function FilterPill({
 
   return (
     <Focusable
+      ref={nodeRef}
+      onLayout={onLayout}
       onPress={handlePress}
       nextFocusLeft={nextFocusLeft}
       nextFocusUp={nextFocusUp}
@@ -306,7 +313,6 @@ interface CategoryItemProps {
   isSelected: boolean;
   onFocus: (id: string) => void;
   onPress: (id: string) => void;
-  nextFocusRight?: number;
   nodeRef?: (node: any) => void;
   isFirst?: boolean;
   isLast?: boolean;
@@ -318,7 +324,6 @@ const CategoryItem = memo(
     isSelected,
     onFocus,
     onPress,
-    nextFocusRight,
     nodeRef,
     isFirst,
     isLast,
@@ -332,11 +337,11 @@ const CategoryItem = memo(
         ref={nodeRef}
         onFocus={handleFocus}
         onPress={handlePress}
-        nextFocusRight={nextFocusRight}
+        trapFocusRight={true}
         trapFocusLeft={true}
         trapFocusUp={isFirst}
         trapFocusDown={isLast}
-        throttleMs={80}
+        throttleMs={0}
         animateScale={false}
         showFocusRing={false}
         style={[s.catPill, isSelected && s.catPillActive]}
@@ -404,8 +409,7 @@ const CategoryItem = memo(
     return (
       prev.cat.id === next.cat.id &&
       prev.cat.count === next.cat.count &&
-      prev.isSelected === next.isSelected &&
-      prev.nextFocusRight === next.nextFocusRight
+      prev.isSelected === next.isSelected
     );
   }
 );
@@ -415,6 +419,7 @@ interface ChannelListItemProps {
   item: Channel;
   index: number;
   isCurrent: boolean;
+  preferFocus?: boolean;
   onPress: (item: Channel) => void;
   onFocus: () => void;
   nextFocusLeft?: number;
@@ -427,6 +432,7 @@ const ChannelListItem = memo(
     item,
     index,
     isCurrent,
+    preferFocus,
     onPress,
     onFocus,
     nextFocusLeft,
@@ -440,6 +446,7 @@ const ChannelListItem = memo(
     return (
       <Focusable
         ref={index === 0 ? firstChannelRef : undefined}
+        hasTVPreferredFocus={preferFocus}
         onFocus={onFocus}
         onPress={handlePress}
         nextFocusLeft={nextFocusLeft}
@@ -531,6 +538,7 @@ const ChannelListItem = memo(
     return (
       prev.item.id === next.item.id &&
       prev.isCurrent === next.isCurrent &&
+      prev.preferFocus === next.preferFocus &&
       prev.nextFocusLeft === next.nextFocusLeft &&
       prev.index === next.index
     );
@@ -565,52 +573,54 @@ const MovieHeroCard = memo(function MovieHeroCard({
       style={s.movieCard}
       focusedStyle={s.movieCardFocused}
     >
-      <RemoteImage
-        uri={bgImg}
-        style={StyleSheet.absoluteFill as any}
-        contentFit="cover"
-        transition={150}
-      />
-      <LinearGradient
-        colors={["transparent", "rgba(7,5,18,0.45)", "rgba(7,5,18,0.94)"]}
-        locations={[0, 0.45, 1]}
-        style={StyleSheet.absoluteFill}
-      />
+      <View style={s.movieCardInner}>
+        <RemoteImage
+          uri={bgImg}
+          style={StyleSheet.absoluteFill as any}
+          contentFit="cover"
+          transition={150}
+        />
+        <LinearGradient
+          colors={["transparent", "rgba(7,5,18,0.45)", "rgba(7,5,18,0.94)"]}
+          locations={[0, 0.45, 1]}
+          style={StyleSheet.absoluteFill}
+        />
 
-      {/* Badges superiores: CINE y Calificación */}
-      <View style={s.movieTopRow}>
-        <View style={s.movieBadgeDestacado}>
-          <Film size={scale(9)} color="#000000" />
-          <Text style={s.movieBadgeDestacadoTxt}>CINE</Text>
+        {/* Badges superiores: CINE y Calificación */}
+        <View style={s.movieTopRow}>
+          <View style={s.movieBadgeDestacado}>
+            <Film size={scale(9)} color="#000000" />
+            <Text style={s.movieBadgeDestacadoTxt}>CINE</Text>
+          </View>
+
+          {item.rating ? (
+            <View style={s.movieRatingBadge}>
+              <Star
+                size={scale(9)}
+                color={LIVE_COLORS.moviesGold}
+                fill={LIVE_COLORS.moviesGold}
+              />
+              <Text style={s.movieRatingTxt}>{item.rating.toFixed(1)}</Text>
+            </View>
+          ) : null}
         </View>
 
-        {item.rating ? (
-          <View style={s.movieRatingBadge}>
-            <Star
-              size={scale(9)}
-              color={LIVE_COLORS.moviesGold}
-              fill={LIVE_COLORS.moviesGold}
-            />
-            <Text style={s.movieRatingTxt}>{item.rating.toFixed(1)}</Text>
+        {/* Info Inferior de la Película */}
+        <View style={s.movieCardInfo}>
+          <Text style={s.movieCardTitle} numberOfLines={1}>
+            {item.title}
+          </Text>
+          <View style={s.movieCardMetaRow}>
+            {item.genres?.[0]?.name ? (
+              <Text style={s.movieCardGenre}>{item.genres[0].name}</Text>
+            ) : null}
+            {item.releaseYear ? (
+              <Text style={s.movieCardYear}> • {item.releaseYear}</Text>
+            ) : null}
+            {item.duration ? (
+              <Text style={s.movieCardYear}> • {item.duration}m</Text>
+            ) : null}
           </View>
-        ) : null}
-      </View>
-
-      {/* Info Inferior de la Película */}
-      <View style={s.movieCardInfo}>
-        <Text style={s.movieCardTitle} numberOfLines={1}>
-          {item.title}
-        </Text>
-        <View style={s.movieCardMetaRow}>
-          {item.genres?.[0]?.name ? (
-            <Text style={s.movieCardGenre}>{item.genres[0].name}</Text>
-          ) : null}
-          {item.releaseYear ? (
-            <Text style={s.movieCardYear}> • {item.releaseYear}</Text>
-          ) : null}
-          {item.duration ? (
-            <Text style={s.movieCardYear}> • {item.duration}m</Text>
-          ) : null}
         </View>
       </View>
     </Focusable>
@@ -671,10 +681,31 @@ export default function ChannelsScreen() {
   }, []);
 
   // ── Películas del Hero (Manuales desde el Panel / Más relevantes) ──────────
-  const [heroMovies, setHeroMovies] = useState<NexoContentItem[]>([]);
-  const [moviesLoading, setMoviesLoading] = useState(true);
+  const initialMovies = useMemo(() => {
+    const hp = getHomepageSync();
+    const manualMovies = (hp?.heroItems || []).filter(
+      (it) => it.type === "MOVIE" || !it.type,
+    );
+    if (manualMovies.length > 0) return manualMovies;
+    const pop45 = getContentListSync({ type: "MOVIE", sort: "popular", limit: 45 });
+    if (pop45 && pop45.length > 0) return pop45.slice(0, 18);
+    const pop18 = getContentListSync({ type: "MOVIE", sort: "popular", limit: 18 });
+    return pop18 || [];
+  }, []);
+
+  const [heroMovies, setHeroMovies] = useState<NexoContentItem[]>(() => initialMovies);
+  const [moviesLoading, setMoviesLoading] = useState(() => initialMovies.length === 0);
 
   useEffect(() => {
+    if (initialMovies.length > 0) {
+      prefetchImages(
+        initialMovies
+          .map((m) => m.backdropUrl || m.posterUrl)
+          .filter(Boolean) as string[],
+      );
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       try {
@@ -716,7 +747,7 @@ export default function ChannelsScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialMovies]);
 
   // Filtrar canales bloqueados por control parental
   const allowedChannels = useMemo(() => {
@@ -1030,15 +1061,62 @@ export default function ChannelsScreen() {
   const [selectedGuideCategory, setSelectedGuideCategory] = useState<string>("all");
   const [guideSearch, setGuideSearch] = useState<string>("");
   const [guidePane, setGuidePane] = useState<"categories" | "channels">("channels");
+  const [guideFocusReady, setGuideFocusReady] = useState(false);
   const [catHandles, setCatHandles] = useState<Record<string, number>>({});
-  const [firstChannelHandle, setFirstChannelHandle] = useState<number | undefined>(undefined);
   const catRefs = useRef<Record<string, any>>({});
-  const firstChannelRef = useRef<any>(null);
-  const catDebounceTimer = useRef<any>(null);
+  const channelsListRef = useRef<FlatList<Channel>>(null);
+  const guidePaneRef = useRef<"categories" | "channels">("channels");
+  const focusedCategoryIdRef = useRef<string>("all");
+  const guideCategoriesRef = useRef(guideCategories);
+  guideCategoriesRef.current = guideCategories;
 
-  // Referencia y handle nativo del reproductor para recibir foco desde las etiquetas
-  const playerStageRef = useRef<any>(null);
-  const [playerStageHandle, setPlayerStageHandle] = useState<number | undefined>(undefined);
+  // Referencias y handles nativos para navegación en 1 solo paso hacia "Pantalla Completa"
+  const [isPlayerFocused, setIsPlayerFocused] = useState(false);
+  const fullscreenBtnRef = useRef<any>(null);
+  const [fullscreenBtnHandle, setFullscreenBtnHandle] = useState<number | undefined>(undefined);
+  const firstGridCardRef = useRef<any>(null);
+  const [firstGridCardHandle, setFirstGridCardHandle] = useState<number | undefined>(undefined);
+  const firstFilterPillRef = useRef<any>(null);
+  const [firstFilterPillHandle, setFirstFilterPillHandle] = useState<number | undefined>(undefined);
+
+  const syncHeroHandles = useCallback(() => {
+    if (Platform.OS === "web") return;
+    if (fullscreenBtnRef.current) {
+      const h = safeFindNodeHandle(fullscreenBtnRef.current);
+      if (typeof h === "number" && h > 0) setFullscreenBtnHandle(h);
+    }
+    if (firstGridCardRef.current) {
+      const h = safeFindNodeHandle(firstGridCardRef.current);
+      if (typeof h === "number" && h > 0) setFirstGridCardHandle(h);
+    }
+    if (firstFilterPillRef.current) {
+      const h = safeFindNodeHandle(firstFilterPillRef.current);
+      if (typeof h === "number" && h > 0) setFirstFilterPillHandle(h);
+    }
+  }, []);
+
+  useEffect(() => {
+    syncHeroHandles();
+    const t = setTimeout(syncHeroHandles, 50);
+    return () => clearTimeout(t);
+  }, [
+    syncHeroHandles,
+    activeChannel?.id,
+    recentDisplayChannels.length,
+    smartRibbonCategories.length,
+  ]);
+
+  // Hacer que al presionar Derecha desde la barra lateral el foco vaya en 1 paso a "Pantalla Completa"
+  useEffect(() => {
+    if (isScreenFocused && isChannelsRoute && !showGuide && fullscreenBtnHandle) {
+      setGlobalPreferredContentHandle(fullscreenBtnHandle);
+    } else {
+      setGlobalPreferredContentHandle(null);
+    }
+    return () => {
+      setGlobalPreferredContentHandle(null);
+    };
+  }, [isScreenFocused, isChannelsRoute, showGuide, fullscreenBtnHandle]);
 
   // Toast HUD flotante
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -1054,47 +1132,42 @@ export default function ChannelsScreen() {
 
   // Cerrar la guía de filtro
   const closeGuide = useCallback(() => {
-    if (catDebounceTimer.current) {
-      clearTimeout(catDebounceTimer.current);
-      catDebounceTimer.current = null;
-    }
     setShowGuide(false);
     setGuideSearch("");
   }, []);
 
   // Abrir la guía dual desde una etiqueta de categoría (sin agregar botón extra)
   const handleCategoryPillPress = useCallback((catId: string) => {
-    if (catDebounceTimer.current) {
-      clearTimeout(catDebounceTimer.current);
-      catDebounceTimer.current = null;
-    }
     setSelectedCatId(catId);
     setSelectedGuideCategory(catId);
+    focusedCategoryIdRef.current = catId;
     setGuideSearch("");
+    guidePaneRef.current = "channels";
     setGuidePane("channels");
     setShowGuide(true);
   }, []);
 
-  // Handlers estables con debounce para evitar congelamientos o desbordes al mantener presionado d-pad
+  // Al desplazarse por la Ventana 1 no cambia los canales de la derecha;
+  // solo actualiza la lista derecha cuando el usuario presiona OK o Derecha.
   const handleCategoryItemFocus = useCallback((id: string) => {
+    focusedCategoryIdRef.current = id;
+    guidePaneRef.current = "categories";
     setGuidePane("categories");
-    if (catDebounceTimer.current) clearTimeout(catDebounceTimer.current);
-    catDebounceTimer.current = setTimeout(() => {
-      setSelectedGuideCategory(id);
-      catDebounceTimer.current = null;
-    }, 130);
   }, []);
 
   const handleCategoryItemPress = useCallback((id: string) => {
-    if (catDebounceTimer.current) {
-      clearTimeout(catDebounceTimer.current);
-      catDebounceTimer.current = null;
-    }
+    focusedCategoryIdRef.current = id;
     setSelectedGuideCategory(id);
-    setGuidePane("channels");
+    setGuideSearch("");
+    const catObj = guideCategoriesRef.current.find((c) => c.id === id);
+    const hasChannels = Boolean(catObj && catObj.channels.length > 0);
+    const nextPane = hasChannels ? "channels" : "categories";
+    guidePaneRef.current = nextPane;
+    setGuidePane(nextPane);
   }, []);
 
   const handleChannelItemFocus = useCallback(() => {
+    guidePaneRef.current = "channels";
     setGuidePane("channels");
   }, []);
 
@@ -1121,41 +1194,65 @@ export default function ChannelsScreen() {
     );
   }, [activeGuideCategoryObj, allowedChannels, guideSearch]);
 
+  // Índice del canal actual dentro de la lista filtrada para posicionar scroll y foco automáticamente
+  const activeChannelIdx = useMemo(() => {
+    if (!activeChannel?.id) return -1;
+    return displayedGuideChannels.findIndex((c) => c.id === activeChannel.id);
+  }, [displayedGuideChannels, activeChannel?.id]);
+
+  const preferredChannelIdx = activeChannelIdx >= 0 ? activeChannelIdx : 0;
+  const initialScrollIdx = Math.max(0, preferredChannelIdx - 2);
+
+  // Al abrir la guía o cambiar de categoría, desplazar al canal actual y activar el foco sobre él
+  useEffect(() => {
+    if (!showGuide) {
+      setGuideFocusReady(false);
+      return;
+    }
+    setGuideFocusReady(false);
+    const targetOffset = Math.max(0, (preferredChannelIdx - 2) * (CH_ITEM_H + CH_ITEM_GAP));
+    const scrollTimer = setTimeout(() => {
+      channelsListRef.current?.scrollToOffset?.({ offset: targetOffset, animated: false });
+    }, 10);
+    const focusTimer = setTimeout(() => {
+      channelsListRef.current?.scrollToOffset?.({ offset: targetOffset, animated: false });
+      setGuideFocusReady(true);
+    }, 55);
+    return () => {
+      clearTimeout(scrollTimer);
+      clearTimeout(focusTimer);
+    };
+  }, [showGuide, selectedGuideCategory, preferredChannelIdx]);
+
   // Actualizar handles de nodos en categorías SOLO cuando la guía está abierta
   useEffect(() => {
     if (Platform.OS === "web" || !showGuide) return;
-    const handles: Record<string, number> = {};
-    for (let i = 0; i < guideCategories.length; i++) {
-      const cat = guideCategories[i];
-      const node = catRefs.current[cat.id];
-      if (node) {
-        const h = safeFindNodeHandle(node);
-        if (typeof h === "number" && h > 0) handles[cat.id] = h;
+    const syncCatHandles = () => {
+      const handles: Record<string, number> = {};
+      for (let i = 0; i < guideCategories.length; i++) {
+        const cat = guideCategories[i];
+        const node = catRefs.current[cat.id];
+        if (node) {
+          const h = safeFindNodeHandle(node);
+          if (typeof h === "number" && h > 0) handles[cat.id] = h;
+        }
       }
-    }
-    setCatHandles(handles);
+      setCatHandles(handles);
+    };
+    syncCatHandles();
+    const t = setTimeout(syncCatHandles, 40);
+    return () => clearTimeout(t);
   }, [guideCategories, showGuide]);
 
-  // Actualizar handle del primer canal para nextFocusRight SOLO cuando la guía está abierta
-  const updateFirstChannelHandle = useCallback(() => {
-    if (Platform.OS === "web" || !showGuide) return;
-    if (firstChannelRef.current) {
-      const h = safeFindNodeHandle(firstChannelRef.current);
-      if (typeof h === "number" && h > 0) setFirstChannelHandle(h);
-    }
-  }, [showGuide]);
-
-  useEffect(() => {
-    if (!showGuide) return;
-    updateFirstChannelHandle();
-  }, [displayedGuideChannels, showGuide, updateFirstChannelHandle]);
-
-  // ── Eventos de Control Remoto / Teclado TV ──────────────────────────────────
-  useTVEventHandlerSafe((evt: any) => {
-    if (!evt || !evt.eventType) return;
-    // Si la guía dual está abierta, se mantiene contenida sin escapes
-    if (showGuide) {
-      return;
+  // Al presionar Derecha estando en una categoría de la Ventana 1, abre esa categoría en la ventana derecha
+  useTVRemoteKey((evt) => {
+    if (!showGuide || !evt) return;
+    if (
+      evt.eventType === "right" &&
+      (evt.repeatCount ?? 0) === 0 &&
+      guidePaneRef.current === "categories"
+    ) {
+      handleCategoryItemPress(focusedCategoryIdRef.current);
     }
   });
 
@@ -1274,7 +1371,7 @@ export default function ChannelsScreen() {
   // Toggle Favorito del canal actual
   const handleToggleFav = useCallback(() => {
     if (activeChannel) {
-      toggleFavorite(activeChannel.id);
+      toggleFavorite(activeChannel);
     }
   }, [activeChannel, toggleFavorite]);
 
@@ -1312,14 +1409,27 @@ export default function ChannelsScreen() {
         item={item}
         index={index}
         isCurrent={item.id === activeChannelId}
+        preferFocus={
+          guideFocusReady &&
+          index === preferredChannelIdx &&
+          guidePane === "channels"
+        }
         onPress={handleGuideChannelPress}
         onFocus={handleChannelItemFocus}
         nextFocusLeft={currentCategoryHandle}
-        firstChannelRef={index === 0 ? firstChannelRef : undefined}
         isLast={index === displayedGuideChannels.length - 1}
       />
     ),
-    [activeChannelId, handleGuideChannelPress, handleChannelItemFocus, currentCategoryHandle, displayedGuideChannels.length],
+    [
+      activeChannelId,
+      guideFocusReady,
+      preferredChannelIdx,
+      guidePane,
+      handleGuideChannelPress,
+      handleChannelItemFocus,
+      currentCategoryHandle,
+      displayedGuideChannels.length,
+    ],
   );
 
   // Renderizador memoizado de películas destacadas
@@ -1388,217 +1498,211 @@ export default function ChannelsScreen() {
               style={[
                 s.heroMainStage,
                 {
-                  borderColor: `${activeTheme.color}50`,
+                  borderColor: isPlayerFocused ? "#ffffff" : `${activeTheme.color}50`,
                   shadowColor: activeTheme.color,
                 },
+                isPlayerFocused && s.heroMainStageFocused,
               ]}
             >
-              {/* Video en Vivo con HeroVideo universal */}
-              {isScreenFocused && isChannelsRoute && previewUrl && !videoError ? (
-                <HeroVideo
-                  uri={previewUrl}
-                  muted={false}
-                  onError={() => {
-                    setVideoLoading(false);
-                    setVideoError(true);
-                  }}
-                  onCanPlay={() => {
-                    setVideoLoading(false);
-                    setVideoError(false);
-                  }}
-                />
-              ) : (
-                <View style={s.heroFallbackStage}>
-                  {activeChannel.logo ? (
-                    <RemoteImage
-                      uri={activeChannel.logo}
-                      style={s.heroFallbackLogo as any}
-                      contentFit="contain"
-                    />
-                  ) : (
-                    <Tv2 size={scale(56)} color={activeTheme.color} />
-                  )}
-                  <Text style={s.heroFallbackTxt}>Señal en Directo</Text>
-                </View>
-              )}
-
-              {/* Ventana de reproducción interactiva y enfocable con marco de foco activo */}
-              <Focusable
-                ref={playerStageRef}
-                onPress={() => handleOpenFullscreen()}
-                onLayout={() => {
-                  if (playerStageRef.current) {
-                    const h = safeFindNodeHandle(playerStageRef.current);
-                    if (typeof h === "number" && h > 0) {
-                      setPlayerStageHandle(h);
-                    }
-                  }
-                }}
-                nextFocusLeft={sidebarHandle ?? undefined}
-                style={[
-                  StyleSheet.absoluteFill,
-                  { borderRadius: scale(18), zIndex: 10 },
-                ]}
-                focusedStyle={{
-                  borderWidth: scale(3.5),
-                  borderColor: "#ffffff",
-                  backgroundColor: "rgba(255, 255, 255, 0.05)",
-                  shadowColor: activeTheme.color,
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.9,
-                  shadowRadius: scale(14),
-                }}
-              >
-                {({ focused }) =>
-                  focused ? (
-                    <View style={s.heroPlayerFocusHint} pointerEvents="none">
-                      <View style={s.heroPlayerFocusBadge}>
-                        <Maximize2 size={scale(13)} color="#000000" />
-                        <Text style={s.heroPlayerFocusTxt}>
-                          Presiona OK para Pantalla Completa
-                        </Text>
-                      </View>
-                    </View>
-                  ) : null
-                }
-              </Focusable>
-
-              {/* Degradados cinematográficos sobre el reproductor */}
-              <LinearGradient
-                colors={[
-                  "rgba(7,5,18,0.25)",
-                  "transparent",
-                  "rgba(7,5,18,0.70)",
-                  "rgba(7,5,18,0.96)",
-                ]}
-                locations={[0, 0.25, 0.65, 1]}
-                style={StyleSheet.absoluteFill}
-                pointerEvents="none"
-              />
-              <LinearGradient
-                colors={["rgba(7,5,18,0.85)", "rgba(7,5,18,0.35)", "transparent"]}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 0.65, y: 0.5 }}
-                style={StyleSheet.absoluteFill}
-                pointerEvents="none"
-              />
-
-              {/* Indicador de Buffering / Cargando */}
-              {videoLoading && (
-                <View style={s.heroLoadingOverlay}>
-                  <ActivityIndicator size="small" color={activeTheme.color} />
-                  <Text style={[s.heroLoadingTxt, { color: activeTheme.color }]}>
-                    Conectando transmisión...
-                  </Text>
-                </View>
-              )}
-
-              {/* Badges Flotantes Superiores en el Hero */}
-              <View style={s.heroTopBar}>
-                <View style={s.heroLivePill}>
-                  <View style={s.heroLiveDot} />
-                  <Text style={s.heroLiveTxt}>EN VIVO</Text>
-                </View>
-
-                <View
-                  style={[
-                    s.heroCatBadge,
-                    {
-                      backgroundColor: `${activeTheme.color}25`,
-                      borderColor: activeTheme.color,
-                    },
-                  ]}
-                >
-                  <activeTheme.icon size={scale(11)} color={activeTheme.color} />
-
-                </View>
-
-              </View>
-
-              {/* Contenido Inferior del Hero: Info y Botones de Control Remoto */}
-              <View style={s.heroBottomContent}>
-                <View style={s.heroTitleRow}>
-                  {activeChannel.logo ? (
-                    <View style={s.heroChannelLogoWrap}>
+              <View style={s.heroMainStageInner}>
+                {/* Video en Vivo con HeroVideo universal */}
+                {isScreenFocused && isChannelsRoute && previewUrl && !videoError ? (
+                  <HeroVideo
+                    uri={previewUrl}
+                    muted={false}
+                    onError={() => {
+                      setVideoLoading(false);
+                      setVideoError(true);
+                    }}
+                    onCanPlay={() => {
+                      setVideoLoading(false);
+                      setVideoError(false);
+                    }}
+                  />
+                ) : (
+                  <View style={s.heroFallbackStage}>
+                    {activeChannel.logo ? (
                       <RemoteImage
                         uri={activeChannel.logo}
-                        style={s.heroChannelLogo as any}
+                        style={s.heroFallbackLogo as any}
                         contentFit="contain"
                       />
-                    </View>
-                  ) : null}
+                    ) : (
+                      <Tv2 size={scale(56)} color={activeTheme.color} />
+                    )}
+                    <Text style={s.heroFallbackTxt}>Señal en Directo</Text>
+                  </View>
+                )}
 
-                  <View style={s.heroTitleTextWrap}>
-                    <Text style={s.heroTitle} numberOfLines={1}>
-                      {activeChannel.name}
-                    </Text>
-                    <View style={s.heroMetaLine}>
-                      <Text style={[s.heroMetaHighlight, { color: activeTheme.color }]}>
-                        {activeChannel.category?.name || activeChannel.groupTitle || "General"}
+                {/* Degradados cinematográficos sobre el reproductor */}
+                <LinearGradient
+                  colors={[
+                    "rgba(7,5,18,0.25)",
+                    "transparent",
+                    "rgba(7,5,18,0.70)",
+                    "rgba(7,5,18,0.96)",
+                  ]}
+                  locations={[0, 0.25, 0.65, 1]}
+                  style={StyleSheet.absoluteFill}
+                  pointerEvents="none"
+                />
+                <LinearGradient
+                  colors={["rgba(7,5,18,0.85)", "rgba(7,5,18,0.35)", "transparent"]}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 0.65, y: 0.5 }}
+                  style={StyleSheet.absoluteFill}
+                  pointerEvents="none"
+                />
+
+                {/* Aviso claro de foco activo sobre el reproductor principal */}
+                {isPlayerFocused && (
+                  <View style={s.heroPlayerFocusHint} pointerEvents="none">
+                    <View style={s.heroPlayerFocusBadge}>
+                      <Maximize2 size={scale(13)} color="#000000" />
+                      <Text style={s.heroPlayerFocusTxt}>
+                        Presiona OK para Pantalla Completa
                       </Text>
-                      {activeChannel.country ? (
-                        <Text style={s.heroMetaItem}> • {activeChannel.country}</Text>
-                      ) : null}
-                      {activeChannel.language ? (
-                        <Text style={s.heroMetaItem}> • {activeChannel.language}</Text>
-                      ) : null}
-                      <Text style={s.heroMetaItem}> • 60 FPS • Estéreo</Text>
                     </View>
+                  </View>
+                )}
+
+                {/* Indicador de Buffering / Cargando */}
+                {videoLoading && (
+                  <View style={s.heroLoadingOverlay}>
+                    <ActivityIndicator size="small" color={activeTheme.color} />
+                    <Text style={[s.heroLoadingTxt, { color: activeTheme.color }]}>
+                      Conectando transmisión...
+                    </Text>
+                  </View>
+                )}
+
+                {/* Badges Flotantes Superiores en el Hero */}
+                <View style={s.heroTopBar}>
+                  <View style={s.heroLivePill}>
+                    <View style={s.heroLiveDot} />
+                    <Text style={s.heroLiveTxt}>EN VIVO</Text>
+                  </View>
+
+                  <View
+                    style={[
+                      s.heroCatBadge,
+                      {
+                        backgroundColor: `${activeTheme.color}25`,
+                        borderColor: activeTheme.color,
+                      },
+                    ]}
+                  >
+                    <activeTheme.icon size={scale(11)} color={activeTheme.color} />
                   </View>
                 </View>
 
-                {/* Fila de Botones de Control Remoto */}
-                <View style={s.heroBtnRow}>
-                  <Focusable
-                    hasTVPreferredFocus
-                    onPress={() => handleOpenFullscreen()}
-                    nextFocusLeft={sidebarHandle ?? undefined}
-                    style={[s.btnFullscreen, { backgroundColor: activeTheme.color }]}
-                    focusedStyle={s.btnFullscreenFocused}
-                  >
-                    <Play size={scale(15)} color="#000000" fill="#000000" />
-                    <Text style={s.btnFullscreenTxt}>Pantalla Completa</Text>
-                  </Focusable>
+                {/* Contenido Inferior del Hero: Info y Botones de Control Remoto */}
+                <View style={s.heroBottomContent}>
+                  <View style={s.heroTitleRow}>
+                    {activeChannel.logo ? (
+                      <View style={s.heroChannelLogoWrap}>
+                        <RemoteImage
+                          uri={activeChannel.logo}
+                          style={s.heroChannelLogo as any}
+                          contentFit="contain"
+                        />
+                      </View>
+                    ) : null}
 
-                  <Focusable
-                    onPress={handleToggleFav}
-                    style={[
-                      s.btnHeroSecondary,
-                      isCurrentFav && {
-                        borderColor: LIVE_COLORS.favHeart,
-                        backgroundColor: "rgba(244, 63, 94, 0.2)",
-                      },
-                    ]}
-                    focusedStyle={{
-                      backgroundColor: LIVE_COLORS.favHeart,
-                      borderColor: "#ffffff",
-                    }}
-                  >
-                    <Heart
-                      size={scale(14)}
-                      color="#ffffff"
-                      fill={isCurrentFav ? "#ffffff" : "transparent"}
-                    />
-                    <Text style={s.btnHeroSecondaryTxt}>
-                      {isCurrentFav ? "En Favoritos" : "Favorito"}
-                    </Text>
-                  </Focusable>
+                    <View style={s.heroTitleTextWrap}>
+                      <Text style={s.heroTitle} numberOfLines={1}>
+                        {activeChannel.name}
+                      </Text>
+                      <View style={s.heroMetaLine}>
+                        <Text style={[s.heroMetaHighlight, { color: activeTheme.color }]}>
+                          {activeChannel.category?.name || activeChannel.groupTitle || "General"}
+                        </Text>
+                        {activeChannel.country ? (
+                          <Text style={s.heroMetaItem}> • {activeChannel.country}</Text>
+                        ) : null}
+                        {activeChannel.language ? (
+                          <Text style={s.heroMetaItem}> • {activeChannel.language}</Text>
+                        ) : null}
+                        <Text style={s.heroMetaItem}> • 60 FPS • Estéreo</Text>
+                      </View>
+                    </View>
+                  </View>
 
-                  <Focusable
-                    onPress={handlePrevChannel}
-                    style={s.btnHeroIcon}
-                    focusedStyle={s.btnHeroIconFocused}
-                  >
-                    <SkipBack size={scale(15)} color="#ffffff" />
-                  </Focusable>
+                  {/* Fila de Botones de Control Remoto */}
+                  <View style={s.heroBtnRow}>
+                    <Focusable
+                      ref={fullscreenBtnRef}
+                      hasTVPreferredFocus
+                      onLayout={syncHeroHandles}
+                      onFocus={() => setIsPlayerFocused(true)}
+                      onBlur={() => setIsPlayerFocused(false)}
+                      onPress={() => handleOpenFullscreen()}
+                      nextFocusLeft={sidebarHandle ?? undefined}
+                      nextFocusDown={firstFilterPillHandle}
+                      trapFocusUp={true}
+                      scaleFocused={1.05}
+                      style={[s.btnFullscreen, { backgroundColor: activeTheme.color }]}
+                      focusedStyle={s.btnFullscreenFocused}
+                    >
+                      {() => (
+                        <>
+                          <Play size={scale(15)} color="#000000" fill="#000000" />
+                          <Text style={s.btnFullscreenTxt}>Pantalla Completa</Text>
+                        </>
+                      )}
+                    </Focusable>
 
-                  <Focusable
-                    onPress={handleNextChannel}
-                    style={s.btnHeroIcon}
-                    focusedStyle={s.btnHeroIconFocused}
-                  >
-                    <SkipForward size={scale(15)} color="#ffffff" />
-                  </Focusable>
+                    <Focusable
+                      onPress={handleToggleFav}
+                      nextFocusDown={firstFilterPillHandle}
+                      trapFocusUp={true}
+                      style={[
+                        s.btnHeroSecondary,
+                        isCurrentFav && {
+                          borderColor: LIVE_COLORS.favHeart,
+                          backgroundColor: "rgba(244, 63, 94, 0.2)",
+                        },
+                      ]}
+                      focusedStyle={{
+                        backgroundColor: LIVE_COLORS.favHeart,
+                        borderColor: "#ffffff",
+                      }}
+                    >
+                      <Heart
+                        size={scale(14)}
+                        color="#ffffff"
+                        fill={isCurrentFav ? "#ffffff" : "transparent"}
+                      />
+                      <Text style={s.btnHeroSecondaryTxt}>
+                        {isCurrentFav ? "En Favoritos" : "Favorito"}
+                      </Text>
+                    </Focusable>
+
+                    <Focusable
+                      onPress={handlePrevChannel}
+                      nextFocusDown={firstFilterPillHandle}
+                      trapFocusUp={true}
+                      style={s.btnHeroIcon}
+                      focusedStyle={s.btnHeroIconFocused}
+                    >
+                      {({ focused }) => (
+                        <SkipBack size={scale(15)} color={focused ? "#000000" : "#ffffff"} />
+                      )}
+                    </Focusable>
+
+                    <Focusable
+                      onPress={handleNextChannel}
+                      nextFocusRight={firstGridCardHandle}
+                      nextFocusDown={firstFilterPillHandle}
+                      trapFocusUp={true}
+                      style={s.btnHeroIcon}
+                      focusedStyle={s.btnHeroIconFocused}
+                    >
+                      {({ focused }) => (
+                        <SkipForward size={scale(15)} color={focused ? "#000000" : "#ffffff"} />
+                      )}
+                    </Focusable>
+                  </View>
                 </View>
               </View>
             </View>
@@ -1622,16 +1726,15 @@ export default function ChannelsScreen() {
                   return (
                     <Focusable
                       key={item.id}
+                      ref={idx === 0 ? firstGridCardRef : undefined}
+                      onLayout={idx === 0 ? syncHeroHandles : undefined}
                       onPress={() => handleHeroGridPress(item)}
+                      nextFocusLeft={idx % 2 === 0 ? fullscreenBtnHandle : undefined}
+                      nextFocusDown={idx >= 2 ? firstFilterPillHandle : undefined}
+                      trapFocusUp={idx < 2}
                       trapFocusRight={idx % 2 === 1}
                       scaleFocused={1.03}
-                      style={[
-                        s.gridCard,
-                        isCurrentActive && {
-                          borderColor: LIVE_COLORS.accentAmber,
-                          backgroundColor: "rgba(255, 183, 3, 0.14)",
-                        },
-                      ]}
+                      style={s.gridCard}
                       focusedStyle={[
                         s.gridCardFocused,
                         {
@@ -1639,57 +1742,46 @@ export default function ChannelsScreen() {
                         },
                       ]}
                     >
-                      {/* Badge VIVO / ACTUAL */}
-                      <View
-                        style={[
-                          s.gridCardLive,
-                          isCurrentActive && {
-                            backgroundColor: "rgba(255,183,3,0.25)",
-                            borderColor: LIVE_COLORS.accentAmber,
-                          },
-                        ]}
-                      >
-                        <View
-                          style={[
-                            s.gridCardLiveDot,
-                            isCurrentActive && { backgroundColor: LIVE_COLORS.accentAmber },
-                          ]}
-                        />
-                        <Text
-                          style={[
-                            s.gridCardLiveTxt,
-                            isCurrentActive && { color: LIVE_COLORS.accentAmber },
-                          ]}
-                        >
-                          {isCurrentActive ? "ACTUAL" : "VISTO"}
-                        </Text>
-                      </View>
-
-                      {/* Logo del Canal */}
-                      <View style={s.gridCardLogoBox}>
-                        {item.logo ? (
-                          <RemoteImage
-                            uri={item.logo}
-                            style={s.gridCardLogo as any}
-                            contentFit="contain"
-                            transition={0}
+                      <View style={s.gridCardInner}>
+                        {/* Badge VIVO / ACTUAL */}
+                        <View style={s.gridCardLive}>
+                          <View
+                            style={[
+                              s.gridCardLiveDot,
+                              isCurrentActive && { backgroundColor: LIVE_COLORS.accentAmber },
+                            ]}
                           />
-                        ) : (
-                          <Tv2 size={scale(18)} color={itemTheme.color} />
-                        )}
-                      </View>
+                          <Text style={s.gridCardLiveTxt}>
+                            {isCurrentActive ? "ACTUAL" : "VISTO"}
+                          </Text>
+                        </View>
 
-                      {/* Nombre y categoría */}
-                      <View style={s.gridCardInfo}>
-                        <Text style={s.gridCardTitle} numberOfLines={1}>
-                          {item.name}
-                        </Text>
-                        <Text
-                          style={[s.gridCardCat, { color: itemTheme.color }]}
-                          numberOfLines={1}
-                        >
-                          {item.category?.name || item.groupTitle || "General"}
-                        </Text>
+                        {/* Logo del Canal */}
+                        <View style={s.gridCardLogoBox}>
+                          {item.logo ? (
+                            <RemoteImage
+                              uri={item.logo}
+                              style={s.gridCardLogo as any}
+                              contentFit="contain"
+                              transition={0}
+                            />
+                          ) : (
+                            <Tv2 size={scale(18)} color={itemTheme.color} />
+                          )}
+                        </View>
+
+                        {/* Nombre y categoría */}
+                        <View style={s.gridCardInfo}>
+                          <Text style={s.gridCardTitle} numberOfLines={1}>
+                            {item.name}
+                          </Text>
+                          <Text
+                            style={[s.gridCardCat, { color: itemTheme.color }]}
+                            numberOfLines={1}
+                          >
+                            {item.category?.name || item.groupTitle || "General"}
+                          </Text>
+                        </View>
                       </View>
                     </Focusable>
                   );
@@ -1720,8 +1812,16 @@ export default function ChannelsScreen() {
                   isActive={selectedCatId === cat.id}
                   color={cat.color}
                   icon={cat.icon}
+                  nodeRef={
+                    isFirst
+                      ? (node) => {
+                          firstFilterPillRef.current = node;
+                        }
+                      : undefined
+                  }
+                  onLayout={isFirst ? syncHeroHandles : undefined}
                   nextFocusLeft={isFirst ? sidebarHandle ?? undefined : undefined}
-                  nextFocusUp={playerStageHandle}
+                  nextFocusUp={fullscreenBtnHandle}
                   trapFocusRight={isLast}
                   onPress={handleCategoryPillPress}
                 />
@@ -1768,12 +1868,13 @@ export default function ChannelsScreen() {
               keyExtractor={(item) => String(item.id || item.slug)}
               horizontal
               showsHorizontalScrollIndicator={false}
+              style={{ overflow: "visible" }}
               contentContainerStyle={s.movieTrack}
               initialNumToRender={7}
               maxToRenderPerBatch={5}
               windowSize={3}
               getItemLayout={getMovieItemLayout}
-              removeClippedSubviews={Platform.OS === "android"}
+              removeClippedSubviews={false}
               renderItem={renderMovieItem}
             />
           )}
@@ -1825,7 +1926,6 @@ export default function ChannelsScreen() {
                     isLast={idx === guideCategories.length - 1}
                     onFocus={handleCategoryItemFocus}
                     onPress={handleCategoryItemPress}
-                    nextFocusRight={firstChannelHandle}
                     nodeRef={(node: any) => {
                       catRefs.current[cat.id] = node;
                     }}
@@ -1864,6 +1964,10 @@ export default function ChannelsScreen() {
                   <TextInput
                     value={guideSearch}
                     onChangeText={setGuideSearch}
+                    onFocus={() => {
+                      guidePaneRef.current = "channels";
+                      setGuidePane("channels");
+                    }}
                     placeholder="Buscar canal por nombre o país…"
                     placeholderTextColor="rgba(255,255,255,0.35)"
                     style={s.searchInput}
@@ -1877,15 +1981,21 @@ export default function ChannelsScreen() {
               </View>
 
               <FlatList
+                ref={channelsListRef}
                 data={displayedGuideChannels}
                 keyExtractor={(item) => item.id}
+                extraData={`${guideFocusReady}-${guidePane}-${activeChannelId}-${preferredChannelIdx}-${currentCategoryHandle}`}
                 style={s.chList}
                 contentContainerStyle={s.chListContent}
                 initialNumToRender={12}
                 maxToRenderPerBatch={8}
                 windowSize={5}
                 getItemLayout={getChannelItemLayout}
-                removeClippedSubviews={Platform.OS === "android"}
+                initialScrollIndex={
+                  displayedGuideChannels.length > initialScrollIdx ? initialScrollIdx : 0
+                }
+                onScrollToIndexFailed={() => {}}
+                removeClippedSubviews={false}
                 renderItem={renderChannelItem}
                 ListEmptyComponent={
                   <View style={s.chEmpty}>
@@ -1975,6 +2085,9 @@ const s = StyleSheet.create({
     alignItems: "stretch",
     gap: scale(14),
     marginBottom: scale(8),
+    overflow: "visible",
+    paddingVertical: scale(4),
+    paddingLeft: scale(4),
   },
 
   // Lado Izquierdo (70%): Gran Escenario de Reproducción
@@ -1982,12 +2095,27 @@ const s = StyleSheet.create({
     flex: 2.7,
     height: "100%",
     borderRadius: scale(18),
-    overflow: "hidden",
     backgroundColor: LIVE_COLORS.bgSurface,
     borderWidth: 2,
     shadowOpacity: 0.25,
     shadowRadius: scale(10),
     elevation: 8,
+    position: "relative",
+  },
+  heroMainStageFocused: {
+    borderWidth: scale(3),
+    borderColor: "#ffffff",
+    transform: [{ scale: 1.02 }],
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.95,
+    shadowRadius: scale(16),
+    elevation: 18,
+    zIndex: 15,
+  },
+  heroMainStageInner: {
+    flex: 1,
+    borderRadius: scale(15),
+    overflow: "hidden",
     position: "relative",
     justifyContent: "flex-end",
   },
@@ -2149,11 +2277,11 @@ const s = StyleSheet.create({
     flex: 1,
   },
   heroTitle: {
-    fontSize: scale(26),
+    fontSize: scale(24),
     fontWeight: "900",
     color: "#ffffff",
     letterSpacing: 0.4,
-    marginBottom: scale(2),
+    marginBottom: scale(7),
     textShadowColor: "rgba(0,0,0,0.9)",
     textShadowOffset: { width: 1, height: 2 },
     textShadowRadius: 6,
@@ -2278,16 +2406,22 @@ const s = StyleSheet.create({
     flexWrap: "wrap",
     justifyContent: "space-between",
     alignContent: "space-between",
+    overflow: "visible",
+    padding: scale(3),
   },
   gridCard: {
     width: "48.5%",
     height: "47.5%",
     borderRadius: scale(12),
-    overflow: "hidden",
     backgroundColor: LIVE_COLORS.bgSurfaceElevated,
     borderWidth: 2,
     borderColor: LIVE_COLORS.borderSubtle,
     position: "relative",
+  },
+  gridCardInner: {
+    flex: 1,
+    borderRadius: scale(10),
+    overflow: "hidden",
     justifyContent: "space-between",
     padding: scale(8),
   },
@@ -2425,7 +2559,8 @@ const s = StyleSheet.create({
   movieTrack: {
     flexDirection: "row",
     gap: CARD_GAP,
-    paddingVertical: scale(2),
+    paddingVertical: scale(8),
+    paddingHorizontal: scale(6),
   },
   movieLoadingRow: {
     flexDirection: "row",
@@ -2444,10 +2579,15 @@ const s = StyleSheet.create({
     width: MOVIE_CARD_W,
     height: MOVIE_CARD_H,
     borderRadius: scale(12),
-    overflow: "hidden",
     backgroundColor: LIVE_COLORS.bgSurface,
     borderWidth: 2,
     borderColor: LIVE_COLORS.borderSubtle,
+  },
+  movieCardInner: {
+    flex: 1,
+    borderRadius: scale(10),
+    overflow: "hidden",
+    backgroundColor: LIVE_COLORS.bgSurface,
     position: "relative",
     justifyContent: "space-between",
     padding: scale(8),

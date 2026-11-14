@@ -11,6 +11,9 @@ interface Props {
   blurRadius?: number;
   transition?: number;
   priority?: "low" | "normal" | "high";
+  disableRecycling?: boolean;
+  onLoad?: () => void;
+  onError?: () => void;
 }
 
 /**
@@ -26,6 +29,9 @@ function RemoteImage({
   blurRadius,
   transition = 220,
   priority = "normal",
+  disableRecycling = false,
+  onLoad,
+  onError,
 }: Props) {
   return (
     <Image
@@ -37,7 +43,9 @@ function RemoteImage({
       transition={transition}
       cachePolicy="memory-disk"
       priority={priority}
-      recyclingKey={uri || undefined}
+      recyclingKey={disableRecycling ? undefined : uri || undefined}
+      onLoad={onLoad}
+      onError={onError}
     />
   );
 }

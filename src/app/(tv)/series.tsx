@@ -14,7 +14,7 @@ import {
   Trophy,
   Tv,
 } from "lucide-react-native";
-import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -28,11 +28,14 @@ import Focusable from "../../components/tv/Focusable";
 import HeroGridSeeAllCard from "../../components/tv/HeroGridSeeAllCard";
 import RemoteImage, { prefetchImages } from "../../components/tv/RemoteImage";
 import ViewAllCard from "../../components/tv/ViewAllCard";
-import { useSidebarHandle } from "../../hooks/useNavThrottle";
+import { useHeroScrollToTop, useSidebarHandle } from "../../hooks/useNavThrottle";
 import { scale } from "../../lib/scale";
 import {
   getContentList,
+  getContentListSync,
+  getPageCache,
   NexoContentItem,
+  setPageCache,
 } from "../../services/nexoplay";
 
 const { height: SH } = Dimensions.get("window");
@@ -40,7 +43,7 @@ const { height: SH } = Dimensions.get("window");
 // ── Medidas del Layout Series ────────────────────────────────────────────────
 const CONTENT_LEFT_PAD = scale(96);
 const CARD_GAP = scale(14);
-const HERO_H = Math.max(scale(440), Math.round(SH * 0.65));
+const HERO_H = Math.max(scale(374), Math.round(SH * 0.55));
 
 // Cards del catálogo Series (Filas inferiores)
 const POSTER_W = scale(125);
@@ -60,11 +63,17 @@ const SERIES_COLORS = {
 };
 
 const keyById = (i: NexoContentItem) => i.id;
+const getRowItemLayout = (_: any, index: number) => ({
+  length: POSTER_W + CARD_GAP,
+  offset: (POSTER_W + CARD_GAP) * index,
+  index,
+});
 
 // ── Tarjeta de Serie para las Filas ──────────────────────────────────────────
 const SeriesCard = memo(function SeriesCard({
   item,
   onPress,
+  onFocus,
   accentColor = SERIES_COLORS.primaryPurple,
   nextFocusLeft,
   nextFocusRight,
@@ -73,6 +82,7 @@ const SeriesCard = memo(function SeriesCard({
 }: {
   item: NexoContentItem;
   onPress: (item: NexoContentItem) => void;
+  onFocus?: () => void;
   accentColor?: string;
   nextFocusLeft?: number;
   nextFocusRight?: number;
@@ -82,6 +92,7 @@ const SeriesCard = memo(function SeriesCard({
   return (
     <Focusable
       onPress={() => onPress(item)}
+      onFocus={onFocus}
       nextFocusLeft={nextFocusLeft}
       nextFocusRight={nextFocusRight}
       trapFocusLeft={trapFocusLeft}
@@ -90,35 +101,37 @@ const SeriesCard = memo(function SeriesCard({
       focusedStyle={[s.cardFocused, { borderColor: accentColor }]}
       scaleFocused={1.02}
     >
-      <RemoteImage
-        uri={item.posterUrl || item.backdropUrl}
-        style={StyleSheet.absoluteFill as any}
-        contentFit="cover"
-        transition={150}
-      />
-      <LinearGradient
-        colors={["transparent", "rgba(9,2,20,0.92)"]}
-        style={s.cardGrad}
-      />
+      <View style={s.cardInner}>
+        <RemoteImage
+          uri={item.posterUrl || item.backdropUrl}
+          style={StyleSheet.absoluteFill as any}
+          contentFit="cover"
+          transition={150}
+        />
+        <LinearGradient
+          colors={["transparent", "rgba(9,2,20,0.92)"]}
+          style={s.cardGrad}
+        />
 
-      {item.rating ? (
-        <View style={[s.cardRating, { backgroundColor: accentColor }]}>
-          <Star size={scale(9)} color="#000" fill="#000" />
-          <Text style={s.cardRatingTxt}>{item.rating.toFixed(1)}</Text>
-        </View>
-      ) : null}
+        {item.rating ? (
+          <View style={[s.cardRating, { backgroundColor: accentColor }]}>
+            <Star size={scale(9)} color="#000" fill="#000" />
+            <Text style={s.cardRatingTxt}>{item.rating.toFixed(1)}</Text>
+          </View>
+        ) : null}
 
-      <View style={s.cardInfo}>
-        <Text style={s.cardTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
-        <View style={s.cardMetaRow}>
-          <Text style={[s.cardType, { color: accentColor }]}>
-            {item.genres?.[0]?.name || "Serie"}
+        <View style={s.cardInfo}>
+          <Text style={s.cardTitle} numberOfLines={2}>
+            {item.title}
           </Text>
-          {item.releaseYear ? (
-            <Text style={s.cardYear}> • {item.releaseYear}</Text>
-          ) : null}
+          <View style={s.cardMetaRow}>
+            <Text style={[s.cardType, { color: accentColor }]}>
+              {item.genres?.[0]?.name || "Serie"}
+            </Text>
+            {item.releaseYear ? (
+              <Text style={s.cardYear}> • {item.releaseYear}</Text>
+            ) : null}
+          </View>
         </View>
       </View>
     </Focusable>
@@ -133,6 +146,7 @@ const SeriesRow = memo(function SeriesRow({
   accentColor,
   icon: Icon,
   onPress,
+  onRowFocus,
   onViewAll,
   viewAllSublabel = "Ver más",
 }: {
@@ -142,6 +156,7 @@ const SeriesRow = memo(function SeriesRow({
   accentColor: string;
   icon: any;
   onPress: (item: NexoContentItem) => void;
+  onRowFocus?: () => void;
   onViewAll?: () => void;
   viewAllSublabel?: string;
 }) {
@@ -164,14 +179,17 @@ const SeriesRow = memo(function SeriesRow({
         keyExtractor={keyById}
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={{ overflow: "visible" }}
         contentContainerStyle={s.rowTrack}
-        initialNumToRender={6}
-        maxToRenderPerBatch={4}
-        windowSize={5}
+        getItemLayout={getRowItemLayout}
+        initialNumToRender={5}
+        maxToRenderPerBatch={3}
+        windowSize={3}
         renderItem={({ item, index }) => (
           <SeriesCard
             item={item}
             onPress={onPress}
+            onFocus={onRowFocus}
             accentColor={accentColor}
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
             trapFocusLeft={index === 0 && !sidebarHandle}
@@ -185,6 +203,7 @@ const SeriesRow = memo(function SeriesRow({
                 width={POSTER_W}
                 height={POSTER_H}
                 onPress={onViewAll}
+                onFocus={onRowFocus}
                 label="Ver todo"
                 sublabel={viewAllSublabel}
                 accentColor={accentColor}
@@ -197,36 +216,148 @@ const SeriesRow = memo(function SeriesRow({
   );
 });
 
+interface SeriesPageState {
+  heroPool: NexoContentItem[];
+  trendingSeries: NexoContentItem[];
+  recentSeries: NexoContentItem[];
+  topRatedSeries: NexoContentItem[];
+  dramaSeries: NexoContentItem[];
+  comedySeries: NexoContentItem[];
+  sciFiSeries: NexoContentItem[];
+}
+
+function buildSeriesPageState(
+  popular: NexoContentItem[],
+  recent: NexoContentItem[],
+  rating: NexoContentItem[],
+  dramaRes: NexoContentItem[],
+  comedyRes: NexoContentItem[],
+  p2Res: NexoContentItem[],
+): SeriesPageState {
+  const pickDistinct = (items: NexoContentItem[], used: Set<string>, limit = 16) => {
+    const list: NexoContentItem[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it || !it.id || used.has(it.id)) continue;
+      used.add(it.id);
+      list.push(it);
+      if (list.length >= limit) break;
+    }
+    return list;
+  };
+
+  const usedIds = new Set<string>();
+  const currentYear = new Date().getFullYear();
+  const sortByYear = (arr: NexoContentItem[]) =>
+    [...arr].sort((a, b) => (b.releaseYear || 0) - (a.releaseYear || 0));
+
+  const trending = pickDistinct(popular, usedIds, 16);
+  const recentList = pickDistinct(
+    recent.filter((x) => (x.releaseYear || 0) >= currentYear),
+    usedIds,
+    16,
+  );
+  const topRatedList = pickDistinct(rating, usedIds, 16);
+  const dramaList = pickDistinct(dramaRes, usedIds, 16);
+  const comedyList = pickDistinct(comedyRes, usedIds, 16);
+  const scifiList = pickDistinct(p2Res, usedIds, 16);
+
+  const allSeriesWithArt = [
+    ...recent,
+    ...popular,
+    ...rating,
+    ...dramaRes,
+    ...comedyRes,
+    ...p2Res,
+  ].filter((x) => Boolean(x && (x.backdropUrl || x.posterUrl)));
+
+  const heroUsed = new Set<string>();
+  const currentYearSeries = pickDistinct(
+    allSeriesWithArt.filter((x) => (x.releaseYear || 0) >= currentYear),
+    heroUsed,
+    12,
+  );
+  const rawPool =
+    currentYearSeries.length >= 4
+      ? currentYearSeries
+      : [
+          ...currentYearSeries,
+          ...pickDistinct(
+            sortByYear(allSeriesWithArt),
+            heroUsed,
+            12 - currentYearSeries.length,
+          ),
+        ];
+
+  const pool = [...rawPool];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = pool[i];
+    pool[i] = pool[j];
+    pool[j] = tmp;
+  }
+
+  return {
+    heroPool: pool,
+    trendingSeries: trending,
+    recentSeries: recentList,
+    topRatedSeries: topRatedList,
+    dramaSeries: dramaList,
+    comedySeries: comedyList,
+    sciFiSeries: scifiList,
+  };
+}
+
+function getInitialSeriesState(): SeriesPageState | null {
+  const cached = getPageCache<SeriesPageState>("page:series");
+  if (cached) return cached;
+  const popular = getContentListSync({ type: "SERIES", sort: "popular", limit: 45 });
+  const recent = getContentListSync({ type: "SERIES", sort: "recent", limit: 45 });
+  const rating = getContentListSync({ type: "SERIES", sort: "rating", limit: 35 });
+  const dramaRes = getContentListSync({ type: "SERIES", genreId: "cmoywh2rh000axcl683pj6eu0", limit: 35 });
+  const comedyRes = getContentListSync({ type: "SERIES", genreId: "cmoywh22d0009xcl6fxgc4vqn", limit: 35 });
+  const p2Res = getContentListSync({ type: "SERIES", page: 2, limit: 35 });
+  if (popular && recent && rating && dramaRes && comedyRes && p2Res) {
+    const built = buildSeriesPageState(popular, recent, rating, dramaRes, comedyRes, p2Res);
+    setPageCache("page:series", built);
+    return built;
+  }
+  return null;
+}
+
 export default function SeriesScreen() {
   const router = useRouter();
   const sidebarHandle = useSidebarHandle();
+  const { scrollRef, handleHeroFocus, cancelHeroScroll } = useHeroScrollToTop();
 
-  const [fontsLoaded] = useFonts({
+  useFonts({
     Bangers: Bangers_400Regular,
   });
 
-  const [loading, setLoading] = useState(true);
+  const initialData = useRef(getInitialSeriesState()).current;
+  const [loading, setLoading] = useState(!initialData);
   const [heroIdx, setHeroIdx] = useState(0);
   const [userInteracted, setUserInteracted] = useState(false);
 
   // Colecciones de Series
-  const [heroPool, setHeroPool] = useState<NexoContentItem[]>([]);
-  const [trendingSeries, setTrendingSeries] = useState<NexoContentItem[]>([]);
-  const [recentSeries, setRecentSeries] = useState<NexoContentItem[]>([]);
-  const [topRatedSeries, setTopRatedSeries] = useState<NexoContentItem[]>([]);
-  const [dramaSeries, setDramaSeries] = useState<NexoContentItem[]>([]);
-  const [comedySeries, setComedySeries] = useState<NexoContentItem[]>([]);
-  const [sciFiSeries, setSciFiSeries] = useState<NexoContentItem[]>([]);
+  const [heroPool, setHeroPool] = useState<NexoContentItem[]>(initialData?.heroPool ?? []);
+  const [trendingSeries, setTrendingSeries] = useState<NexoContentItem[]>(initialData?.trendingSeries ?? []);
+  const [recentSeries, setRecentSeries] = useState<NexoContentItem[]>(initialData?.recentSeries ?? []);
+  const [topRatedSeries, setTopRatedSeries] = useState<NexoContentItem[]>(initialData?.topRatedSeries ?? []);
+  const [dramaSeries, setDramaSeries] = useState<NexoContentItem[]>(initialData?.dramaSeries ?? []);
+  const [comedySeries, setComedySeries] = useState<NexoContentItem[]>(initialData?.comedySeries ?? []);
+  const [sciFiSeries, setSciFiSeries] = useState<NexoContentItem[]>(initialData?.sciFiSeries ?? []);
 
   // ── Cargar series de la API con distribución única por sección ─────────────
   useEffect(() => {
+    if (initialData) return;
     let cancelled = false;
 
     (async () => {
       try {
         const [popular, recent, rating, dramaRes, comedyRes, p2Res] = await Promise.all([
-          getContentList({ type: "SERIES", sort: "popular", limit: 35 }),
-          getContentList({ type: "SERIES", sort: "recent", limit: 35 }),
+          getContentList({ type: "SERIES", sort: "popular", limit: 45 }),
+          getContentList({ type: "SERIES", sort: "recent", limit: 45 }),
           getContentList({ type: "SERIES", sort: "rating", limit: 35 }),
           getContentList({ type: "SERIES", genreId: "cmoywh2rh000axcl683pj6eu0", limit: 35 }), // Drama
           getContentList({ type: "SERIES", genreId: "cmoywh22d0009xcl6fxgc4vqn", limit: 35 }), // Comedia
@@ -235,54 +366,18 @@ export default function SeriesScreen() {
 
         if (cancelled) return;
 
-        // Función de extracción única: garantiza que ninguna fila repita contenido de otra
-        const pickDistinct = (items: NexoContentItem[], used: Set<string>, limit = 16) => {
-          const list: NexoContentItem[] = [];
-          for (let i = 0; i < items.length; i++) {
-            const it = items[i];
-            if (!it || !it.id || used.has(it.id)) continue;
-            used.add(it.id);
-            list.push(it);
-            if (list.length >= limit) break;
-          }
-          return list;
-        };
+        const built = buildSeriesPageState(popular, recent, rating, dramaRes, comedyRes, p2Res);
+        setPageCache("page:series", built);
 
-        const usedIds = new Set<string>();
+        setHeroPool(built.heroPool);
+        setTrendingSeries(built.trendingSeries);
+        setRecentSeries(built.recentSeries);
+        setTopRatedSeries(built.topRatedSeries);
+        setDramaSeries(built.dramaSeries);
+        setComedySeries(built.comedySeries);
+        setSciFiSeries(built.sciFiSeries);
 
-        // 1. Series en Tendencia
-        const trending = pickDistinct(popular, usedIds, 16);
-
-        // 2. Nuevas Temporadas y Estrenos (sin repetir)
-        const recentList = pickDistinct(recent, usedIds, 16);
-
-        // 3. Series Mejor Valoradas (sin repetir)
-        const topRatedList = pickDistinct(rating, usedIds, 16);
-
-        // 4. Drama, Crimen y Suspenso (títulos de drama genuinos)
-        const dramaList = pickDistinct(dramaRes, usedIds, 16);
-
-        // 5. Comedia, Humor y Familiar
-        const comedyList = pickDistinct(comedyRes, usedIds, 16);
-
-        // 6. Ciencia Ficción, Misterio y Fantasía
-        const scifiList = pickDistinct(p2Res, usedIds, 16);
-
-        // Pool de Hero: series con mejores backdrops o posters
-        const pool = [
-          ...popular.slice(0, 6),
-          ...recent.slice(0, 4),
-        ].filter((x) => Boolean(x.backdropUrl || x.posterUrl));
-
-        setHeroPool(pool);
-        setTrendingSeries(trending);
-        setRecentSeries(recentList);
-        setTopRatedSeries(topRatedList);
-        setDramaSeries(dramaList);
-        setComedySeries(comedyList);
-        setSciFiSeries(scifiList);
-
-        prefetchImages(pool.slice(0, 6).map((x) => x.backdropUrl || x.posterUrl || ""));
+        prefetchImages(built.heroPool.slice(0, 6).map((x) => x.backdropUrl || x.posterUrl || ""));
       } catch (err) {
         console.warn("Error cargando SeriesScreen:", err);
       } finally {
@@ -293,25 +388,9 @@ export default function SeriesScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialData]);
 
-  // ── Auto-rotación del Hero cada 7.5 segundos ──────────────────────────────
-  useEffect(() => {
-    if (heroPool.length < 5 || userInteracted) return;
-    const timer = setInterval(() => {
-      setHeroIdx((i) => (i + 1) % heroPool.length);
-    }, 7500);
-    return () => clearInterval(timer);
-  }, [heroPool.length, userInteracted]);
-
-  // Si el usuario interactúa, reanudar rotación tras 22 segundos
-  useEffect(() => {
-    if (!userInteracted) return;
-    const timeout = setTimeout(() => setUserInteracted(false), 22000);
-    return () => clearTimeout(timeout);
-  }, [userInteracted, heroIdx]);
-
-  // Item principal del Hero (3/4 de la pantalla izquierda)
+  // El Hero y las 3 portadas del 2x2 se mantienen estáticos durante toda la sesión de la app
   const activeHero = heroPool[heroIdx] || heroPool[0] || null;
 
   // Las 3 portadas que acompañan a la tarjeta "Ver Todo" en la cuadrícula 2x2 derecha
@@ -340,7 +419,7 @@ export default function SeriesScreen() {
     [router],
   );
 
-  if (loading || !fontsLoaded) {
+  if (loading && heroPool.length === 0) {
     return (
       <View style={s.centerLoad}>
         <ActivityIndicator size="large" color={SERIES_COLORS.primaryPurple} />
@@ -367,6 +446,7 @@ export default function SeriesScreen() {
       </View>
 
       <ScrollView
+        ref={scrollRef}
         style={s.scroll}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -381,8 +461,9 @@ export default function SeriesScreen() {
                 uri={activeHero.backdropUrl || activeHero.posterUrl}
                 style={StyleSheet.absoluteFill as any}
                 contentFit="cover"
-                transition={200}
+                transition={360}
                 priority="high"
+                disableRecycling
               />
               {/* Degradados cinematográficos */}
               <LinearGradient
@@ -461,21 +542,44 @@ export default function SeriesScreen() {
                   <Focusable
                     hasTVPreferredFocus
                     onPress={() => handlePlay(activeHero)}
+                    onFocus={handleHeroFocus}
                     nextFocusLeft={sidebarHandle ?? undefined}
                     style={s.btnPlay}
                     focusedStyle={s.btnPlayFocused}
                   >
-                    <Play size={scale(16)} color="#000" fill="#000" />
-                    <Text style={s.btnPlayTxt}>Reproducir</Text>
+                    {({ focused }) => (
+                      <>
+                        <Play
+                          size={scale(16)}
+                          color={focused ? "#000000" : "#ffffff"}
+                          fill={focused ? "#000000" : "#ffffff"}
+                        />
+                        <Text style={[s.btnPlayTxt, focused && { color: "#000000" }]}>
+                          Reproducir
+                        </Text>
+                      </>
+                    )}
                   </Focusable>
 
                   <Focusable
                     onPress={() => handleOpenDetail(activeHero)}
+                    onFocus={handleHeroFocus}
                     style={s.btnDetail}
                     focusedStyle={s.btnDetailFocused}
                   >
-                    <Info size={scale(15)} color="#ffffff" />
-                    <Text style={s.btnDetailTxt}>Ver Información</Text>
+                    {({ focused }) => (
+                      <>
+                        <Info size={scale(15)} color={focused ? "#000000" : "#ffffff"} />
+                        <Text
+                          style={[
+                            s.btnDetailTxt,
+                            focused && { color: "#000000", fontWeight: "900" },
+                          ]}
+                        >
+                          Ver Información
+                        </Text>
+                      </>
+                    )}
                   </Focusable>
                 </View>
               </View>
@@ -486,36 +590,40 @@ export default function SeriesScreen() {
               {candidateCovers.map((item, idx) => {
                 return (
                   <Focusable
-                    key={item.id || idx}
+                    key={`hero-slot-${idx}`}
                     onPress={() => handleOpenDetail(item)}
+                    onFocus={handleHeroFocus}
                     trapFocusRight={idx === 1}
                     scaleFocused={1.02}
                     style={s.gridCard}
                     focusedStyle={s.gridCardFocused}
                   >
-                    <RemoteImage
-                      uri={item.posterUrl || item.backdropUrl}
-                      style={StyleSheet.absoluteFill as any}
-                      contentFit="cover"
-                      transition={150}
-                    />
-                    <LinearGradient
-                      colors={["transparent", "rgba(9,2,20,0.88)"]}
-                      style={s.gridCardGrad}
-                    />
-                    {item.rating ? (
-                      <View style={s.gridCardRating}>
-                        <Star size={scale(8.5)} color="#000" fill="#000" />
-                        <Text style={s.gridCardRatingTxt}>
-                          {item.rating.toFixed(1)}
+                    <View style={s.gridCardInner}>
+                      <RemoteImage
+                        uri={item.posterUrl || item.backdropUrl}
+                        style={StyleSheet.absoluteFill as any}
+                        contentFit="cover"
+                        transition={240}
+                        disableRecycling
+                      />
+                      <LinearGradient
+                        colors={["transparent", "rgba(9,2,20,0.88)"]}
+                        style={s.gridCardGrad}
+                      />
+                      {item.rating ? (
+                        <View style={s.gridCardRating}>
+                          <Star size={scale(8.5)} color="#000" fill="#000" />
+                          <Text style={s.gridCardRatingTxt}>
+                            {item.rating.toFixed(1)}
+                          </Text>
+                        </View>
+                      ) : null}
+                      <View style={s.gridCardInfo}>
+                        <Text style={s.gridCardTitle} numberOfLines={1}>
+                          {item.title}
                         </Text>
+                        <Text style={s.gridCardYear}>{item.releaseYear || "Serie"}</Text>
                       </View>
-                    ) : null}
-                    <View style={s.gridCardInfo}>
-                      <Text style={s.gridCardTitle} numberOfLines={1}>
-                        {item.title}
-                      </Text>
-                      <Text style={s.gridCardYear}>{item.releaseYear || "Serie"}</Text>
                     </View>
                   </Focusable>
                 );
@@ -525,6 +633,7 @@ export default function SeriesScreen() {
               <HeroGridSeeAllCard
                 accentColor={SERIES_COLORS.primaryPurple}
                 title="Ver todo"
+                onFocus={handleHeroFocus}
                 onPress={() =>
                   router.push({
                     pathname: "/(tv)/explore",
@@ -546,6 +655,7 @@ export default function SeriesScreen() {
             accentColor={SERIES_COLORS.primaryPurple}
             icon={Trophy}
             onPress={handleOpenDetail}
+            onRowFocus={cancelHeroScroll}
             onViewAll={() =>
               router.push({
                 pathname: "/(tv)/explore",
@@ -562,6 +672,7 @@ export default function SeriesScreen() {
             accentColor={SERIES_COLORS.cyan}
             icon={Tv}
             onPress={handleOpenDetail}
+            onRowFocus={cancelHeroScroll}
             onViewAll={() =>
               router.push({
                 pathname: "/(tv)/explore",
@@ -578,6 +689,7 @@ export default function SeriesScreen() {
             accentColor={SERIES_COLORS.gold}
             icon={Star}
             onPress={handleOpenDetail}
+            onRowFocus={cancelHeroScroll}
             onViewAll={() =>
               router.push({
                 pathname: "/(tv)/explore",
@@ -594,6 +706,7 @@ export default function SeriesScreen() {
             accentColor={SERIES_COLORS.neonMagenta}
             icon={Flame}
             onPress={handleOpenDetail}
+            onRowFocus={cancelHeroScroll}
             onViewAll={() =>
               router.push({
                 pathname: "/(tv)/explore",
@@ -610,6 +723,7 @@ export default function SeriesScreen() {
             accentColor={SERIES_COLORS.emerald}
             icon={Smile}
             onPress={handleOpenDetail}
+            onRowFocus={cancelHeroScroll}
             onViewAll={() =>
               router.push({
                 pathname: "/(tv)/explore",
@@ -626,6 +740,7 @@ export default function SeriesScreen() {
             accentColor={SERIES_COLORS.electricViolet}
             icon={Sparkles}
             onPress={handleOpenDetail}
+            onRowFocus={cancelHeroScroll}
             onViewAll={() =>
               router.push({
                 pathname: "/(tv)/explore",
@@ -675,15 +790,15 @@ const s = StyleSheet.create({
     height: HERO_H,
     flexDirection: "row",
     alignItems: "stretch",
-    gap: scale(14),
+    gap: scale(12),
     marginBottom: scale(24),
   },
 
   // Hero Principal (3/4 Izquierda)
   heroMainLeft: {
-    flex: 2.7,
+    flex: 2.35,
     height: "100%",
-    borderRadius: scale(20),
+    borderRadius: scale(18),
     overflow: "hidden",
     backgroundColor: SERIES_COLORS.bgSurface,
     borderWidth: 2,
@@ -696,36 +811,37 @@ const s = StyleSheet.create({
     justifyContent: "flex-end",
   },
   heroMainContent: {
-    paddingHorizontal: scale(28),
-    paddingBottom: scale(24),
+    paddingHorizontal: scale(22),
+    paddingBottom: scale(14),
     zIndex: 2,
   },
   heroTagChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(6),
+    gap: scale(5),
     backgroundColor: "rgba(157, 78, 221, 0.2)",
     borderWidth: 1.2,
     borderColor: SERIES_COLORS.primaryPurple,
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(4),
-    borderRadius: scale(8),
+    paddingHorizontal: scale(9),
+    paddingVertical: scale(3),
+    borderRadius: scale(7),
     alignSelf: "flex-start",
-    marginBottom: scale(8),
+    marginBottom: scale(6),
   },
   heroTagTxt: {
     color: SERIES_COLORS.electricViolet,
-    fontSize: scale(10.5),
+    fontSize: scale(9.5),
     fontWeight: "900",
-    letterSpacing: 0.8,
+    letterSpacing: 0.7,
   },
   heroTitle: {
     fontFamily: "Bangers",
-    fontSize: scale(46),
+    fontSize: scale(28),
     color: "#ffffff",
     letterSpacing: 0.8,
-    marginBottom: scale(8),
-    lineHeight: scale(48),
+    marginBottom: scale(12),
+    lineHeight: scale(31),
+    includeFontPadding: false,
     textShadowColor: "rgba(0,0,0,0.9)",
     textShadowOffset: { width: 1, height: 2 },
     textShadowRadius: 8,
@@ -733,8 +849,8 @@ const s = StyleSheet.create({
   heroMetaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(8),
-    marginBottom: scale(10),
+    gap: scale(7),
+    marginBottom: scale(7),
     flexWrap: "wrap",
   },
   metaBadgeRating: {
@@ -742,22 +858,22 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: scale(4),
     backgroundColor: SERIES_COLORS.gold,
-    paddingHorizontal: scale(8),
-    paddingVertical: scale(2.5),
-    borderRadius: scale(6),
+    paddingHorizontal: scale(7),
+    paddingVertical: scale(2),
+    borderRadius: scale(5),
   },
   metaBadgeRatingTxt: {
     color: "#000000",
-    fontSize: scale(11),
+    fontSize: scale(10),
     fontWeight: "900",
   },
   metaBadge: {
     backgroundColor: "rgba(255, 255, 255, 0.12)",
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.2)",
-    paddingHorizontal: scale(8),
-    paddingVertical: scale(2.5),
-    borderRadius: scale(6),
+    paddingHorizontal: scale(7),
+    paddingVertical: scale(2),
+    borderRadius: scale(5),
   },
   metaBadgeAlt: {
     backgroundColor: "rgba(157, 78, 221, 0.18)",
@@ -765,83 +881,90 @@ const s = StyleSheet.create({
   },
   metaBadgeTxt: {
     color: "#ffffff",
-    fontSize: scale(11),
+    fontSize: scale(10),
     fontWeight: "800",
   },
   metaYearText: {
     color: "rgba(255, 255, 255, 0.75)",
-    fontSize: scale(12),
+    fontSize: scale(11),
     fontWeight: "700",
   },
   heroDesc: {
     color: "rgba(255, 255, 255, 0.85)",
-    fontSize: scale(13),
-    lineHeight: scale(19),
-    marginBottom: scale(14),
-    maxWidth: scale(680),
+    fontSize: scale(12),
+    lineHeight: scale(16.5),
+    marginBottom: scale(11),
+    maxWidth: scale(480),
   },
   heroBtnRow: {
     flexDirection: "row",
-    gap: scale(12),
+    gap: scale(10),
   },
   btnPlay: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(8),
+    gap: scale(7),
     backgroundColor: SERIES_COLORS.primaryPurple,
-    paddingHorizontal: scale(22),
-    height: scale(42),
-    borderRadius: scale(10),
+    paddingHorizontal: scale(18),
+    height: scale(36),
+    borderRadius: scale(9),
     borderWidth: 2,
     borderColor: "transparent",
   },
   btnPlayFocused: {
     backgroundColor: "#ffffff",
-    borderColor: "#ffffff",
+    borderColor: SERIES_COLORS.primaryPurple,
   },
   btnPlayTxt: {
     color: "#ffffff",
-    fontSize: scale(14),
+    fontSize: scale(12.5),
     fontWeight: "900",
   },
   btnDetail: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(8),
+    gap: scale(7),
     backgroundColor: "rgba(255, 255, 255, 0.12)",
-    paddingHorizontal: scale(20),
-    height: scale(42),
-    borderRadius: scale(10),
+    paddingHorizontal: scale(16),
+    height: scale(36),
+    borderRadius: scale(9),
     borderWidth: 1.5,
     borderColor: "rgba(255, 255, 255, 0.25)",
   },
   btnDetailFocused: {
-    backgroundColor: "rgba(255, 255, 255, 0.25)",
+    backgroundColor: SERIES_COLORS.electricViolet,
     borderColor: "#ffffff",
   },
   btnDetailTxt: {
     color: "#ffffff",
-    fontSize: scale(13.5),
+    fontSize: scale(12),
     fontWeight: "800",
   },
 
   // 2. Rejilla Derecha 2x2
   heroRightGrid: {
-    flex: 1.3,
+    flex: 1.65,
     height: "100%",
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
     alignContent: "space-between",
+    overflow: "visible",
+    padding: scale(3),
   },
   gridCard: {
     width: "48.5%",
     height: "48.5%",
     borderRadius: scale(14),
-    overflow: "hidden",
     backgroundColor: SERIES_COLORS.bgSurface,
     borderWidth: 2,
     borderColor: "rgba(255, 255, 255, 0.08)",
+  },
+  gridCardInner: {
+    flex: 1,
+    borderRadius: scale(12),
+    overflow: "hidden",
+    backgroundColor: SERIES_COLORS.bgSurface,
     position: "relative",
     justifyContent: "flex-end",
     padding: scale(10),
@@ -928,7 +1051,8 @@ const s = StyleSheet.create({
   },
   rowTrack: {
     gap: CARD_GAP,
-    paddingVertical: scale(8),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(6),
   },
 
   // Card de Catálogo
@@ -936,10 +1060,15 @@ const s = StyleSheet.create({
     width: POSTER_W,
     height: POSTER_H,
     borderRadius: scale(12),
-    overflow: "hidden",
     backgroundColor: SERIES_COLORS.bgSurface,
     borderWidth: 2,
     borderColor: "rgba(255, 255, 255, 0.08)",
+  },
+  cardInner: {
+    flex: 1,
+    borderRadius: scale(10),
+    overflow: "hidden",
+    backgroundColor: SERIES_COLORS.bgSurface,
     position: "relative",
     justifyContent: "flex-end",
     padding: scale(8),

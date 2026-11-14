@@ -1,4 +1,4 @@
-import Video, { SelectedTrackType, VideoRef } from "react-native-video";
+import Video, { SelectedTrackType, TextTrackType, VideoRef } from "react-native-video";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
@@ -18,9 +18,6 @@ import {
   RotateCw,
   SkipBack,
   SkipForward,
-  Volume1,
-  Volume2,
-  VolumeX,
   X,
 } from "lucide-react-native";
 import React, {
@@ -33,26 +30,118 @@ import React, {
 import {
   ActivityIndicator,
   BackHandler,
+  findNodeHandle,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { useTVRemoteKey } from "../../hooks/useNavThrottle";
 import { scale } from "../../lib/scale";
 import { C } from "../../lib/tvColors";
 import {
   getContentDetail,
   getWatchStream,
+  NEXOPLAY_API_BASE,
   NexoContentItem,
 } from "../../services/nexoplay";
 import Focusable from "./Focusable";
 import WebPlayer from "./WebPlayer";
 
-const useTVEventHandlerSafe: (handler: (evt: any) => void) => void =
-  Platform.OS !== "web"
-    ? (require("react-native") as any).useTVEventHandler ?? (() => {})
-    : () => {};
+export interface SubtitleCue {
+  start: number;
+  end: number;
+  text: string;
+}
+
+const LANG_LABELS: Record<string, string> = {
+  es: "Español",
+  spa: "Español",
+  "es-419": "Español (Latino)",
+  "es-es": "Español (España)",
+  en: "Inglés",
+  eng: "Inglés",
+  pt: "Portugués",
+  por: "Portugués",
+  fr: "Francés",
+  fra: "Francés",
+  it: "Italiano",
+  ita: "Italiano",
+  de: "Alemán",
+  deu: "Alemán",
+  ja: "Japonés",
+  jpn: "Japonés",
+  ko: "Coreano",
+  kor: "Coreano",
+  zh: "Chino",
+  zho: "Chino",
+  ru: "Ruso",
+  rus: "Ruso",
+  und: "Pista Original",
+};
+
+const getLangLabel = (code?: string, title?: string, index?: number) => {
+  if (title && title.trim() && !/^(track|stream|audio|sub)\s*\d*$/i.test(title.trim())) {
+    return title.trim();
+  }
+  if (code) {
+    const clean = code.toLowerCase().trim();
+    if (LANG_LABELS[clean]) return LANG_LABELS[clean];
+    const short = clean.split("-")[0];
+    if (LANG_LABELS[short]) return LANG_LABELS[short];
+    return code.toUpperCase();
+  }
+  return `Pista ${(index ?? 0) + 1}`;
+};
+
+function parseTimeSec(timeStr: string): number {
+  const parts = timeStr.trim().replace(",", ".").split(":");
+  if (parts.length === 3) {
+    return parseFloat(parts[0]) * 3600 + parseFloat(parts[1]) * 60 + parseFloat(parts[2]);
+  }
+  if (parts.length === 2) {
+    return parseFloat(parts[0]) * 60 + parseFloat(parts[1]);
+  }
+  return 0;
+}
+
+function parseVTT(vttText: string): SubtitleCue[] {
+  const cues: SubtitleCue[] = [];
+  if (!vttText) return cues;
+  const blocks = vttText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n\n");
+  for (const block of blocks) {
+    const lines = block.trim().split("\n");
+    if (lines.length < 2) continue;
+    if (lines[0].startsWith("WEBVTT") || lines[0].startsWith("NOTE")) continue;
+
+    let timeLineIdx = 0;
+    if (!lines[0].includes("-->")) {
+      if (lines[1] && lines[1].includes("-->")) {
+        timeLineIdx = 1;
+      } else {
+        continue;
+      }
+    }
+
+    const timeParts = lines[timeLineIdx].split("-->");
+    if (timeParts.length !== 2) continue;
+
+    const start = parseTimeSec(timeParts[0].trim().split(" ")[0]);
+    const end = parseTimeSec(timeParts[1].trim().split(" ")[0]);
+    const textLines = lines.slice(timeLineIdx + 1);
+    const text = textLines
+      .join("\n")
+      .replace(/<[^>]+>/g, "")
+      .trim();
+
+    if (text && !isNaN(start) && !isNaN(end)) {
+      cues.push({ start, end, text });
+    }
+  }
+  return cues;
+}
 
 const fmtTime = (millis: number) => {
   if (!millis || isNaN(millis) || millis < 0) return "00:00";
@@ -66,6 +155,317 @@ const fmtTime = (millis: number) => {
   }
   return `${pad(minutes)}:${pad(seconds)}`;
 };
+
+const TVPressable = Pressable as any;
+
+const safeFindNodeHandle = (componentOrHandle: any): number | undefined => {
+  if (Platform.OS === "web" || !componentOrHandle) return undefined;
+  try {
+    const handle = findNodeHandle(componentOrHandle);
+    return typeof handle === "number" && handle > 0 ? handle : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+// ── Barra de Progreso Interactiva (Ping-Pong D-Pad + Aceleración Inteligente) ──
+function ScrubProgressBar({
+  positionMs,
+  durationMs,
+  onSeek,
+  onFocusGained,
+  onFocusLost,
+  onPress,
+  nextFocusUp,
+  nextFocusDown,
+  mainNodeRef,
+  onMainLayout,
+}: {
+  positionMs: number;
+  durationMs: number;
+  onSeek: (newMs: number) => void;
+  onFocusGained: () => void;
+  onFocusLost: () => void;
+  onPress?: () => void;
+  nextFocusUp?: number;
+  nextFocusDown?: number;
+  mainNodeRef?: React.MutableRefObject<any>;
+  onMainLayout?: () => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  const [scrubBadge, setScrubBadge] = useState<string | null>(null);
+
+  const mainRef = useRef<any>(null);
+  const r1Ref = useRef<any>(null);
+  const r2Ref = useRef<any>(null);
+  const l1Ref = useRef<any>(null);
+  const l2Ref = useRef<any>(null);
+
+  const [nodes, setNodes] = useState<{
+    main?: number;
+    r1?: number;
+    r2?: number;
+    l1?: number;
+    l2?: number;
+  }>({});
+
+  const positionMsRef = useRef(positionMs);
+  const durationMsRef = useRef(durationMs);
+  const onSeekRef = useRef(onSeek);
+  const focusTimerRef = useRef<any>(null);
+  const badgeTimerRef = useRef<any>(null);
+  const groupFocusedRef = useRef(false);
+
+  // Control de deduplicación y aceleración progresiva al mantener presionado
+  const lastTriggerTimeRef = useRef(0);
+  const lastSeekActionTimeRef = useRef(0);
+  const lastDirectionRef = useRef<"left" | "right" | null>(null);
+  const streakRef = useRef(0);
+
+  useEffect(() => {
+    positionMsRef.current = positionMs;
+    durationMsRef.current = durationMs;
+    onSeekRef.current = onSeek;
+  }, [positionMs, durationMs, onSeek]);
+
+  useEffect(() => {
+    return () => {
+      if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+      if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    };
+  }, []);
+
+  const syncNodes = useCallback(() => {
+    if (mainNodeRef) {
+      mainNodeRef.current = mainRef.current;
+    }
+    const next = {
+      main: safeFindNodeHandle(mainRef.current),
+      r1: safeFindNodeHandle(r1Ref.current),
+      r2: safeFindNodeHandle(r2Ref.current),
+      l1: safeFindNodeHandle(l1Ref.current),
+      l2: safeFindNodeHandle(l2Ref.current),
+    };
+    setNodes((prev) =>
+      prev.main === next.main &&
+      prev.r1 === next.r1 &&
+      prev.r2 === next.r2 &&
+      prev.l1 === next.l1 &&
+      prev.l2 === next.l2
+        ? prev
+        : next
+    );
+    onMainLayout?.();
+  }, [mainNodeRef, onMainLayout]);
+
+  useEffect(() => {
+    const t = setTimeout(syncNodes, 30);
+    return () => clearTimeout(t);
+  }, [syncNodes]);
+
+  const handleFocus = useCallback(() => {
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+    groupFocusedRef.current = true;
+    setFocused(true);
+    onFocusGained();
+  }, [onFocusGained]);
+
+  const handleBlur = useCallback(() => {
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+    focusTimerRef.current = setTimeout(() => {
+      groupFocusedRef.current = false;
+      streakRef.current = 0;
+      lastDirectionRef.current = null;
+      setFocused(false);
+      setScrubBadge(null);
+      onFocusLost();
+    }, 150);
+  }, [onFocusLost]);
+
+  const doSeek = useCallback(
+    (direction: "left" | "right") => {
+      if (!groupFocusedRef.current) {
+        handleFocus();
+        return;
+      }
+
+      const now = Date.now();
+      // Deduplicar si el evento de tecla y el foco nativo ping-pong disparan en el mismo frame
+      if (now - lastTriggerTimeRef.current < 55) {
+        return;
+      }
+      lastTriggerTimeRef.current = now;
+
+      // Aceleración progresiva: 10s -> 20s -> 30s -> 60s al mantener o pulsar rápido
+      if (
+        now - lastSeekActionTimeRef.current < 480 &&
+        lastDirectionRef.current === direction
+      ) {
+        streakRef.current += 1;
+      } else {
+        streakRef.current = 1;
+      }
+      lastSeekActionTimeRef.current = now;
+      lastDirectionRef.current = direction;
+
+      const streak = streakRef.current;
+      const stepMs =
+        streak <= 2
+          ? 10_000
+          : streak <= 5
+          ? 20_000
+          : streak <= 9
+          ? 30_000
+          : 60_000;
+
+      const effectiveDur =
+        durationMsRef.current > 1000
+          ? durationMsRef.current
+          : Math.max(positionMsRef.current + 3600_000, 3600_000);
+
+      const nextMs =
+        direction === "left"
+          ? Math.max(0, positionMsRef.current - stepMs)
+          : Math.min(effectiveDur, positionMsRef.current + stepMs);
+
+      positionMsRef.current = nextMs;
+      onSeekRef.current(nextMs);
+
+      const stepLabel =
+        stepMs >= 60_000 ? "1 min" : `${Math.round(stepMs / 1000)}s`;
+      setScrubBadge(
+        direction === "left" ? `« -${stepLabel}` : `+${stepLabel} »`
+      );
+      if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+      badgeTimerRef.current = setTimeout(() => {
+        setScrubBadge(null);
+      }, 1100);
+
+      handleFocus();
+    },
+    [handleFocus]
+  );
+
+  // Soporte directo para teclas Left/Right mientras la barra tiene foco
+  useTVRemoteKey((evt) => {
+    if (!groupFocusedRef.current || !evt?.eventType) return;
+    if (evt.eventType === "left" || evt.eventType === "right") {
+      doSeek(evt.eventType);
+    }
+  });
+
+  const pct =
+    durationMs > 1000
+      ? Math.max(0, Math.min(100, (positionMs / durationMs) * 100))
+      : 0;
+
+  return (
+    <View style={s.progressOuterRow} onLayout={syncNodes}>
+      {/* LEFT PING-PONG NODES */}
+      <TVPressable
+        ref={l2Ref}
+        focusable
+        onLayout={syncNodes}
+        onFocus={() => doSeek("left")}
+        onBlur={handleBlur}
+        onPress={onPress}
+        nextFocusLeft={nodes.l1}
+        nextFocusRight={nodes.main}
+        nextFocusUp={nextFocusUp}
+        nextFocusDown={nextFocusDown}
+        style={s.pingPongLeft2}
+      />
+      <TVPressable
+        ref={l1Ref}
+        focusable
+        onLayout={syncNodes}
+        onFocus={() => doSeek("left")}
+        onBlur={handleBlur}
+        onPress={onPress}
+        nextFocusLeft={nodes.l2}
+        nextFocusRight={nodes.main}
+        nextFocusUp={nextFocusUp}
+        nextFocusDown={nextFocusDown}
+        style={s.pingPongLeft1}
+      />
+
+      {/* MAIN PROGRESS BAR */}
+      <TVPressable
+        ref={mainRef}
+        focusable
+        onLayout={syncNodes}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onPress={onPress}
+        nextFocusLeft={nodes.l1}
+        nextFocusRight={nodes.r1}
+        nextFocusUp={nextFocusUp}
+        nextFocusDown={nextFocusDown}
+        style={[s.progressWrapper, focused && s.progressWrapperFocused]}
+      >
+        <Text style={[s.timeText, focused && s.timeTextFocused]}>
+          {fmtTime(positionMs)}
+        </Text>
+        <View style={[s.progressBarTrack, focused && s.progressBarTrackFocused]}>
+          <View style={[s.progressBarFill, { width: `${pct}%` as any }]} />
+          <View
+            style={[
+              s.progressThumb,
+              { left: `${pct}%` as any },
+              focused && s.progressThumbFocused,
+            ]}
+          />
+          {focused && (
+            <View
+              style={[
+                s.scrubFloatingPill,
+                { left: `${Math.max(6, Math.min(94, pct))}%` as any },
+              ]}
+              pointerEvents="none"
+            >
+              <Text style={s.scrubFloatingTxt}>
+                {scrubBadge
+                  ? `${scrubBadge} • ${fmtTime(positionMs)}`
+                  : `◀ ${fmtTime(positionMs)} ▶`}
+              </Text>
+            </View>
+          )}
+        </View>
+        <Text style={[s.timeText, focused && s.timeTextFocused]}>
+          {fmtTime(durationMs)}
+        </Text>
+      </TVPressable>
+
+      {/* RIGHT PING-PONG NODES */}
+      <TVPressable
+        ref={r1Ref}
+        focusable
+        onLayout={syncNodes}
+        onFocus={() => doSeek("right")}
+        onBlur={handleBlur}
+        onPress={onPress}
+        nextFocusRight={nodes.r2}
+        nextFocusLeft={nodes.main}
+        nextFocusUp={nextFocusUp}
+        nextFocusDown={nextFocusDown}
+        style={s.pingPongRight1}
+      />
+      <TVPressable
+        ref={r2Ref}
+        focusable
+        onLayout={syncNodes}
+        onFocus={() => doSeek("right")}
+        onBlur={handleBlur}
+        onPress={onPress}
+        nextFocusRight={nodes.r1}
+        nextFocusLeft={nodes.main}
+        nextFocusUp={nextFocusUp}
+        nextFocusDown={nextFocusDown}
+        style={s.pingPongRight2}
+      />
+    </View>
+  );
+}
 
 interface VodPlayerProps {
   slug: string;
@@ -94,11 +494,41 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
   const [isPlaying, setIsPlaying] = useState(true);
   const [positionMillis, setPositionMillis] = useState(0);
   const [durationMillis, setDurationMillis] = useState(1);
+  const positionMillisRef = useRef(0);
+  const durationMillisRef = useRef(1);
+  const lastSeekTimeRef = useRef(0);
+  const lastNativeSeekExecRef = useRef(0);
+  const seekCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isScrubBarFocusedRef = useRef(false);
 
-  // Aspect ratio, volume and audio/subtitle tracks
+  // Referencias de foco para navegación vertical exacta entre TopBar <-> Barra de Progreso <-> Controles
+  const topBackBtnRef = useRef<any>(null);
+  const progressMainRef = useRef<any>(null);
+  const playBtnRef = useRef<any>(null);
+  const [osdNavHandles, setOsdNavHandles] = useState<{
+    topBack?: number;
+    progressMain?: number;
+    playBtn?: number;
+  }>({});
+
+  const syncOsdNavHandles = useCallback(() => {
+    if (Platform.OS === "web") return;
+    const next = {
+      topBack: safeFindNodeHandle(topBackBtnRef.current),
+      progressMain: safeFindNodeHandle(progressMainRef.current),
+      playBtn: safeFindNodeHandle(playBtnRef.current),
+    };
+    setOsdNavHandles((prev) =>
+      prev.topBack === next.topBack &&
+      prev.progressMain === next.progressMain &&
+      prev.playBtn === next.playBtn
+        ? prev
+        : next
+    );
+  }, []);
+
+  // Aspect ratio and audio/subtitle tracks
   const [resizeMode, setResizeMode] = useState<"contain" | "cover">("contain");
-  const [volume, setVolume] = useState(1.0);
-  const [isMuted, setIsMuted] = useState(false);
   const [volumeToast, setVolumeToast] = useState<string | null>(null);
   const volumeToastTimer = useRef<any>(null);
 
@@ -107,28 +537,99 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
   const [activeDrawer, setActiveDrawer] = useState<"episodes" | "subs" | "audio" | null>(null);
   const [showExitModal, setShowExitModal] = useState(false);
 
+  // Disparadores diferidos de foco inicial para Fabric (false -> true tras montar overlay)
+  const [osdFocusReady, setOsdFocusReady] = useState(false);
+  const [drawerFocusReady, setDrawerFocusReady] = useState(false);
+  const [exitFocusReady, setExitFocusReady] = useState(false);
+
   // Track selection
   const [selectedSub, setSelectedSub] = useState<string>("off");
-  const [selectedAudio, setSelectedAudio] = useState<number | string>("auto");
+  const [selectedAudio, setSelectedAudio] = useState<string>("auto");
+  const [detectedAudioTracks, setDetectedAudioTracks] = useState<any[]>([]);
+  const [detectedTextTracks, setDetectedTextTracks] = useState<any[]>([]);
+  const subtitleCuesRef = useRef<SubtitleCue[]>([]);
+  const [currentSubtitleText, setCurrentSubtitleText] = useState<string>("");
   const [expandedSeasons, setExpandedSeasons] = useState<Record<number, boolean>>({});
 
-  const osdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncSubtitleForTime = useCallback((posSec: number) => {
+    if (subtitleCuesRef.current.length > 0) {
+      const activeCue = subtitleCuesRef.current.find(
+        (c) => posSec >= c.start && posSec <= c.end,
+      );
+      const nextText = activeCue ? activeCue.text : "";
+      setCurrentSubtitleText((prev) => (prev !== nextText ? nextText : prev));
+    } else {
+      setCurrentSubtitleText((prev) => (prev !== "" ? "" : prev));
+    }
+  }, []);
 
-  // Auto-hide OSD after 5 seconds of inactivity
-  const triggerOSD = useCallback(() => {
-    setShowOSD(true);
+  const osdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeDrawerRef = useRef(activeDrawer);
+  activeDrawerRef.current = activeDrawer;
+  const showExitModalRef = useRef(showExitModal);
+  showExitModalRef.current = showExitModal;
+
+  const startOsdTimer = useCallback(() => {
     if (osdTimerRef.current) clearTimeout(osdTimerRef.current);
-    if (!activeDrawer && !showExitModal) {
+    if (
+      !activeDrawerRef.current &&
+      !showExitModalRef.current &&
+      !isScrubBarFocusedRef.current
+    ) {
       osdTimerRef.current = setTimeout(() => {
         setShowOSD(false);
-      }, 5500);
+      }, 10000);
     }
-  }, [activeDrawer, showExitModal]);
+  }, []);
+
+  // Auto-hide OSD after 10 seconds of inactivity
+  useEffect(() => {
+    if (showOSD && !activeDrawer && !showExitModal) {
+      startOsdTimer();
+    } else if (osdTimerRef.current) {
+      clearTimeout(osdTimerRef.current);
+    }
+    return () => {
+      if (osdTimerRef.current) clearTimeout(osdTimerRef.current);
+    };
+  }, [showOSD, activeDrawer, showExitModal, startOsdTimer]);
+
+  const triggerOSD = useCallback(() => {
+    setShowOSD(true);
+    startOsdTimer();
+  }, [startOsdTimer]);
 
   const hideOSD = useCallback(() => {
     if (osdTimerRef.current) clearTimeout(osdTimerRef.current);
     setShowOSD(false);
   }, []);
+
+  useEffect(() => {
+    if (showOSD && !error && !activeDrawer && !showExitModal) {
+      setOsdFocusReady(false);
+      const t = setTimeout(() => setOsdFocusReady(true), 50);
+      return () => clearTimeout(t);
+    }
+    setOsdFocusReady(false);
+  }, [showOSD, error, activeDrawer, showExitModal]);
+
+  useEffect(() => {
+    if (activeDrawer) {
+      setDrawerFocusReady(false);
+      const t = setTimeout(() => setDrawerFocusReady(true), 50);
+      return () => clearTimeout(t);
+    }
+    setDrawerFocusReady(false);
+  }, [activeDrawer]);
+
+  useEffect(() => {
+    if (showExitModal) {
+      setExitFocusReady(false);
+      const t = setTimeout(() => setExitFocusReady(true), 50);
+      return () => clearTimeout(t);
+    }
+    setExitFocusReady(false);
+  }, [showExitModal]);
 
   // Fetch full content info once on mount or when slug changes
   useEffect(() => {
@@ -158,8 +659,15 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
     setError(false);
     setErrorMessage(null);
     setStreamData(null);
+    setDetectedAudioTracks([]);
+    setDetectedTextTracks([]);
+    subtitleCuesRef.current = [];
+    setCurrentSubtitleText("");
     setPositionMillis(0);
     setDurationMillis(1);
+    positionMillisRef.current = 0;
+    durationMillisRef.current = 1;
+    lastSeekTimeRef.current = 0;
 
     getWatchStream(slug, currentEpisodeId)
       .then((data) => {
@@ -223,14 +731,49 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
     }
   }, [activeDrawer, currentEpisode]);
 
+  // Fallback de duración desde metadatos si el stream HLS tarda en reportar duration
+  useEffect(() => {
+    if (durationMillis > 1000) return;
+    const epDurSec =
+      currentEpisode?.durationSeconds ||
+      (currentEpisode?.duration
+        ? currentEpisode.duration > 300
+          ? currentEpisode.duration
+          : currentEpisode.duration * 60
+        : 0);
+    const contentDurSec = content?.duration
+      ? content.duration > 300
+        ? content.duration
+        : content.duration * 60
+      : 0;
+    const fallbackSec = epDurSec || contentDurSec;
+    if (fallbackSec && fallbackSec > 0) {
+      const ms = fallbackSec * 1000;
+      durationMillisRef.current = ms;
+      setDurationMillis(ms);
+    }
+  }, [content, currentEpisode, durationMillis]);
+
+  useEffect(() => {
+    return () => {
+      if (seekCommitTimerRef.current) clearTimeout(seekCommitTimerRef.current);
+    };
+  }, []);
+
   // Handle Playback Status Updates
   const handlePlaybackStatusUpdate = useCallback((st: any) => {
     if (st?.isLoaded) {
       setIsPlaying(Boolean(st.isPlaying));
-      if (st.positionMillis !== undefined) {
+      if (
+        st.positionMillis !== undefined &&
+        Date.now() - lastSeekTimeRef.current > 900
+      ) {
+        positionMillisRef.current = st.positionMillis;
         setPositionMillis(st.positionMillis);
+        syncSubtitleForTime(st.positionMillis / 1000);
       }
       if (st.durationMillis && st.durationMillis > 0) {
+        durationMillisRef.current = st.durationMillis;
         setDurationMillis(st.durationMillis);
       }
       if (loading && st.positionMillis > 0) {
@@ -238,6 +781,47 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
       }
     }
   }, [loading]);
+
+  // Seek unificado a posición absoluta en ms (con protección contra rebote de onProgress)
+  const seekToPosition = useCallback(
+    (newPosMs: number) => {
+      const effectiveDur =
+        durationMillisRef.current > 1000
+          ? durationMillisRef.current
+          : durationMillis > 1000
+          ? durationMillis
+          : Math.max(newPosMs + 60_000, 7_200_000);
+      const clamped = Math.max(0, Math.min(newPosMs, effectiveDur));
+
+      lastSeekTimeRef.current = Date.now();
+      positionMillisRef.current = clamped;
+      setPositionMillis(clamped);
+      syncSubtitleForTime(clamped / 1000);
+
+      const applyNativeSeek = () => {
+        const vid = videoRef.current as any;
+        if (!vid) return;
+        lastSeekTimeRef.current = Date.now();
+        if (vid.seek) {
+          vid.seek(clamped / 1000);
+        } else if (vid.setPositionAsync) {
+          vid.setPositionAsync(clamped);
+        }
+      };
+
+      const now = Date.now();
+      if (now - lastNativeSeekExecRef.current > 280) {
+        lastNativeSeekExecRef.current = now;
+        applyNativeSeek();
+      }
+      if (seekCommitTimerRef.current) clearTimeout(seekCommitTimerRef.current);
+      seekCommitTimerRef.current = setTimeout(() => {
+        lastNativeSeekExecRef.current = Date.now();
+        applyNativeSeek();
+      }, 140);
+    },
+    [durationMillis]
+  );
 
   // Playback Controls
   const togglePlayPause = useCallback(async () => {
@@ -256,26 +840,22 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
     }
   }, [isPlaying, triggerOSD]);
 
-  const seekRelative = useCallback(async (seconds: number) => {
-    triggerOSD();
-    const vid = videoRef.current as any;
-    if (!vid) return;
-    const newPos = Math.max(0, Math.min(positionMillis + seconds * 1000, durationMillis || 0));
-    setPositionMillis(newPos);
-    if (vid.setPositionAsync) await vid.setPositionAsync(newPos);
-    else if (vid.seek) vid.seek(newPos / 1000);
-  }, [positionMillis, durationMillis, triggerOSD]);
+  const seekRelative = useCallback(
+    (seconds: number) => {
+      triggerOSD();
+      seekToPosition(positionMillisRef.current + seconds * 1000);
+    },
+    [seekToPosition, triggerOSD]
+  );
 
   const restart = useCallback(async () => {
     triggerOSD();
+    seekToPosition(0);
     const vid = videoRef.current as any;
-    if (!vid) return;
-    setPositionMillis(0);
-    if (vid.setPositionAsync) await vid.setPositionAsync(0);
-    if (vid.seek) vid.seek(0);
-    if (vid.playAsync) await vid.playAsync();
+    if (vid?.playAsync) await vid.playAsync();
+    else if (vid?.play) vid.play();
     setIsPlaying(true);
-  }, [triggerOSD]);
+  }, [seekToPosition, triggerOSD]);
 
   const goNext = useCallback(() => {
     if (!hasNext) return;
@@ -301,33 +881,6 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
     setResizeMode((prev) => (prev === "contain" ? "cover" : "contain"));
     showToastHUD(resizeMode === "contain" ? "Pantalla: Llenar (Zoom)" : "Pantalla: Ajustar (Original)");
   }, [resizeMode, triggerOSD]);
-
-  // Toggle / Step Volume
-  const cycleVolume = useCallback(() => {
-    triggerOSD();
-    if (isMuted) {
-      setIsMuted(false);
-      showToastHUD(`Volumen: ${Math.round(volume * 100)}%`);
-      return;
-    }
-    if (volume >= 1.0) {
-      setVolume(0.75);
-      showToastHUD("Volumen: 75%");
-    } else if (volume >= 0.7) {
-      setVolume(0.5);
-      showToastHUD("Volumen: 50%");
-    } else if (volume >= 0.45) {
-      setVolume(0.25);
-      showToastHUD("Volumen: 25%");
-    } else if (volume >= 0.2) {
-      setIsMuted(true);
-      showToastHUD("Volumen: Silencio (Mute)");
-    } else {
-      setVolume(1.0);
-      setIsMuted(false);
-      showToastHUD("Volumen: 100%");
-    }
-  }, [volume, isMuted, triggerOSD]);
 
   const showToastHUD = (msg: string) => {
     setVolumeToast(msg);
@@ -361,15 +914,13 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
     return () => sub.remove();
   }, [showExitModal, activeDrawer, showOSD, triggerOSD, hideOSD]);
 
-  // TV D-Pad Events:
-  // When OSD is HIDDEN: any press brings up OSD.
-  // When OSD is VISIBLE: do NOT hijack left/right/select; let native focus engine navigate!
-  useTVEventHandlerSafe((evt: any) => {
+  // TV D-Pad Events (vía MainActivity -> onTVRemoteKey):
+  // Cuando el OSD está oculto, cualquier tecla de dirección/OK/menú vuelve a mostrar el menú de control.
+  useTVRemoteKey((evt) => {
     if (!evt || !evt.eventType) return;
-    if (activeDrawer || showExitModal) return;
+    if (activeDrawer || showExitModal || error) return;
 
     if (!showOSD) {
-      // OSD is hidden -> any interaction displays OSD
       if (
         evt.eventType === "select" ||
         evt.eventType === "up" ||
@@ -379,13 +930,12 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
         evt.eventType === "menu"
       ) {
         triggerOSD();
-      } else if (evt.eventType === "playPause") {
+      } else if (evt.eventType === "playPause" && (evt.repeatCount ?? 0) === 0) {
         togglePlayPause();
       }
     } else {
-      // OSD is open -> reset auto-hide timer on user navigation
       triggerOSD();
-      if (evt.eventType === "playPause") {
+      if (evt.eventType === "playPause" && (evt.repeatCount ?? 0) === 0) {
         togglePlayPause();
       }
     }
@@ -411,8 +961,161 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
     ? `${content.releaseYear}${content.duration ? ` • ${Math.round(content.duration > 300 ? content.duration / 60 : content.duration)} min` : ""}`
     : "";
 
-  const audioList = streamData?.audioTracks || [];
-  const subsList = streamData?.subtitleTracks || [];
+  const audioList = useMemo(() => {
+    const dbAudios =
+      (streamData?.audioTracks && streamData.audioTracks.length > 0
+        ? streamData.audioTracks
+        : null) ||
+      (currentEpisode as any)?.videoFiles?.[0]?.audioTracks ||
+      (content as any)?.videoFiles?.[0]?.audioTracks ||
+      (currentEpisode as any)?.audioTracks ||
+      (content as any)?.audioTracks ||
+      [];
+
+    if (detectedAudioTracks.length > 0) {
+      return detectedAudioTracks.map((t: any, idx: number) => {
+        const trackIdx = t.index !== undefined ? t.index : idx;
+        const dbMatch =
+          dbAudios.find(
+            (db: any) =>
+              db.trackIndex !== undefined && Number(db.trackIndex) === Number(trackIdx),
+          ) || dbAudios[idx];
+        const label =
+          dbMatch?.label || getLangLabel(t.language || dbMatch?.language, t.title, idx);
+        return {
+          id: `index:${trackIdx}`,
+          label,
+          language: t.language || dbMatch?.language || "und",
+        };
+      });
+    }
+
+    return dbAudios.map((a: any, idx: number) => {
+      const trackIdx = a.trackIndex !== undefined ? a.trackIndex : idx;
+      return {
+        id: `index:${trackIdx}`,
+        label: a.label || getLangLabel(a.language, a.title, idx),
+        language: a.language || "und",
+      };
+    });
+  }, [streamData?.audioTracks, currentEpisode, content, detectedAudioTracks]);
+
+  const subsList = useMemo(() => {
+    const dbSubs =
+      (streamData?.subtitleTracks && streamData.subtitleTracks.length > 0
+        ? streamData.subtitleTracks
+        : null) ||
+      (currentEpisode as any)?.videoFiles?.[0]?.subtitleTracks ||
+      (content as any)?.videoFiles?.[0]?.subtitleTracks ||
+      (currentEpisode as any)?.subtitleTracks ||
+      (content as any)?.subtitleTracks ||
+      [];
+
+    const externalMapped = dbSubs
+      .filter((s: any) => s && (s.url || s.src || s.uri))
+      .map((s: any, idx: number) => {
+        const rawUrl = s.url || s.src || s.uri;
+        let absoluteUrl = String(rawUrl);
+        if (absoluteUrl && !absoluteUrl.startsWith("http")) {
+          const normalized = absoluteUrl.startsWith("/") ? absoluteUrl : `/${absoluteUrl}`;
+          absoluteUrl = `${NEXOPLAY_API_BASE}${normalized}`;
+        }
+        const label = s.label || getLangLabel(s.language, s.title, idx);
+        return {
+          id: `title:${label}`,
+          label,
+          language: s.language || "es",
+          uri: absoluteUrl,
+          isExternal: true,
+        };
+      });
+
+    const embeddedSubs = detectedTextTracks
+      .filter((t: any) => !externalMapped.some((ext: any) => ext.label === t.title))
+      .map((t: any, idx: number) => {
+        const trackIdx = t.index !== undefined ? t.index : idx;
+        const label = getLangLabel(t.language, t.title, idx);
+        return {
+          id: `index:${trackIdx}`,
+          label,
+          language: t.language || "und",
+          isExternal: false,
+        };
+      });
+
+    return [...externalMapped, ...embeddedSubs];
+  }, [streamData?.subtitleTracks, currentEpisode, content, detectedTextTracks]);
+
+  const externalTextTracks = useMemo(() => {
+    return subsList
+      .filter((s: any) => s.isExternal && s.uri)
+      .map((s: any) => ({
+        title: s.label,
+        language: (s.language || "es") as any,
+        type: TextTrackType.VTT,
+        uri: s.uri,
+      }));
+  }, [subsList]);
+
+  // Motor de subtítulos externos (VTT / SRT)
+  useEffect(() => {
+    let cancelled = false;
+    if (selectedSub === "off" || !selectedSub.startsWith("title:")) {
+      subtitleCuesRef.current = [];
+      setCurrentSubtitleText("");
+      return;
+    }
+
+    const track = subsList.find((s: any) => s.id === selectedSub);
+    if (!track || !track.uri) {
+      subtitleCuesRef.current = [];
+      setCurrentSubtitleText("");
+      return;
+    }
+
+    fetch(track.uri)
+      .then((res) => res.text())
+      .then((text) => {
+        if (cancelled) return;
+        const cues = parseVTT(text);
+        subtitleCuesRef.current = cues;
+        syncSubtitleForTime(positionMillisRef.current / 1000);
+      })
+      .catch((err) => {
+        console.warn("[VodPlayer] Error cargando subtítulos externos:", err);
+        if (!cancelled) {
+          subtitleCuesRef.current = [];
+          setCurrentSubtitleText("");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSub, subsList, syncSubtitleForTime]);
+
+  const resolvedAudioTrack = useMemo(() => {
+    if (selectedAudio === "auto") return { type: SelectedTrackType.SYSTEM };
+    if (selectedAudio.startsWith("index:")) {
+      return {
+        type: SelectedTrackType.INDEX,
+        value: Number(selectedAudio.replace("index:", "")),
+      };
+    }
+    return { type: SelectedTrackType.INDEX, value: Number(selectedAudio) };
+  }, [selectedAudio]);
+
+  const resolvedTextTrack = useMemo(() => {
+    if (selectedSub === "off") return { type: SelectedTrackType.DISABLED };
+    if (selectedSub.startsWith("title:")) return { type: SelectedTrackType.DISABLED };
+    if (selectedSub.startsWith("index:")) {
+      return {
+        type: SelectedTrackType.INDEX,
+        value: Number(selectedSub.replace("index:", "")),
+      };
+    }
+    return { type: SelectedTrackType.INDEX, value: Number(selectedSub) };
+  }, [selectedSub]);
 
   return (
     <View style={s.container}>
@@ -425,8 +1128,6 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
             fallbackUri={streamData.url}
             controls={false}
             paused={!isPlaying}
-            muted={isMuted}
-            volume={isMuted ? 0 : volume}
             resizeMode={resizeMode}
             onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
             onError={(msg) => {
@@ -441,37 +1142,73 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
             source={{ uri: streamData.url }}
             controls={false}
             resizeMode={resizeMode}
-            volume={isMuted ? 0 : volume}
-            muted={isMuted}
-            selectedAudioTrack={
-              selectedAudio === "auto"
-                ? { type: SelectedTrackType.SYSTEM }
-                : { type: SelectedTrackType.INDEX, value: Number(selectedAudio) }
-            }
-            selectedTextTrack={
-              selectedSub === "off"
-                ? { type: SelectedTrackType.DISABLED }
-                : { type: SelectedTrackType.INDEX, value: Number(selectedSub) }
-            }
+            volume={1.0}
+            muted={false}
+            textTracks={externalTextTracks}
+            selectedAudioTrack={resolvedAudioTrack}
+            selectedTextTrack={resolvedTextTrack}
+            subtitleStyle={{
+              fontSize: 22,
+              paddingBottom: 42,
+              opacity: 1,
+            }}
             paused={!isPlaying}
-            onProgress={(data: any) => {
-              if (data?.currentTime !== undefined && !isNaN(data.currentTime)) {
-                setPositionMillis(data.currentTime * 1000);
+            onAudioTracks={(data: any) => {
+              if (data?.audioTracks && Array.isArray(data.audioTracks)) {
+                setDetectedAudioTracks(data.audioTracks);
               }
-              const dur = data?.seekableDuration || data?.duration;
+            }}
+            onTextTracks={(data: any) => {
+              if (data?.textTracks && Array.isArray(data.textTracks)) {
+                setDetectedTextTracks(data.textTracks);
+              }
+            }}
+            onProgress={(data: any) => {
+              if (
+                data?.currentTime !== undefined &&
+                !isNaN(data.currentTime) &&
+                Date.now() - lastSeekTimeRef.current > 900
+              ) {
+                const pos = data.currentTime * 1000;
+                positionMillisRef.current = pos;
+                setPositionMillis(pos);
+                syncSubtitleForTime(data.currentTime);
+              }
+              const dur =
+                data?.seekableDuration && data.seekableDuration > 0
+                  ? data.seekableDuration
+                  : data?.playableDuration && data.playableDuration > 0
+                  ? data.playableDuration
+                  : data?.duration;
               if (dur && dur > 0 && !isNaN(dur)) {
-                setDurationMillis(dur * 1000);
+                const durMs = dur * 1000;
+                durationMillisRef.current = durMs;
+                setDurationMillis(durMs);
               }
               if (loading) setLoading(false);
             }}
             onLoad={(data: any) => {
               setLoading(false);
-              const dur = data?.duration ?? data?.seekableDuration;
+              if (data?.audioTracks && Array.isArray(data.audioTracks)) {
+                setDetectedAudioTracks(data.audioTracks);
+              }
+              if (data?.textTracks && Array.isArray(data.textTracks)) {
+                setDetectedTextTracks(data.textTracks);
+              }
+              const dur =
+                data?.duration && data.duration > 0
+                  ? data.duration
+                  : data?.seekableDuration;
               if (dur && dur > 0) {
-                setDurationMillis(dur * 1000);
+                const durMs = dur * 1000;
+                durationMillisRef.current = durMs;
+                setDurationMillis(durMs);
               } else if (content?.duration && durationMillis <= 1000) {
-                const fallbackSecs = content.duration > 300 ? content.duration : content.duration * 60;
-                setDurationMillis(fallbackSecs * 1000);
+                const fallbackSecs =
+                  content.duration > 300 ? content.duration : content.duration * 60;
+                const durMs = fallbackSecs * 1000;
+                durationMillisRef.current = durMs;
+                setDurationMillis(durMs);
               }
             }}
             onBuffer={({ isBuffering }: { isBuffering: boolean }) => {
@@ -488,6 +1225,13 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
           />
         )
       ) : null}
+
+      {/* ── Capa de Subtítulos Externos (VTT / SRT sincronizados) ── */}
+      {!!currentSubtitleText && (
+        <View style={s.subtitleOverlay} pointerEvents="none">
+          <Text style={s.subtitleText}>{currentSubtitleText}</Text>
+        </View>
+      )}
 
       {/* ── Toast HUD (Volumen / Aspecto) ── */}
       {volumeToast && (
@@ -524,204 +1268,279 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
             style={s.btn}
             focusedStyle={s.btnFocused}
           >
-            <Text style={s.btnText}>Volver al Catálogo</Text>
+            {({ focused }) => (
+              <Text style={[s.btnText, focused && { color: "#000" }]}>Volver al Catálogo</Text>
+            )}
           </Focusable>
         </View>
       )}
 
+      {/* Toque/clic fuera del OSD para volver a mostrarlo en dispositivos táctiles */}
+      {!showOSD && !error && !activeDrawer && !showExitModal && (
+        <Pressable
+          focusable={false}
+          accessible={false}
+          onPress={triggerOSD}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
+
       {/* ── On-Screen Display (OSD) ── */}
-      {showOSD && !error && !activeDrawer && (
+      {showOSD && !error && !activeDrawer && !showExitModal && (
         <View style={s.osdOverlay} pointerEvents="box-none">
-          {/* Top Bar: Back button, Title & Badges */}
+          {/* Top Bar: Back button & Title (sin etiqueta HD estática) */}
           <LinearGradient
-            colors={["rgba(5,7,12,0.95)", "rgba(5,7,12,0.5)", "transparent"]}
+            colors={["rgba(6,6,8,0.92)", "rgba(6,6,8,0.45)", "transparent"]}
             style={s.topBar}
             pointerEvents="box-none"
           >
             <Focusable
+              ref={topBackBtnRef}
+              onLayout={syncOsdNavHandles}
+              onFocus={triggerOSD}
               onPress={() => setShowExitModal(true)}
+              nextFocusDown={osdNavHandles.progressMain}
+              trapFocusUp
+              scaleFocused={1.06}
               style={s.topBackBtn}
               focusedStyle={s.topBackBtnFocused}
             >
-              <ArrowLeft size={scale(22)} color="#fff" />
+              {({ focused }) => <ArrowLeft size={scale(18)} color={focused ? "#000" : "#fff"} />}
             </Focusable>
             <View style={{ flex: 1 }}>
               <Text style={s.title} numberOfLines={1}>{mainTitle}</Text>
               {!!subTitle && <Text style={s.subTitle} numberOfLines={1}>{subTitle}</Text>}
             </View>
-            <View style={s.topBadgesRow}>
-              <View style={s.qualityBadge}>
-                <Text style={s.qualityBadgeText}>HD</Text>
-              </View>
-            </View>
           </LinearGradient>
 
           {/* Bottom Bar: Progress Bar (Above) + Controls Row (Below) */}
           <LinearGradient
-            colors={["transparent", "rgba(5,7,12,0.6)", "rgba(5,7,12,0.98)"]}
+            colors={["transparent", "rgba(6,6,8,0.68)", "rgba(6,6,8,0.96)"]}
             style={s.bottomBar}
             pointerEvents="box-none"
           >
-            {/* 1. PROGRESS BAR (Posicionada arriba de los controles, nunca superpuesta) */}
-            <Focusable
-              onPress={() => triggerOSD()}
-              onFocus={triggerOSD}
-              style={s.progressWrapper}
-              focusedStyle={s.progressWrapperFocused}
-            >
-              <Text style={s.timeText}>{fmtTime(positionMillis)}</Text>
-              <View style={s.progressBarTrack}>
-                <View style={[s.progressBarFill, { width: `${progressPercent}%` }]} />
-                <View style={[s.progressThumb, { left: `${progressPercent}%` }]} />
-              </View>
-              <Text style={s.timeText}>{fmtTime(durationMillis)}</Text>
-            </Focusable>
+            {/* 1. PROGRESS BAR (Interactiva con D-Pad Izquierda/Derecha y aceleración progresiva) */}
+            <ScrubProgressBar
+              positionMs={positionMillis}
+              durationMs={durationMillis}
+              onSeek={seekToPosition}
+              onPress={togglePlayPause}
+              nextFocusUp={osdNavHandles.topBack}
+              nextFocusDown={osdNavHandles.playBtn}
+              mainNodeRef={progressMainRef}
+              onMainLayout={syncOsdNavHandles}
+              onFocusGained={() => {
+                isScrubBarFocusedRef.current = true;
+                if (osdTimerRef.current) {
+                  clearTimeout(osdTimerRef.current);
+                  osdTimerRef.current = null;
+                }
+                setShowOSD(true);
+              }}
+              onFocusLost={() => {
+                isScrubBarFocusedRef.current = false;
+                startOsdTimer();
+              }}
+            />
 
-            {/* 2. CONTROLS ROW (Diseño profesional de 3 grupos alineados) */}
+            {/* 2. CONTROLS ROW (3 bloques balanceados con centro 100% centrado siempre) */}
             <View style={s.controlsRow}>
-              {/* Grupo Izquierdo: Ventana de Episodios, Subtítulos y Audio */}
+              {/* Grupo Izquierdo: Episodios, Subtítulos y Audio */}
               <View style={s.sideControlsLeft}>
                 {isSeries && (
                   <Focusable
+                    onFocus={triggerOSD}
                     onPress={() => {
                       setActiveDrawer("episodes");
                       hideOSD();
                     }}
+                    nextFocusUp={osdNavHandles.progressMain}
+                    trapFocusDown
+                    scaleFocused={1.04}
                     style={s.menuBtn}
                     focusedStyle={s.menuBtnFocused}
                   >
-                    <List size={scale(18)} color="#fff" />
-                    <Text style={s.menuBtnText}>Episodios</Text>
+                    {({ focused }) => (
+                      <>
+                        <List size={scale(14)} color={focused ? "#000" : "#fff"} />
+                        <Text style={[s.menuBtnText, focused && { color: "#000" }]}>Episodios</Text>
+                      </>
+                    )}
                   </Focusable>
                 )}
 
                 <Focusable
+                  onFocus={triggerOSD}
                   onPress={() => {
                     setActiveDrawer("subs");
                     hideOSD();
                   }}
+                  nextFocusUp={osdNavHandles.progressMain}
+                  trapFocusDown
+                  scaleFocused={1.04}
                   style={s.menuBtn}
                   focusedStyle={s.menuBtnFocused}
                 >
-                  <MessageSquare size={scale(18)} color="#fff" />
-                  <Text style={s.menuBtnText}>Subtítulos</Text>
+                  {({ focused }) => (
+                    <>
+                      <MessageSquare size={scale(14)} color={focused ? "#000" : "#fff"} />
+                      <Text style={[s.menuBtnText, focused && { color: "#000" }]}>Subtítulos</Text>
+                    </>
+                  )}
                 </Focusable>
 
                 <Focusable
+                  onFocus={triggerOSD}
                   onPress={() => {
                     setActiveDrawer("audio");
                     hideOSD();
                   }}
+                  nextFocusUp={osdNavHandles.progressMain}
+                  trapFocusDown
+                  scaleFocused={1.04}
                   style={s.menuBtn}
                   focusedStyle={s.menuBtnFocused}
                 >
-                  <Languages size={scale(18)} color="#fff" />
-                  <Text style={s.menuBtnText}>Audio</Text>
+                  {({ focused }) => (
+                    <>
+                      <Languages size={scale(14)} color={focused ? "#000" : "#fff"} />
+                      <Text style={[s.menuBtnText, focused && { color: "#000" }]}>Audio</Text>
+                    </>
+                  )}
                 </Focusable>
               </View>
 
-              {/* Grupo Central: Reproducción, Salto 10s y Navegación de Episodio */}
+              {/* Grupo Central: Siempre centrado al 100% en pantalla */}
               <View style={s.mainControlsCenter}>
                 <Focusable
+                  onFocus={triggerOSD}
                   onPress={restart}
+                  nextFocusUp={osdNavHandles.progressMain}
+                  trapFocusDown
+                  scaleFocused={1.06}
                   style={s.controlActionBtn}
                   focusedStyle={s.controlActionBtnFocused}
                 >
-                  <RotateCcw size={scale(20)} color="#fff" />
-                  <Text style={s.actionTxt}>Reiniciar</Text>
+                  {({ focused }) => (
+                    <>
+                      <RotateCcw size={scale(15)} color={focused ? "#000" : "#fff"} />
+                      <Text style={[s.actionTxt, focused && { color: "#000" }]}>Reiniciar</Text>
+                    </>
+                  )}
                 </Focusable>
 
                 <Focusable
+                  onFocus={triggerOSD}
                   onPress={() => seekRelative(-10)}
+                  nextFocusUp={osdNavHandles.progressMain}
+                  trapFocusDown
+                  scaleFocused={1.06}
                   style={s.controlActionBtn}
                   focusedStyle={s.controlActionBtnFocused}
                 >
-                  <RotateCcw size={scale(22)} color="#fff" />
-                  <Text style={s.actionTxt}>-10s</Text>
+                  {({ focused }) => (
+                    <>
+                      <RotateCcw size={scale(15)} color={focused ? "#000" : "#fff"} />
+                      <Text style={[s.actionTxt, focused && { color: "#000" }]}>-10s</Text>
+                    </>
+                  )}
                 </Focusable>
 
                 {hasPrev && (
                   <Focusable
+                    onFocus={triggerOSD}
                     onPress={goPrev}
+                    nextFocusUp={osdNavHandles.progressMain}
+                    trapFocusDown
+                    scaleFocused={1.06}
                     style={s.roundBtn}
                     focusedStyle={s.roundBtnFocused}
                   >
-                    <SkipBack size={scale(22)} color="#fff" />
+                    {({ focused }) => <SkipBack size={scale(16)} color={focused ? "#000" : "#fff"} />}
                   </Focusable>
                 )}
 
                 {/* Botón Principal PLAY/PAUSE */}
                 <Focusable
-                  hasTVPreferredFocus
+                  ref={playBtnRef}
+                  onLayout={syncOsdNavHandles}
+                  hasTVPreferredFocus={osdFocusReady}
+                  onFocus={triggerOSD}
                   onPress={togglePlayPause}
-                  scaleFocused={1.12}
+                  nextFocusUp={osdNavHandles.progressMain}
+                  trapFocusDown
+                  scaleFocused={1.08}
                   style={s.playBtn}
                   focusedStyle={s.playBtnFocused}
                 >
                   {isPlaying ? (
-                    <Pause size={scale(32)} color="#000" fill="#000" />
+                    <Pause size={scale(24)} color="#000" fill="#000" />
                   ) : (
                     <Play
-                      size={scale(32)}
+                      size={scale(24)}
                       color="#000"
                       fill="#000"
-                      style={{ marginLeft: scale(4) }}
+                      style={{ marginLeft: scale(3) }}
                     />
                   )}
                 </Focusable>
 
                 {hasNext && (
                   <Focusable
+                    onFocus={triggerOSD}
                     onPress={goNext}
+                    nextFocusUp={osdNavHandles.progressMain}
+                    trapFocusDown
+                    scaleFocused={1.06}
                     style={s.roundBtn}
                     focusedStyle={s.roundBtnFocused}
                   >
-                    <SkipForward size={scale(22)} color="#fff" />
+                    {({ focused }) => <SkipForward size={scale(16)} color={focused ? "#000" : "#fff"} />}
                   </Focusable>
                 )}
 
                 <Focusable
+                  onFocus={triggerOSD}
                   onPress={() => seekRelative(10)}
+                  nextFocusUp={osdNavHandles.progressMain}
+                  trapFocusDown
+                  scaleFocused={1.06}
                   style={s.controlActionBtn}
                   focusedStyle={s.controlActionBtnFocused}
                 >
-                  <RotateCw size={scale(22)} color="#fff" />
-                  <Text style={s.actionTxt}>+10s</Text>
+                  {({ focused }) => (
+                    <>
+                      <RotateCw size={scale(15)} color={focused ? "#000" : "#fff"} />
+                      <Text style={[s.actionTxt, focused && { color: "#000" }]}>+10s</Text>
+                    </>
+                  )}
                 </Focusable>
               </View>
 
-              {/* Grupo Derecho: Tamaño de pantalla (aspect ratio) y Control de Volumen */}
+              {/* Grupo Derecho: Tamaño de pantalla (nunca se sale de los bordes) */}
               <View style={s.sideControlsRight}>
                 <Focusable
+                  onFocus={triggerOSD}
                   onPress={toggleResizeMode}
+                  nextFocusUp={osdNavHandles.progressMain}
+                  trapFocusDown
+                  trapFocusRight
+                  scaleFocused={1.04}
                   style={s.menuBtn}
                   focusedStyle={s.menuBtnFocused}
                 >
-                  {resizeMode === "cover" ? (
-                    <Minimize size={scale(18)} color="#fff" />
-                  ) : (
-                    <Maximize2 size={scale(18)} color="#fff" />
+                  {({ focused }) => (
+                    <>
+                      {resizeMode === "cover" ? (
+                        <Minimize size={scale(14)} color={focused ? "#000" : "#fff"} />
+                      ) : (
+                        <Maximize2 size={scale(14)} color={focused ? "#000" : "#fff"} />
+                      )}
+                      <Text style={[s.menuBtnText, focused && { color: "#000" }]}>
+                        {resizeMode === "cover" ? "Llenar" : "Ajustar"}
+                      </Text>
+                    </>
                   )}
-                  <Text style={s.menuBtnText}>
-                    {resizeMode === "cover" ? "Llenar" : "Ajustar"}
-                  </Text>
-                </Focusable>
-
-                <Focusable
-                  onPress={cycleVolume}
-                  style={s.menuBtn}
-                  focusedStyle={s.menuBtnFocused}
-                >
-                  {isMuted ? (
-                    <VolumeX size={scale(18)} color="#f87171" />
-                  ) : volume <= 0.5 ? (
-                    <Volume1 size={scale(18)} color="#fff" />
-                  ) : (
-                    <Volume2 size={scale(18)} color="#fff" />
-                  )}
-                  <Text style={s.menuBtnText}>
-                    {isMuted ? "Mute" : `${Math.round(volume * 100)}%`}
-                  </Text>
                 </Focusable>
               </View>
             </View>
@@ -732,7 +1551,9 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
       {/* ── RIGHT SIDEBAR DRAWERS (EPISODIOS / SUBS / AUDIO) ── */}
       {activeDrawer && (
         <View style={s.sidebarOverlay}>
-          <Focusable
+          <Pressable
+            focusable={false}
+            accessible={false}
             style={StyleSheet.absoluteFill}
             onPress={() => {
               setActiveDrawer(null);
@@ -741,55 +1562,63 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
           />
           <View style={s.sidebar}>
             <LinearGradient
-              colors={["rgba(10,13,20,0.98)", "rgba(8,10,16,0.96)"]}
+              colors={["#0c0c10", "#070709"]}
               style={StyleSheet.absoluteFill}
             />
             <View style={s.sidebarHeader}>
-              <View>
-                <Text style={s.sidebarTitle}>
+              <View style={{ flex: 1, paddingRight: scale(10) }}>
+                <Text style={s.sidebarTitle} numberOfLines={1}>
                   {activeDrawer === "episodes"
                     ? "Episodios y Temporadas"
                     : activeDrawer === "subs"
                     ? "Subtítulos"
                     : "Pistas de Audio"}
                 </Text>
-                <Text style={s.sidebarSub}>{mainTitle}</Text>
+                <Text style={s.sidebarSub} numberOfLines={1}>{mainTitle}</Text>
               </View>
               <Focusable
+                hasTVPreferredFocus={
+                  drawerFocusReady &&
+                  activeDrawer === "episodes" &&
+                  (!content?.seasons || content.seasons.length === 0)
+                }
                 onPress={() => {
                   setActiveDrawer(null);
                   triggerOSD();
                 }}
+                scaleFocused={1.06}
                 style={s.closeBtn}
                 focusedStyle={s.closeBtnFocused}
               >
-                <X size={scale(20)} color="#fff" />
+                {({ focused }) => <X size={scale(15)} color={focused ? "#000" : "#fff"} />}
               </Focusable>
             </View>
 
             {/* Lista de Episodios */}
             {activeDrawer === "episodes" && (
-              <ScrollView contentContainerStyle={{ padding: scale(20), gap: scale(16) }}>
+              <ScrollView contentContainerStyle={{ padding: scale(14), gap: scale(10) }}>
                 {content?.seasons && content.seasons.length > 0 ? (
                   content.seasons.map((se: any, sIdx: number) => {
                     const isExpanded = Boolean(expandedSeasons[se.number]);
                     return (
-                      <View key={se.id || sIdx} style={{ gap: scale(8) }}>
+                      <View key={se.id || sIdx} style={{ gap: scale(6) }}>
                         <Focusable
+                          hasTVPreferredFocus={drawerFocusReady && sIdx === 0}
                           onPress={() =>
                             setExpandedSeasons((prev) => ({
                               ...prev,
                               [se.number]: !prev[se.number],
                             }))
                           }
+                          scaleFocused={1.02}
                           style={s.seasonHeader}
                           focusedStyle={s.seasonHeaderFocused}
                         >
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: scale(10) }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: scale(8) }}>
                             {isExpanded ? (
-                              <ChevronDown size={scale(18)} color="#fff" />
+                              <ChevronDown size={scale(15)} color={C.accent} />
                             ) : (
-                              <ChevronRight size={scale(18)} color="#fff" />
+                              <ChevronRight size={scale(15)} color={C.accent} />
                             )}
                             <Text style={s.seasonTitle}>Temporada {se.number}</Text>
                           </View>
@@ -808,11 +1637,14 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
                                     setActiveDrawer(null);
                                     triggerOSD();
                                   }}
+                                  scaleFocused={1.02}
                                   style={[s.epItem, isCurrent && s.epItemActive]}
                                   focusedStyle={s.epItemFocused}
                                 >
                                   <View style={[s.epNum, isCurrent && s.epNumActive]}>
-                                    <Text style={s.epNumText}>{ep.number}</Text>
+                                    <Text style={[s.epNumText, isCurrent && { color: "#000" }]}>
+                                      {ep.number}
+                                    </Text>
                                   </View>
                                   <View style={{ flex: 1 }}>
                                     <Text
@@ -841,8 +1673,8 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
                     );
                   })
                 ) : (
-                  <View style={{ padding: scale(20), alignItems: "center" }}>
-                    <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: scale(15) }}>
+                  <View style={{ padding: scale(16), alignItems: "center" }}>
+                    <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: scale(13) }}>
                       Cargando episodios de la serie...
                     </Text>
                   </View>
@@ -852,23 +1684,26 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
 
             {/* Lista de Subtítulos */}
             {activeDrawer === "subs" && (
-              <ScrollView contentContainerStyle={{ padding: scale(20), gap: scale(12) }}>
+              <ScrollView contentContainerStyle={{ padding: scale(14), gap: scale(8) }}>
                 <Focusable
-                  hasTVPreferredFocus
+                  hasTVPreferredFocus={drawerFocusReady}
                   onPress={() => {
                     setSelectedSub("off");
                     setActiveDrawer(null);
                     triggerOSD();
                   }}
+                  scaleFocused={1.02}
                   style={[s.trackItem, selectedSub === "off" && s.trackItemActive]}
                   focusedStyle={s.trackItemFocused}
                 >
-                  <Text style={s.trackText}>Desactivados</Text>
-                  {selectedSub === "off" && <Check size={scale(18)} color={C.accent} />}
+                  <Text style={[s.trackText, selectedSub === "off" && { color: C.accent }]}>
+                    Desactivados
+                  </Text>
+                  {selectedSub === "off" && <Check size={scale(15)} color={C.accent} />}
                 </Focusable>
 
                 {subsList.map((sub: any, idx: number) => {
-                  const key = String(sub.url || idx);
+                  const key = String(sub.id || sub.url || idx);
                   const isSelected = selectedSub === key;
                   return (
                     <Focusable
@@ -878,13 +1713,14 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
                         setActiveDrawer(null);
                         triggerOSD();
                       }}
+                      scaleFocused={1.02}
                       style={[s.trackItem, isSelected && s.trackItemActive]}
                       focusedStyle={s.trackItemFocused}
                     >
-                      <Text style={s.trackText}>
+                      <Text style={[s.trackText, isSelected && { color: C.accent }]}>
                         {sub.label || sub.language || `Pista ${idx + 1}`}
                       </Text>
-                      {isSelected && <Check size={scale(18)} color={C.accent} />}
+                      {isSelected && <Check size={scale(15)} color={C.accent} />}
                     </Focusable>
                   );
                 })}
@@ -893,23 +1729,28 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
 
             {/* Lista de Audios */}
             {activeDrawer === "audio" && (
-              <ScrollView contentContainerStyle={{ padding: scale(20), gap: scale(12) }}>
+              <ScrollView contentContainerStyle={{ padding: scale(14), gap: scale(8) }}>
                 <Focusable
-                  hasTVPreferredFocus
+                  hasTVPreferredFocus={drawerFocusReady}
                   onPress={() => {
                     setSelectedAudio("auto");
                     setActiveDrawer(null);
                     triggerOSD();
                   }}
+                  scaleFocused={1.02}
                   style={[s.trackItem, selectedAudio === "auto" && s.trackItemActive]}
                   focusedStyle={s.trackItemFocused}
                 >
-                  <Text style={s.trackText}>Automático (Pista original)</Text>
-                  {selectedAudio === "auto" && <Check size={scale(18)} color={C.accent} />}
+                  <Text style={[s.trackText, selectedAudio === "auto" && { color: C.accent }]}>
+                    Automático (Pista original)
+                  </Text>
+                  {selectedAudio === "auto" && <Check size={scale(15)} color={C.accent} />}
                 </Focusable>
 
                 {audioList.map((aud: any, idx: number) => {
-                  const key = aud.trackIndex !== undefined ? aud.trackIndex : idx;
+                  const key = String(
+                    aud.id || (aud.trackIndex !== undefined ? `index:${aud.trackIndex}` : `index:${idx}`),
+                  );
                   const isSelected = selectedAudio === key;
                   return (
                     <Focusable
@@ -919,13 +1760,14 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
                         setActiveDrawer(null);
                         triggerOSD();
                       }}
+                      scaleFocused={1.02}
                       style={[s.trackItem, isSelected && s.trackItemActive]}
                       focusedStyle={s.trackItemFocused}
                     >
-                      <Text style={s.trackText}>
+                      <Text style={[s.trackText, isSelected && { color: C.accent }]}>
                         {aud.label || aud.language || `Audio ${idx + 1}`}
                       </Text>
-                      {isSelected && <Check size={scale(18)} color={C.accent} />}
+                      {isSelected && <Check size={scale(15)} color={C.accent} />}
                     </Focusable>
                   );
                 })}
@@ -945,7 +1787,7 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
             </Text>
             <View style={s.modalActions}>
               <Focusable
-                hasTVPreferredFocus
+                hasTVPreferredFocus={exitFocusReady}
                 onPress={() => {
                   setShowExitModal(false);
                   triggerOSD();
@@ -954,7 +1796,11 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
                 style={s.modalBtnContinue}
                 focusedStyle={s.modalBtnContinueFocused}
               >
-                <Text style={s.modalBtnContinueTxt}>CONTINUAR VIENDO</Text>
+                {({ focused }) => (
+                  <Text style={[s.modalBtnContinueTxt, focused && { color: "#000" }]}>
+                    CONTINUAR VIENDO
+                  </Text>
+                )}
               </Focusable>
 
               <Focusable
@@ -963,7 +1809,11 @@ export default function VodPlayer({ slug, episodeId: initialEpId }: VodPlayerPro
                 style={s.modalBtnExit}
                 focusedStyle={s.modalBtnExitFocused}
               >
-                <Text style={s.modalBtnExitTxt}>SÍ, SALIR</Text>
+                {({ focused }) => (
+                  <Text style={[s.modalBtnExitTxt, focused && { color: "#fff" }]}>
+                    SÍ, SALIR
+                  </Text>
+                )}
               </Focusable>
             </View>
           </View>
@@ -1086,93 +1936,118 @@ const s = StyleSheet.create({
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: scale(36),
-    paddingBottom: scale(24),
-    paddingHorizontal: scale(48),
-    gap: scale(20),
+    paddingTop: scale(24),
+    paddingBottom: scale(18),
+    paddingHorizontal: scale(36),
+    gap: scale(14),
   },
   topBackBtn: {
-    width: scale(44),
-    height: scale(44),
-    borderRadius: scale(22),
-    backgroundColor: "rgba(255,255,255,0.12)",
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(18),
+    backgroundColor: "rgba(20,20,26,0.75)",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.16)",
   },
   topBackBtnFocused: {
     backgroundColor: C.accent,
     borderColor: "#fff",
   },
   title: {
-    fontSize: scale(26),
+    fontSize: scale(20),
     fontWeight: "900",
     color: "#fff",
     letterSpacing: -0.3,
   },
   subTitle: {
-    fontSize: scale(15),
+    fontSize: scale(12.5),
     fontWeight: "600",
-    color: "rgba(255,255,255,0.7)",
-    marginTop: scale(2),
-  },
-  topBadgesRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(10),
-  },
-  qualityBadge: {
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(4),
-    borderRadius: scale(6),
-    backgroundColor: "rgba(255,255,255,0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
-  },
-  qualityBadgeText: {
-    color: "#fff",
-    fontSize: scale(12),
-    fontWeight: "900",
+    color: "rgba(255,255,255,0.72)",
+    marginTop: scale(1),
   },
 
   bottomBar: {
-    paddingHorizontal: scale(48),
-    paddingBottom: scale(32),
-    paddingTop: scale(40),
+    paddingHorizontal: scale(36),
+    paddingBottom: scale(22),
+    paddingTop: scale(28),
   },
 
-  // ── Scrubbing Progress Bar ──
-  progressWrapper: {
+  // ── Scrubbing Progress Bar (Estilo Netflix TV + Ping-Pong D-Pad) ──
+  progressOuterRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(16),
-    paddingVertical: scale(10),
-    paddingHorizontal: scale(14),
-    borderRadius: scale(14),
-    backgroundColor: "rgba(0,0,0,0.35)",
-    borderWidth: 2,
+    position: "relative",
+    marginBottom: scale(12),
+  },
+  pingPongLeft2: {
+    width: 1,
+    height: 1,
+    backgroundColor: "transparent",
+    position: "absolute",
+    left: -20,
+  },
+  pingPongLeft1: {
+    width: 1,
+    height: 1,
+    backgroundColor: "transparent",
+    position: "absolute",
+    left: -10,
+  },
+  pingPongRight1: {
+    width: 1,
+    height: 1,
+    backgroundColor: "transparent",
+    position: "absolute",
+    right: -10,
+  },
+  pingPongRight2: {
+    width: 1,
+    height: 1,
+    backgroundColor: "transparent",
+    position: "absolute",
+    right: -20,
+  },
+  progressWrapper: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(12),
+    paddingVertical: scale(7),
+    paddingHorizontal: scale(10),
+    borderRadius: scale(10),
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
     borderColor: "transparent",
-    marginBottom: scale(20),
   },
   progressWrapperFocused: {
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderColor: C.accent,
+    backgroundColor: "rgba(255, 183, 3, 0.08)",
+    borderColor: "rgba(255, 183, 3, 0.65)",
   },
   timeText: {
-    fontSize: scale(15),
+    fontSize: scale(12),
     fontWeight: "800",
-    color: "#fff",
+    color: "rgba(255,255,255,0.85)",
     fontVariant: ["tabular-nums"],
-    width: scale(72),
+    width: scale(58),
     textAlign: "center",
+  },
+  timeTextFocused: {
+    color: C.accent,
+    fontWeight: "900",
   },
   progressBarTrack: {
     flex: 1,
-    height: scale(8),
-    borderRadius: scale(4),
-    backgroundColor: "rgba(255,255,255,0.2)",
+    height: scale(5),
+    borderRadius: scale(3),
+    backgroundColor: "rgba(255,255,255,0.24)",
     justifyContent: "center",
+  },
+  progressBarTrackFocused: {
+    height: scale(7),
+    borderRadius: scale(4),
+    backgroundColor: "rgba(255,255,255,0.34)",
   },
   progressBarFill: {
     position: "absolute",
@@ -1184,49 +2059,86 @@ const s = StyleSheet.create({
   },
   progressThumb: {
     position: "absolute",
-    width: scale(18),
-    height: scale(18),
-    borderRadius: scale(9),
-    backgroundColor: "#fff",
-    marginLeft: scale(-9),
+    width: scale(13),
+    height: scale(13),
+    borderRadius: scale(6.5),
+    backgroundColor: C.accent,
+    marginLeft: scale(-6.5),
     borderWidth: 2,
+    borderColor: "#fff",
+  },
+  progressThumbFocused: {
+    width: scale(19),
+    height: scale(19),
+    borderRadius: scale(9.5),
+    marginLeft: scale(-9.5),
+    backgroundColor: C.accent,
+    borderWidth: 2.5,
+    borderColor: "#fff",
+    shadowColor: C.accent,
+    shadowRadius: scale(8),
+    shadowOpacity: 0.9,
+  },
+  scrubFloatingPill: {
+    position: "absolute",
+    bottom: scale(15),
+    transform: [{ translateX: -scale(42) }],
+    backgroundColor: "rgba(10, 10, 14, 0.94)",
+    borderWidth: 1,
     borderColor: C.accent,
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(2.5),
+    borderRadius: scale(8),
+  },
+  scrubFloatingTxt: {
+    color: C.accent,
+    fontSize: scale(9.5),
+    fontWeight: "900",
+    fontVariant: ["tabular-nums"],
   },
 
-  // ── Controls Row ──
+  // ── Controls Row (3 grupos con el bloque central 100% centrado siempre) ──
   controlsRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    gap: scale(10),
   },
   sideControlsLeft: {
+    flex: 1,
+    flexBasis: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(12),
-    minWidth: scale(300),
+    justifyContent: "flex-start",
+    gap: scale(7),
   },
   mainControlsCenter: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(14),
+    justifyContent: "center",
+    gap: scale(10),
+    flexShrink: 0,
   },
   sideControlsRight: {
+    flex: 1,
+    flexBasis: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: scale(12),
-    minWidth: scale(300),
+    gap: scale(7),
+    paddingRight: scale(4),
   },
 
   roundBtn: {
-    width: scale(48),
-    height: scale(48),
-    borderRadius: scale(24),
-    backgroundColor: "rgba(255,255,255,0.12)",
+    width: scale(38),
+    height: scale(38),
+    borderRadius: scale(19),
+    backgroundColor: "rgba(18,18,24,0.82)",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.16)",
   },
   roundBtnFocused: {
     backgroundColor: C.accent,
@@ -1234,34 +2146,34 @@ const s = StyleSheet.create({
   },
 
   controlActionBtn: {
-    width: scale(56),
-    height: scale(56),
-    borderRadius: scale(28),
-    backgroundColor: "rgba(255,255,255,0.12)",
+    width: scale(42),
+    height: scale(42),
+    borderRadius: scale(21),
+    backgroundColor: "rgba(18,18,24,0.82)",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.16)",
   },
   controlActionBtnFocused: {
     backgroundColor: C.accent,
     borderColor: "#fff",
   },
   actionTxt: {
-    fontSize: scale(11),
+    fontSize: scale(8.5),
     fontWeight: "800",
     color: "#fff",
-    marginTop: scale(2),
+    marginTop: scale(1),
   },
 
   playBtn: {
-    width: scale(68),
-    height: scale(68),
-    borderRadius: scale(34),
+    width: scale(52),
+    height: scale(52),
+    borderRadius: scale(26),
     backgroundColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 3,
+    borderWidth: 2,
     borderColor: "#fff",
   },
   playBtnFocused: {
@@ -1272,65 +2184,68 @@ const s = StyleSheet.create({
   menuBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(8),
-    paddingHorizontal: scale(14),
-    paddingVertical: scale(10),
-    borderRadius: scale(12),
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderWidth: 2,
-    borderColor: "transparent",
+    gap: scale(5),
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(7),
+    borderRadius: scale(8),
+    backgroundColor: "rgba(18,18,24,0.82)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.14)",
   },
   menuBtnFocused: {
     backgroundColor: C.accent,
     borderColor: "#fff",
   },
   menuBtnText: {
-    fontSize: scale(14),
+    fontSize: scale(11),
     fontWeight: "800",
     color: "#fff",
   },
 
-  // ── Sidebar Drawers ──
+  // ── Sidebar Drawers (Acorde al tema carbón/dorado de NubaTV y más compacto) ──
   sidebarOverlay: {
     ...(StyleSheet.absoluteFill as any),
     flexDirection: "row",
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.65)",
+    backgroundColor: "rgba(0,0,0,0.68)",
     zIndex: 50,
   },
   sidebar: {
-    width: scale(480),
+    width: scale(340),
     height: "100%",
+    backgroundColor: "#08080a",
     borderLeftWidth: 1,
-    borderLeftColor: "rgba(255,255,255,0.12)",
+    borderLeftColor: "rgba(255, 183, 3, 0.22)",
   },
   sidebarHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: scale(28),
+    paddingHorizontal: scale(16),
+    paddingVertical: scale(13),
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.08)",
+    borderBottomColor: "rgba(255, 183, 3, 0.14)",
   },
   sidebarTitle: {
-    fontSize: scale(22),
+    fontSize: scale(15),
     fontWeight: "900",
     color: "#fff",
   },
   sidebarSub: {
-    fontSize: scale(14),
-    color: "rgba(255,255,255,0.6)",
+    fontSize: scale(11),
+    fontWeight: "700",
+    color: C.accent,
     marginTop: scale(2),
   },
   closeBtn: {
-    width: scale(38),
-    height: scale(38),
-    borderRadius: scale(19),
-    backgroundColor: "rgba(255,255,255,0.1)",
+    width: scale(28),
+    height: scale(28),
+    borderRadius: scale(14),
+    backgroundColor: "#14141a",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.12)",
   },
   closeBtnFocused: {
     backgroundColor: C.accent,
@@ -1341,58 +2256,59 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: scale(16),
-    paddingVertical: scale(14),
-    borderRadius: scale(12),
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 2,
-    borderColor: "transparent",
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(9),
+    borderRadius: scale(8),
+    backgroundColor: "#121217",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.08)",
   },
   seasonHeaderFocused: {
-    backgroundColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(255, 183, 3, 0.14)",
     borderColor: C.accent,
   },
   seasonTitle: {
-    fontSize: scale(16),
+    fontSize: scale(12.5),
     fontWeight: "800",
     color: "#fff",
   },
   seasonCount: {
-    fontSize: scale(13),
+    fontSize: scale(11),
     fontWeight: "700",
-    color: "rgba(255,255,255,0.6)",
+    color: "rgba(255,255,255,0.55)",
   },
 
   episodesContainer: {
-    marginLeft: scale(12),
-    paddingLeft: scale(12),
-    borderLeftWidth: 2,
-    borderLeftColor: "rgba(255,255,255,0.15)",
-    gap: scale(8),
+    marginLeft: scale(8),
+    paddingLeft: scale(9),
+    borderLeftWidth: 1.5,
+    borderLeftColor: "rgba(255, 183, 3, 0.25)",
+    gap: scale(5),
   },
   epItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(12),
-    padding: scale(12),
-    borderRadius: scale(10),
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderWidth: 2,
-    borderColor: "transparent",
+    gap: scale(9),
+    paddingHorizontal: scale(9),
+    paddingVertical: scale(7),
+    borderRadius: scale(8),
+    backgroundColor: "#101015",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.05)",
   },
   epItemActive: {
-    backgroundColor: "rgba(255,183,3,0.12)",
-    borderColor: "rgba(255,183,3,0.35)",
+    backgroundColor: "rgba(255, 183, 3, 0.14)",
+    borderColor: "rgba(255, 183, 3, 0.42)",
   },
   epItemFocused: {
-    backgroundColor: "rgba(255,255,255,0.15)",
+    backgroundColor: "#1a1a22",
     borderColor: C.accent,
   },
   epNum: {
-    width: scale(32),
-    height: scale(32),
-    borderRadius: scale(8),
-    backgroundColor: "rgba(255,255,255,0.1)",
+    width: scale(24),
+    height: scale(24),
+    borderRadius: scale(6),
+    backgroundColor: "#1b1b22",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1400,32 +2316,32 @@ const s = StyleSheet.create({
     backgroundColor: C.accent,
   },
   epNumText: {
-    fontSize: scale(14),
+    fontSize: scale(11),
     fontWeight: "800",
     color: "#fff",
   },
   epName: {
-    fontSize: scale(15),
+    fontSize: scale(12),
     fontWeight: "700",
-    color: "#fff",
+    color: "#f1f5f9",
   },
   epNameActive: {
     color: C.accent,
-    fontWeight: "900",
+    fontWeight: "800",
   },
   epMeta: {
-    fontSize: scale(12),
-    color: "rgba(255,255,255,0.5)",
-    marginTop: scale(2),
+    fontSize: scale(10),
+    color: "rgba(255,255,255,0.48)",
+    marginTop: scale(1),
   },
   playingBadge: {
-    paddingHorizontal: scale(8),
-    paddingVertical: scale(4),
-    borderRadius: scale(6),
+    paddingHorizontal: scale(6),
+    paddingVertical: scale(2.5),
+    borderRadius: scale(4),
     backgroundColor: C.accent,
   },
   playingText: {
-    fontSize: scale(11),
+    fontSize: scale(9),
     fontWeight: "900",
     color: "#000",
   },
@@ -1434,22 +2350,23 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: scale(16),
-    borderRadius: scale(12),
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 2,
-    borderColor: "transparent",
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(9),
+    borderRadius: scale(8),
+    backgroundColor: "#101015",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.06)",
   },
   trackItemActive: {
-    backgroundColor: "rgba(255,183,3,0.12)",
-    borderColor: "rgba(255,183,3,0.3)",
+    backgroundColor: "rgba(255, 183, 3, 0.14)",
+    borderColor: "rgba(255, 183, 3, 0.42)",
   },
   trackItemFocused: {
-    backgroundColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "#1a1a22",
     borderColor: C.accent,
   },
   trackText: {
-    fontSize: scale(16),
+    fontSize: scale(12.5),
     fontWeight: "700",
     color: "#fff",
   },
@@ -1463,14 +2380,14 @@ const s = StyleSheet.create({
     zIndex: 100,
   },
   modalBox: {
-    width: scale(520),
-    backgroundColor: "#131722",
-    borderRadius: scale(20),
-    padding: scale(36),
+    width: scale(460),
+    backgroundColor: "#0c0c10",
+    borderRadius: scale(16),
+    padding: scale(28),
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+    borderColor: "rgba(255, 183, 3, 0.22)",
     alignItems: "center",
-    gap: scale(16),
+    gap: scale(14),
     shadowColor: "#000",
     shadowOpacity: 0.6,
     shadowRadius: 20,
@@ -1529,5 +2446,28 @@ const s = StyleSheet.create({
     fontSize: scale(14),
     fontWeight: "900",
     color: "#f87171",
+  },
+  subtitleOverlay: {
+    position: "absolute",
+    bottom: scale(58),
+    left: scale(64),
+    right: scale(64),
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 45,
+  },
+  subtitleText: {
+    color: "#ffffff",
+    fontSize: scale(21),
+    fontWeight: "700",
+    textAlign: "center",
+    backgroundColor: "rgba(0,0,0,0.72)",
+    paddingHorizontal: scale(16),
+    paddingVertical: scale(6),
+    borderRadius: scale(8),
+    overflow: "hidden",
+    textShadowColor: "#000000",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
   },
 });

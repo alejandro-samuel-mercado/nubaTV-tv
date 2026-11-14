@@ -1,11 +1,10 @@
 import { Bangers_400Regular, useFonts } from "@expo-google-fonts/bangers";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { ChevronRight, Clapperboard, Info, Play, Sparkles } from "lucide-react-native";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { Play } from "lucide-react-native";
+import { memo, startTransition, useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Dimensions,
   FlatList,
   ScrollView,
   StyleSheet,
@@ -17,18 +16,20 @@ import Focusable from "../../components/tv/Focusable";
 import PosterCard from "../../components/tv/PosterCard";
 import RemoteImage, { prefetchImages } from "../../components/tv/RemoteImage";
 import ViewAllCard from "../../components/tv/ViewAllCard";
-import { useGlobal } from "../../contexts/GlobalContext";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useSidebarHandle } from "../../hooks/useNavThrottle";
 import { scale } from "../../lib/scale";
 import { C } from "../../lib/tvColors";
 import {
   getContentList,
+  getContentListSync,
   getHomepage,
+  getHomepageSync,
+  getPageCache,
   NexoContentItem,
+  NexoHomepageData,
+  setPageCache,
 } from "../../services/nexoplay";
-
-const { height: SH } = Dimensions.get("window");
 
 const TYPE_LABEL: Record<string, string> = {
   MOVIE: "Película",
@@ -44,58 +45,151 @@ const formatDuration = (mins?: number) => {
 };
 
 // ── Escalas adaptadas a pantalla TV (con sidebar a la izquierda) ────────
-const SIDEBAR_OFFSET = scale(64);
 const CONTENT_LEFT_PAD = scale(112);
 
-// Cards del selector de portadas dentro del Hero (diseño dinámico: vertical inactivo, horizontal expandido activo 16:9)
-const HS_CARD_W = scale(90);
-const HS_CARD_ACTIVE_W = scale(215);
-const HS_CARD_H = scale(120);
+// Cards del selector de portadas dentro del Hero (tamaño uniforme vertical)
+const HS_CARD_W = scale(116);
+const HS_CARD_H = scale(162);
 
 // Cards de secciones de catálogo (filas inferiores)
 const POSTER_W = scale(112);
 const POSTER_H = scale(160);
 const CARD_GAP = scale(12);
-const TREND_W = scale(215);
-const TREND_H = scale(122);
-const CONT_CARD_W = scale(190);
-const CONT_CARD_H = scale(115);
 
 const keyById = (i: any) => i.id;
+const getHeroSelectorItemLayout = (_: any, index: number) => ({
+  length: HS_CARD_W + CARD_GAP,
+  offset: (HS_CARD_W + CARD_GAP) * index,
+  index,
+});
+const getRowItemLayout = (_: any, index: number) => ({
+  length: POSTER_W + CARD_GAP,
+  offset: (POSTER_W + CARD_GAP) * index,
+  index,
+});
+
+// ── HeroSelectorCard: card memoizada con tamaño fijo uniforme ──
+const HeroSelectorCard = memo(function HeroSelectorCard({
+  item,
+  index,
+  isActive,
+  isLast,
+  sidebarHandle,
+  onSelectHero,
+  onSectionFocus,
+}: {
+  item: NexoContentItem;
+  index: number;
+  isActive: boolean;
+  isLast: boolean;
+  sidebarHandle?: number | null;
+  onSelectHero: (idx: number, item: NexoContentItem, immediate?: boolean) => void;
+  onSectionFocus?: (key: string) => void;
+}) {
+  const handleFocus = useCallback(() => {
+    onSelectHero(index, item, true);
+    onSectionFocus?.("hero_selector");
+  }, [onSelectHero, onSectionFocus, index, item]);
+  const handlePress = useCallback(() => onSelectHero(index, item, true), [onSelectHero, index, item]);
+
+  const posterUri = item.posterUrl || item.backdropUrl;
+
+  return (
+    <Focusable
+      throttleMs={0}
+      onFocus={handleFocus}
+      onPress={handlePress}
+      nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
+      trapFocusRight={isLast}
+      scaleFocused={1.05}
+      style={[s.hsCard, isActive && s.hsCardActive]}
+      focusedStyle={s.hsCardFocused}
+    >
+      {({ focused }) => {
+        const showActive = isActive || focused;
+        return (
+          <View style={s.hsCardInner}>
+            <RemoteImage
+              uri={posterUri}
+              style={StyleSheet.absoluteFill as any}
+              contentFit="cover"
+              contentPosition="center"
+              transition={0}
+              disableRecycling
+            />
+
+            {showActive ? (
+              <>
+                <LinearGradient
+                  colors={["transparent", "rgba(0,0,0,0.35)", "rgba(0,0,0,0.88)"]}
+                  locations={[0, 0.5, 1]}
+                  style={StyleSheet.absoluteFill}
+                />
+                <View style={s.hsCardInfo}>
+                  <Text style={s.hsCardTitle} numberOfLines={1}>
+                    {item.title}
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <LinearGradient
+                colors={["transparent", "rgba(0,0,0,0.22)"]}
+                style={StyleSheet.absoluteFill}
+              />
+            )}
+          </View>
+        );
+      }}
+    </Focusable>
+  );
+});
 
 // ── HeroSelector: Tira de cards de portadas dentro del Hero ──
 const HeroSelector = memo(function HeroSelector({
   items,
   activeIdx,
+  userInteracted,
   onSelectHero,
   onSectionFocus,
 }: {
   items: NexoContentItem[];
   activeIdx: number;
+  userInteracted: boolean;
   onSelectHero: (idx: number, item: NexoContentItem, immediate?: boolean) => void;
   onSectionFocus?: (key: string) => void;
 }) {
   const sidebarHandle = useSidebarHandle();
   const listRef = useRef<FlatList>(null);
-  const scrollTimer = useRef<any>(null);
 
+  // Solo desplazar programáticamente durante la auto-rotación (cuando el usuario navega
+  // con el D-pad, el motor nativo de Android TV desplaza la fila con fluidez sin cortes).
   useEffect(() => {
-    if (activeIdx >= 0 && items.length > 0) {
-      if (scrollTimer.current) clearTimeout(scrollTimer.current);
-      scrollTimer.current = setTimeout(() => {
-        try {
-          listRef.current?.scrollToIndex({
-            index: activeIdx,
-            animated: true,
-            viewPosition: 0.25,
-          });
-        } catch { }
-      }, 70);
+    if (!userInteracted && activeIdx >= 0 && items.length > 0) {
+      try {
+        listRef.current?.scrollToIndex({
+          index: activeIdx,
+          animated: true,
+          viewPosition: 0.25,
+        });
+      } catch {}
     }
-    return () => {
-      if (scrollTimer.current) clearTimeout(scrollTimer.current);
-    };
-  }, [activeIdx, items.length]);
+  }, [activeIdx, items.length, userInteracted]);
+
+  const lastIdx = items.length - 1;
+  const renderCard = useCallback(
+    ({ item, index }: { item: NexoContentItem; index: number }) => (
+      <HeroSelectorCard
+        item={item}
+        index={index}
+        isActive={index === activeIdx}
+        isLast={index === lastIdx}
+        sidebarHandle={sidebarHandle}
+        onSelectHero={onSelectHero}
+        onSectionFocus={onSectionFocus}
+      />
+    ),
+    [activeIdx, lastIdx, sidebarHandle, onSelectHero, onSectionFocus],
+  );
 
   return (
     <View style={s.heroSelectorWrapper}>
@@ -107,138 +201,60 @@ const HeroSelector = memo(function HeroSelector({
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.heroSelectorTrack}
+        getItemLayout={getHeroSelectorItemLayout}
         style={{ overflow: "visible" }}
+        initialNumToRender={8}
+        maxToRenderPerBatch={6}
+        windowSize={5}
         onScrollToIndexFailed={(info) => {
           listRef.current?.scrollToOffset({
             offset: info.averageItemLength * info.index,
             animated: true,
           });
         }}
-        renderItem={({ item, index }) => {
-          const isActive = index === activeIdx;
-          const bgImg = isActive
-            ? item.backdropUrl || item.posterUrl
-            : item.posterUrl || item.backdropUrl;
-          const isWidePosterFallback = isActive && !item.backdropUrl && !!item.posterUrl;
-
-          return (
-            <Focusable
-              onFocus={() => {
-                onSelectHero(index, item, false);
-                onSectionFocus?.("hero_selector");
-              }}
-              onPress={() => onSelectHero(index, item, true)}
-              nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
-              trapFocusRight={index === items.length - 1}
-              scaleFocused={1.02}
-              style={[
-                s.hsCard,
-                isActive && s.hsCardActive,
-              ]}
-              focusedStyle={s.hsCardFocused}
-            >
-              {isWidePosterFallback ? (
-                <>
-                  <RemoteImage
-                    uri={item.posterUrl}
-                    style={StyleSheet.absoluteFill as any}
-                    contentFit="cover"
-                    blurRadius={16}
-                    transition={180}
-                  />
-                  <RemoteImage
-                    uri={item.posterUrl}
-                    style={StyleSheet.absoluteFill as any}
-                    contentFit="contain"
-                    contentPosition="center"
-                    transition={180}
-                  />
-                </>
-              ) : (
-                <RemoteImage
-                  uri={bgImg}
-                  style={StyleSheet.absoluteFill as any}
-                  contentFit="cover"
-                  contentPosition="center"
-                  transition={180}
-                />
-              )}
-              {isActive ? (
-                <>
-                  <LinearGradient
-                    colors={["transparent", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.92)"]}
-                    locations={[0, 0.45, 1]}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <View style={s.hsCardInfo}>
-                    <Text style={s.hsCardTitle} numberOfLines={1}>
-                      {item.title.toUpperCase()}
-                    </Text>
-                    <Text style={s.hsCardSub} numberOfLines={1}>
-                      {TYPE_LABEL[item.type] || item.type}
-                      {item.releaseYear ? ` • ${item.releaseYear}` : ""}
-                      {item.rating ? ` • ★ ${item.rating.toFixed(1)}` : ""}
-                    </Text>
-                  </View>
-                </>
-              ) : (
-                <LinearGradient
-                  colors={["transparent", "rgba(0,0,0,0.25)"]}
-                  style={StyleSheet.absoluteFill}
-                />
-              )}
-            </Focusable>
-          );
-        }}
+        renderItem={renderCard}
       />
     </View>
   );
 });
 
-// ── HeroInfo: Título, Metadatos y Botones de Reproducción en el Hero ──────────
+// ── HeroInfo: Título, Metadatos y Botón Principal en el Hero (Altura 100% Fija) ──
 const HeroInfo = memo(function HeroInfo({
   item,
-  onPlay,
   onDetails,
   onHeroFocus,
 }: {
   item: NexoContentItem;
-  onPlay: (item: NexoContentItem) => void;
-  onDetails?: (item: NexoContentItem) => void;
+  onDetails: (item: NexoContentItem) => void;
   onHeroFocus?: () => void;
 }) {
   const sidebarHandle = useSidebarHandle();
 
   return (
     <View style={s.heroInfo} pointerEvents="box-none">
-      {/* Tagline / Tipo Chip */}
-      <View style={s.taglineChip}>
-        <Sparkles size={scale(10)} color="#f59e0b" />
-        <Text style={s.taglineChipText}>
-          {item.tagline || (TYPE_LABEL[item.type] || item.type).toUpperCase()}
+      {/* Título Principal (Caja de altura fija para no empujar ni subir nada) */}
+      <View style={s.heroTitleBox}>
+        <Text
+          style={s.heroTitle}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+        >
+          {item.title}
         </Text>
       </View>
 
-      {/* Título Principal */}
-      <Text style={s.heroTitle} numberOfLines={2}>
-        {item.title}
-      </Text>
-
       {/* Metadatos (Tipo • Género • Duración • Año) */}
       <View style={s.heroMeta}>
-        <Text style={s.heroMetaText}>{TYPE_LABEL[item.type] || item.type}</Text>
-        {item.genres?.[0] && (
-          <Text style={s.heroMetaText}> • {item.genres[0].name}</Text>
-        )}
-        {item.duration ? (
-          <Text style={s.heroMetaText}> • {formatDuration(item.duration)}</Text>
-        ) : null}
-        {item.releaseYear ? (
-          <Text style={s.heroMetaText}> • {item.releaseYear}</Text>
-        ) : null}
+        <Text style={s.heroMetaText} numberOfLines={1}>
+          {TYPE_LABEL[item.type] || item.type}
+          {item.genres?.[0] ? ` • ${item.genres[0].name}` : ""}
+          {item.duration ? ` • ${formatDuration(item.duration)}` : ""}
+          {item.releaseYear ? ` • ${item.releaseYear}` : ""}
+        </Text>
       </View>
 
-      {/* Badges de calificación y lenguaje */}
+      {/* Badges de calificación y lenguaje (Altura fija) */}
       <View style={s.heroBadges}>
         {item.contentRating ? (
           <View style={s.badge}>
@@ -259,127 +275,34 @@ const HeroInfo = memo(function HeroInfo({
         ) : null}
       </View>
 
-      {/* Sinopsis concisa y elegante */}
-      {item.description ? (
-        <Text style={s.heroDesc} numberOfLines={3}>
-          {item.description}
+      {/* Sinopsis en contenedor de altura fija (4 líneas exactas siempre reservadas) */}
+      <View style={s.heroDescBox}>
+        <Text style={s.heroDesc} numberOfLines={4}>
+          {item.description?.trim() || " "}
         </Text>
-      ) : null}
+      </View>
 
-      {/* Botones de acción */}
+      {/* Botón único general de acción (Posición vertical fija e inamovible) */}
       <View style={s.heroButtons}>
         <Focusable
           hasTVPreferredFocus
-          onPress={() => onPlay(item)}
+          onPress={() => onDetails(item)}
           onFocus={onHeroFocus}
           nextFocusLeft={sidebarHandle ?? undefined}
+          trapFocusRight
           style={s.btnPlay}
           focusedStyle={s.btnPlayFocused}
         >
-          <Play size={scale(15)} color="#000" fill="#000" />
-          <Text style={s.btnPlayText}>Reproducir</Text>
-        </Focusable>
-
-        {onDetails ? (
-          <Focusable
-            onPress={() => onDetails(item)}
-            onFocus={onHeroFocus}
-            style={s.btnDetails}
-            focusedStyle={s.btnDetailsFocused}
-          >
-            <Info size={scale(15)} color="#ffffff" />
-            <Text style={s.btnDetailsText}>Ver Información</Text>
-          </Focusable>
-        ) : null}
-      </View>
-    </View>
-  );
-});
-
-// ── Fila de Tendencia con banners panorámicos suaves ─────────────────────────
-const TrendingRow = memo(function TrendingRow({
-  items,
-  onPress,
-  onViewAll,
-  onSectionFocus,
-}: {
-  items: NexoContentItem[];
-  onPress: (item: NexoContentItem) => void;
-  onViewAll?: () => void;
-  onSectionFocus?: (key: string) => void;
-}) {
-  const sidebarHandle = useSidebarHandle();
-
-  const handleCardFocus = useCallback(() => {
-    onSectionFocus?.("trending");
-  }, [onSectionFocus]);
-
-  return (
-    <View style={s.contentSection}>
-      <View style={s.sectionHeader}>
-        <View style={s.sectionTitleGroup}>
-          <View style={[s.sectionAccentBar, { backgroundColor: C.accent }]} />
-          <Text style={s.sectionTitle}>Tendencia</Text>
-        </View>
-      </View>
-      <FlatList
-        data={items}
-        keyExtractor={keyById}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={s.rowTrack}
-        style={{ overflow: "visible" }}
-        initialNumToRender={6}
-        maxToRenderPerBatch={4}
-        windowSize={5}
-        renderItem={({ item, index }) => (
-          <Focusable
-            onPress={() => onPress(item)}
-            onFocus={handleCardFocus}
-            nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
-            trapFocusLeft={index === 0 && !sidebarHandle}
-            trapFocusRight={!onViewAll && index === items.length - 1}
-            scaleFocused={1.02}
-            style={s.trendCard}
-            focusedStyle={s.trendCardActiveBorder}
-          >
-            <RemoteImage
-              uri={item.backdropUrl || item.posterUrl}
-              style={StyleSheet.absoluteFill as any}
-              contentFit="cover"
-              contentPosition="center"
-              transition={150}
-            />
-            <LinearGradient
-              colors={["transparent", "rgba(0,0,0,0.85)"]}
-              style={s.trendBannerGrad}
-            >
-              <Text style={s.trendBannerTitle} numberOfLines={2}>
-                {item.title.toUpperCase()}
+          {({ focused }) => (
+            <>
+              <Play size={scale(15)} color="#000000" fill="#000000" />
+              <Text style={[s.btnPlayText, focused && { color: "#000000" }]}>
+                Ver ahora
               </Text>
-              {item.tagline ? (
-                <Text style={s.trendBannerSub} numberOfLines={1}>
-                  {item.tagline}
-                </Text>
-              ) : null}
-            </LinearGradient>
-          </Focusable>
-        )}
-        ListFooterComponent={
-          onViewAll ? (
-            <View style={{ marginLeft: CARD_GAP }}>
-              <ViewAllCard
-                width={TREND_W}
-                height={TREND_H}
-                onPress={onViewAll}
-                label="Ver todo"
-                sublabel="Más populares"
-                accentColor={C.accent}
-              />
-            </View>
-          ) : null
-        }
-      />
+            </>
+          )}
+        </Focusable>
+      </View>
     </View>
   );
 });
@@ -394,6 +317,7 @@ const ContentRow = memo(function ContentRow({
   onViewAll,
   viewAllSublabel,
   onSectionFocus,
+  isLastSection,
 }: {
   sectionKey: string;
   title: string;
@@ -403,6 +327,7 @@ const ContentRow = memo(function ContentRow({
   onViewAll?: () => void;
   viewAllSublabel?: string;
   onSectionFocus?: (key: string) => void;
+  isLastSection?: boolean;
 }) {
   const sidebarHandle = useSidebarHandle();
   if (!items.length) return null;
@@ -427,6 +352,7 @@ const ContentRow = memo(function ContentRow({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.rowTrack}
         style={{ overflow: "visible" }}
+        getItemLayout={getRowItemLayout}
         initialNumToRender={6}
         maxToRenderPerBatch={4}
         windowSize={5}
@@ -440,6 +366,7 @@ const ContentRow = memo(function ContentRow({
             nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
             trapFocusLeft={index === 0 && !sidebarHandle}
             trapFocusRight={!onViewAll && index === items.length - 1}
+            trapFocusDown={isLastSection}
           />
         )}
         ListFooterComponent={
@@ -449,9 +376,11 @@ const ContentRow = memo(function ContentRow({
                 width={POSTER_W}
                 height={POSTER_H}
                 onPress={onViewAll}
+                onFocus={handleCardFocus}
                 label="Ver todo"
                 sublabel={viewAllSublabel}
                 accentColor={accent}
+                trapFocusDown={isLastSection}
               />
             </View>
           ) : null
@@ -461,103 +390,94 @@ const ContentRow = memo(function ContentRow({
   );
 });
 
-// ── Continuar Viendo (Historial VOD) ──────────────────────────────────────────
-const ContinueWatchingRow = memo(function ContinueWatchingRow({
-  items,
-  onPress,
-  onSectionFocus,
-}: {
-  items: any[];
-  onPress: (item: any) => void;
-  onSectionFocus?: (key: string) => void;
-}) {
-  const sidebarHandle = useSidebarHandle();
-  if (!items || !items.length) return null;
+interface HomePageState {
+  heroItems: NexoContentItem[];
+  movies: NexoContentItem[];
+  series: NexoContentItem[];
+}
 
-  const handleCardFocus = useCallback(() => {
-    onSectionFocus?.("continue");
-  }, [onSectionFocus]);
+function buildHomePageState(
+  hp: NexoHomepageData,
+  mv: NexoContentItem[],
+  sr: NexoContentItem[],
+  an: NexoContentItem[],
+): HomePageState {
+  const currentYear = new Date().getFullYear();
+  const isCurrentYear = (x: NexoContentItem) =>
+    Boolean(x && (x.releaseYear || 0) >= currentYear);
 
-  return (
-    <View style={s.contentSection}>
-      <View style={s.sectionHeader}>
-        <View style={[s.sectionAccentBar, { backgroundColor: C.accentOrange }]} />
-        <Text style={s.sectionTitle}>Continuar viendo</Text>
-      </View>
-      <FlatList
-        data={items}
-        keyExtractor={(i) => i.slug || i.id}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={s.rowTrack}
-        style={{ overflow: "visible" }}
-        renderItem={({ item, index }) => (
-          <Focusable
-            onPress={() => onPress(item)}
-            onFocus={handleCardFocus}
-            nextFocusLeft={index === 0 ? sidebarHandle ?? undefined : undefined}
-            trapFocusRight={index === items.length - 1}
-            scaleFocused={1.02}
-            style={s.continueCard}
-            focusedStyle={s.continueCardFocused}
-          >
-            <View style={s.continueCardImgWrap}>
-              {item.backdropUrl || item.posterUrl ? (
-                <RemoteImage
-                  uri={item.backdropUrl || item.posterUrl}
-                  style={StyleSheet.absoluteFill as any}
-                  contentFit="cover"
-                />
-              ) : (
-                <View style={s.continueFallback}>
-                  <Clapperboard size={scale(22)} color={C.textMuted} />
-                </View>
-              )}
-            </View>
-            {typeof item.progress === "number" ? (
-              <View style={s.progressBarTrack}>
-                <View
-                  style={[
-                    s.progressBarFill,
-                    { width: `${Math.min(100, item.progress)}%` },
-                  ]}
-                />
-              </View>
-            ) : null}
-            <View style={s.continueInfo}>
-              <Text style={s.continueTitle} numberOfLines={1}>
-                {item.title}
-              </Text>
-            </View>
-          </Focusable>
-        )}
-      />
-    </View>
-  );
-});
+  const mvCur = mv.filter(isCurrentYear);
+  const srCur = sr.filter(isCurrentYear);
+  const anCur = an.filter(isCurrentYear);
+  const hpCur = (hp.heroItems || []).filter(isCurrentYear);
+
+  const seenHero = new Set<string>();
+  const heroCandidateList: NexoContentItem[] = [];
+  const addHero = (item?: NexoContentItem) => {
+    if (!item || !item.id || seenHero.has(item.id)) return;
+    if (!item.backdropUrl && !item.posterUrl) return;
+    seenHero.add(item.id);
+    heroCandidateList.push(item);
+  };
+
+  for (const h of hpCur) addHero(h);
+  const maxLen = Math.max(mvCur.length, srCur.length, anCur.length);
+  for (let i = 0; i < maxLen && heroCandidateList.length < 12; i++) {
+    addHero(mvCur[i]);
+    addHero(srCur[i]);
+    addHero(anCur[i]);
+  }
+
+  const heroes =
+    heroCandidateList.length > 0
+      ? heroCandidateList.slice(0, 12)
+      : (hp.heroItems.length ? hp.heroItems : hp.trending).slice(0, 8);
+
+  return {
+    heroItems: heroes,
+    movies: (mvCur.length > 0 ? mvCur : mv).slice(0, 18),
+    series: (srCur.length > 0 ? srCur : sr).slice(0, 18),
+  };
+}
+
+function getInitialHomeState(): HomePageState | null {
+  const cached = getPageCache<HomePageState>("page:home");
+  if (cached) return cached;
+  const hp = getHomepageSync();
+  const mv = getContentListSync({ type: "MOVIE", limit: 45, sort: "recent" });
+  const sr = getContentListSync({ type: "SERIES", limit: 45, sort: "recent" });
+  const an = getContentListSync({ type: "ANIME", limit: 45, sort: "recent" });
+  if (hp && mv && sr && an) {
+    const built = buildHomePageState(hp, mv, sr, an);
+    setPageCache("page:home", built);
+    return built;
+  }
+  return null;
+}
 
 // ── PÁGINA PRINCIPAL TV ───────────────────────────────────────────────────────
 export default function HomeTvScreen() {
   const router = useRouter();
-  const [fontsLoaded] = useFonts({ Bangers: Bangers_400Regular });
-  const { setActiveChannel } = useGlobal();
+  useFonts({ Bangers: Bangers_400Regular });
 
-  const [loading, setLoading] = useState(true);
-  const [heroItems, setHeroItems] = useState<NexoContentItem[]>([]);
+  const initialData = useRef(getInitialHomeState()).current;
+  const [loading, setLoading] = useState(!initialData);
+  const [heroItems, setHeroItems] = useState<NexoContentItem[]>(
+    initialData?.heroItems ?? [],
+  );
   const [heroIdx, setHeroIdx] = useState(0);
   const [userInteracted, setUserInteracted] = useState(false);
 
-  // Secciones
-  const [trending, setTrending] = useState<NexoContentItem[]>([]);
-  const [recent, setRecent] = useState<NexoContentItem[]>([]);
-  const [movies, setMovies] = useState<NexoContentItem[]>([]);
-  const [series, setSeries] = useState<NexoContentItem[]>([]);
-  const [anime, setAnime] = useState<NexoContentItem[]>([]);
-  const [continueWatching] = useState<any[]>([]);
+  // Secciones (solo películas y series recién agregadas)
+  const [movies, setMovies] = useState<NexoContentItem[]>(
+    initialData?.movies ?? [],
+  );
+  const [series, setSeries] = useState<NexoContentItem[]>(
+    initialData?.series ?? [],
+  );
 
-  // Hero actual seleccionado con debounce suave
-  const activeHeroRaw = heroItems[heroIdx] ?? null;
-  const currentHero = useDebouncedValue(activeHeroRaw, 200);
+  // Hero actual seleccionado
+  const currentHero = heroItems[heroIdx] ?? null;
 
   // ── Control de Scroll y Alineación Perfecta de Secciones al Navegar ───────────
   const scrollRef = useRef<ScrollView>(null);
@@ -572,9 +492,17 @@ export default function HomeTvScreen() {
     if (scrollAnimationTimer.current) clearTimeout(scrollAnimationTimer.current);
 
     scrollAnimationTimer.current = setTimeout(() => {
+      if (!scrollRef.current) return;
+      if (sectionKey === "hero_selector") {
+        scrollRef.current.scrollTo({ y: 0, animated: true });
+        return;
+      }
+      if (sectionKey === "series") {
+        scrollRef.current.scrollToEnd({ animated: true });
+        return;
+      }
       const targetY = sectionLayouts.current[sectionKey];
-      if (typeof targetY === "number" && scrollRef.current) {
-        // Offset de scale(10) para dejar margen superior de respiro y encuadrar título + cards
+      if (typeof targetY === "number") {
         const scrollY = Math.max(0, targetY - scale(10));
         scrollRef.current.scrollTo({
           y: scrollY,
@@ -598,31 +526,29 @@ export default function HomeTvScreen() {
   }, []);
 
   useEffect(() => {
+    if (initialData) return;
     let cancelled = false;
     (async () => {
       try {
         const [hp, mv, sr, an] = await Promise.all([
           getHomepage(),
-          getContentList({ type: "MOVIE", limit: 20, sort: "recent" }),
-          getContentList({ type: "SERIES", limit: 20, sort: "recent" }),
-          getContentList({ type: "ANIME", limit: 20, sort: "recent" }),
+          getContentList({ type: "MOVIE", limit: 45, sort: "recent" }),
+          getContentList({ type: "SERIES", limit: 45, sort: "recent" }),
+          getContentList({ type: "ANIME", limit: 45, sort: "recent" }),
         ]);
         if (cancelled) return;
 
-        const heroes = hp.heroItems.length
-          ? hp.heroItems
-          : hp.trending.slice(0, 8);
-        setHeroItems(heroes);
-        setTrending(hp.trending.slice(0, 16));
-        setRecent(hp.recent.slice(0, 18));
-        setMovies(mv.slice(0, 18));
-        setSeries(sr.slice(0, 18));
-        setAnime(an.slice(0, 18));
+        const built = buildHomePageState(hp, mv, sr, an);
+        setPageCache("page:home", built);
 
-        // Precarga de fondos del hero
+        setHeroItems(built.heroItems);
+        setMovies(built.movies);
+        setSeries(built.series);
+
+        // Precarga de fondos y posters del hero para crossfade instantáneo
         prefetchImages([
-          ...heroes.map((h) => h.backdropUrl || h.posterUrl),
-          ...hp.trending.slice(0, 6).map((h) => h.backdropUrl),
+          ...built.heroItems.map((h) => h.backdropUrl),
+          ...built.heroItems.map((h) => h.posterUrl),
         ]);
       } catch (e) {
         console.warn("Home load error:", e);
@@ -633,7 +559,7 @@ export default function HomeTvScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialData]);
 
   // Rotación automática si el usuario no está navegando
   useEffect(() => {
@@ -664,11 +590,13 @@ export default function HomeTvScreen() {
       setUserInteracted(true);
       if (selectHeroTimer.current) clearTimeout(selectHeroTimer.current);
       if (immediate) {
-        setHeroIdx(idx);
+        // Prioridad baja: el foco nativo y el realce de la card responden al instante,
+        // y el resto del Hero (fondo, título) se actualiza sin bloquear la navegación.
+        startTransition(() => setHeroIdx(idx));
       } else {
         selectHeroTimer.current = setTimeout(() => {
           setHeroIdx(idx);
-        }, 100);
+        }, 75);
       }
     },
     [],
@@ -681,22 +609,7 @@ export default function HomeTvScreen() {
     [router],
   );
 
-  const handleChannelPress = useCallback(
-    (ch: any) => {
-      setActiveChannel(ch);
-      router.push("/(tv)/channels" as any);
-    },
-    [router, setActiveChannel],
-  );
-
-  const handlePlay = useCallback(
-    (item: NexoContentItem) => {
-      router.push({ pathname: "/player", params: { slug: item.slug } } as any);
-    },
-    [router],
-  );
-
-  if (loading || !fontsLoaded) {
+  if (loading && heroItems.length === 0) {
     return (
       <View style={s.loadWrap}>
         <ActivityIndicator size="large" color={C.accent} />
@@ -713,12 +626,11 @@ export default function HomeTvScreen() {
         variant="home"
       />
 
-      {/* ── 1. SECTOR HERO FIJO (INFO, TÍTULO, SINOPSIS Y BOTÓN REPRODUCIR) ── */}
+      {/* ── 1. SECTOR HERO FIJO (INFO, TÍTULO, SINOPSIS Y BOTÓN PRINCIPAL) ── */}
       <View style={s.fixedHeroContainer}>
         {currentHero && (
           <HeroInfo
             item={currentHero}
-            onPlay={handlePlay}
             onDetails={handleContentPress}
             onHeroFocus={handleHeroFocus}
           />
@@ -745,49 +657,14 @@ export default function HomeTvScreen() {
               <HeroSelector
                 items={heroItems}
                 activeIdx={heroIdx}
+                userInteracted={userInteracted}
                 onSelectHero={handleSelectHero}
                 onSectionFocus={handleSectionFocus}
               />
             </View>
           )}
 
-          {/* Continuar viendo si existe */}
-          {continueWatching.length > 0 && (
-            <View
-              onLayout={(e) => {
-                sectionLayouts.current["continue"] = e.nativeEvent.layout.y;
-              }}
-            >
-              <ContinueWatchingRow
-                items={continueWatching}
-                onPress={handleContentPress}
-                onSectionFocus={handleSectionFocus}
-              />
-            </View>
-          )}
-
-          {/* 1. Tendencia */}
-          {trending.length > 0 && (
-            <View
-              onLayout={(e) => {
-                sectionLayouts.current["trending"] = e.nativeEvent.layout.y;
-              }}
-            >
-              <TrendingRow
-                items={trending}
-                onPress={handleContentPress}
-                onSectionFocus={handleSectionFocus}
-                onViewAll={() =>
-                  router.push({
-                    pathname: "/(tv)/explore",
-                    params: { sort: "popular" },
-                  } as any)
-                }
-              />
-            </View>
-          )}
-
-          {/* 2. Películas recién agregadas */}
+          {/* 1. Películas recién agregadas */}
           <View
             onLayout={(e) => {
               sectionLayouts.current["movies"] = e.nativeEvent.layout.y;
@@ -801,6 +678,7 @@ export default function HomeTvScreen() {
               accentColor={C.accentOrange}
               viewAllSublabel="Todas las películas"
               onSectionFocus={handleSectionFocus}
+              isLastSection={series.length === 0}
               onViewAll={() =>
                 router.push({
                   pathname: "/(tv)/explore",
@@ -810,7 +688,7 @@ export default function HomeTvScreen() {
             />
           </View>
 
-          {/* 3. Series recién agregadas */}
+          {/* 2. Series recién agregadas */}
           <View
             onLayout={(e) => {
               sectionLayouts.current["series"] = e.nativeEvent.layout.y;
@@ -824,6 +702,7 @@ export default function HomeTvScreen() {
               accentColor={C.accentFire}
               viewAllSublabel="Todas las series"
               onSectionFocus={handleSectionFocus}
+              isLastSection={true}
               onViewAll={() =>
                 router.push({
                   pathname: "/(tv)/explore",
@@ -832,54 +711,6 @@ export default function HomeTvScreen() {
               }
             />
           </View>
-
-          {/* 4. Agregados recientemente */}
-          <View
-            onLayout={(e) => {
-              sectionLayouts.current["recent"] = e.nativeEvent.layout.y;
-            }}
-          >
-            <ContentRow
-              sectionKey="recent"
-              title="Agregados recientemente"
-              items={recent}
-              onPress={handleContentPress}
-              accentColor={C.accent}
-              viewAllSublabel="Todos los estrenos"
-              onSectionFocus={handleSectionFocus}
-              onViewAll={() =>
-                router.push({
-                  pathname: "/(tv)/explore",
-                  params: { sort: "recent" },
-                } as any)
-              }
-            />
-          </View>
-
-          {/* 5. Anime y Animación */}
-          {anime.length > 0 && (
-            <View
-              onLayout={(e) => {
-                sectionLayouts.current["anime"] = e.nativeEvent.layout.y;
-              }}
-            >
-              <ContentRow
-                sectionKey="anime"
-                title="Anime y Animación"
-                items={anime}
-                onPress={handleContentPress}
-                accentColor="#e11d63"
-                viewAllSublabel="Todo el anime"
-                onSectionFocus={handleSectionFocus}
-                onViewAll={() =>
-                  router.push({
-                    pathname: "/(tv)/explore",
-                    params: { type: "ANIME" },
-                  } as any)
-                }
-              />
-            </View>
-          )}
         </ScrollView>
       </View>
     </View>
@@ -899,74 +730,65 @@ const s = StyleSheet.create({
   },
   loadText: { color: C.textSecondary, fontSize: scale(13) },
 
-  // ── 1. Sector Hero Fijo (Tamaño Proporcionado y Majestuoso) ──
+  // ── 1. Sector Hero Fijo (Altura bloqueada para que nunca suban ni bajen botones ni cards) ──
   fixedHeroContainer: {
-    paddingTop: scale(88),
-    paddingBottom: scale(14),
+    height: scale(296),
+    paddingTop: scale(48),
+    paddingBottom: scale(10),
+    justifyContent: "flex-start",
     zIndex: 10,
   },
 
   heroInfo: {
     paddingLeft: CONTENT_LEFT_PAD,
     paddingRight: scale(36),
-    maxWidth: scale(720),
+    maxWidth: scale(700),
+    height: scale(238),
+    justifyContent: "flex-start",
     zIndex: 2,
   },
 
-  taglineChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(6),
-    backgroundColor: "rgba(255, 183, 3, 0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 183, 3, 0.35)",
-    paddingHorizontal: scale(12),
-    paddingVertical: scale(4.5),
-    borderRadius: scale(14),
-    alignSelf: "flex-start",
-    marginBottom: scale(10),
-  },
-  taglineChipText: {
-    color: C.accent,
-    fontSize: scale(12),
-    fontWeight: "800",
-    letterSpacing: 0.8,
+  heroTitleBox: {
+    height: scale(44),
+    justifyContent: "center",
+    marginBottom: scale(12),
   },
 
   heroTitle: {
     fontFamily: "Bangers",
-    fontSize: scale(52),
+    fontSize: scale(35),
     color: C.accent,
     letterSpacing: 0.8,
-    marginBottom: scale(8),
-    lineHeight: scale(56),
+    lineHeight: scale(40),
+    includeFontPadding: false,
     textShadowColor: "rgba(0,0,0,0.85)",
     textShadowOffset: { width: 1, height: 2 },
     textShadowRadius: 8,
   },
 
   heroMeta: {
+    height: scale(20),
     flexDirection: "row",
-    flexWrap: "wrap",
     alignItems: "center",
-    marginBottom: scale(8),
+    marginBottom: scale(6),
   },
   heroMetaText: {
-    fontSize: scale(14),
+    fontSize: scale(13.5),
     color: "rgba(255,255,255,0.88)",
     fontWeight: "600",
   },
 
   heroBadges: {
+    height: scale(24),
     flexDirection: "row",
+    alignItems: "center",
     gap: scale(8),
-    marginBottom: scale(10),
-    flexWrap: "wrap",
+    marginBottom: scale(8),
   },
   badge: {
     backgroundColor: "rgba(40,40,40,0.75)",
     paddingHorizontal: scale(9),
-    paddingVertical: scale(3),
+    paddingVertical: scale(2.5),
     borderRadius: scale(5),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.2)",
@@ -975,18 +797,26 @@ const s = StyleSheet.create({
     borderColor: "rgba(255,183,3,0.45)",
     backgroundColor: "rgba(255,183,3,0.15)",
   },
-  badgeText: { fontSize: scale(12), color: "#fff", fontWeight: "700" },
+  badgeText: { fontSize: scale(11.5), color: "#fff", fontWeight: "700" },
+
+  heroDescBox: {
+    height: scale(74),
+    justifyContent: "flex-start",
+    marginBottom: scale(12),
+    maxWidth: scale(470),
+  },
 
   heroDesc: {
-    fontSize: scale(14),
+    fontSize: scale(13.5),
     color: "rgba(255,255,255,0.85)",
-    lineHeight: scale(20),
-    marginBottom: scale(14),
-    maxWidth: scale(720),
+    lineHeight: scale(18.5),
+    maxWidth: scale(470),
   },
 
   heroButtons: {
+    height: scale(41),
     flexDirection: "row",
+    alignItems: "center",
     gap: scale(12),
   },
   btnPlay: {
@@ -994,40 +824,23 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: scale(8),
     backgroundColor: C.accent,
-    paddingHorizontal: scale(24),
-    height: scale(44),
+    paddingHorizontal: scale(22),
+    height: scale(41),
     borderRadius: scale(9),
     borderWidth: 2,
     borderColor: "transparent",
   },
   btnPlayFocused: {
-    backgroundColor: "#fff",
-    borderColor: "#fff",
+    backgroundColor: "#ffffff",
+    borderColor: C.accent,
   },
-  btnPlayText: { color: "#000", fontSize: scale(14.5), fontWeight: "900" },
+  btnPlayText: { color: "#000000", fontSize: scale(14), fontWeight: "900" },
 
-  btnDetails: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(8),
-    backgroundColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: scale(22),
-    height: scale(44),
-    borderRadius: scale(9),
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.2)",
-  },
-  btnDetailsFocused: {
-    backgroundColor: "rgba(255,255,255,0.28)",
-    borderColor: "#fff",
-  },
-  btnDetailsText: { color: "#fff", fontSize: scale(14), fontWeight: "800" },
-
-  // ── Hero Selector (Cards de portada integradas al scroll) ──
+  // ── Hero Selector (Cards de portada integradas al scroll con mismo tamaño fijo) ──
   heroSelectorWrapper: {
-    marginTop: scale(2),
-    marginBottom: scale(10),
-    paddingTop: scale(4),
+    marginTop: scale(12),
+    marginBottom: scale(8),
+    paddingTop: scale(6),
     overflow: "visible",
   },
   heroSelectorTrack: {
@@ -1035,31 +848,28 @@ const s = StyleSheet.create({
     paddingRight: scale(36),
     paddingVertical: scale(8),
     gap: CARD_GAP,
-    alignItems: "flex-end",
+    alignItems: "center",
   },
   hsCard: {
     width: HS_CARD_W,
     height: HS_CARD_H,
     borderRadius: scale(10),
-    overflow: "hidden",
     backgroundColor: "#161616",
     borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  hsCardInner: {
+    flex: 1,
+    borderRadius: scale(8),
+    overflow: "hidden",
+    backgroundColor: "#161616",
+    position: "relative",
   },
   hsCardActive: {
-    width: HS_CARD_ACTIVE_W,
     borderColor: C.accent,
-    shadowColor: C.accent,
-    shadowOpacity: 0.45,
-    shadowRadius: scale(8),
-    elevation: 8,
   },
   hsCardFocused: {
     borderColor: "#ffffff",
-    shadowColor: "#ffffff",
-    shadowOpacity: 0.5,
-    shadowRadius: scale(8),
-    elevation: 10,
     zIndex: 10,
   },
   hsCardInfo: {
@@ -1067,18 +877,14 @@ const s = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    padding: scale(8),
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(6),
   },
   hsCardTitle: {
     color: "#fff",
     fontSize: scale(11.5),
-    fontWeight: "900",
-    letterSpacing: 0.3,
-  },
-  hsCardSub: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: scale(9.5),
-    marginTop: scale(1.5),
+    fontWeight: "800",
+    letterSpacing: 0.2,
   },
 
   // ── 2. Sector Inferior Scrollable ──
@@ -1091,11 +897,11 @@ const s = StyleSheet.create({
     flex: 1,
   },
   bottomScrollContent: {
-    paddingBottom: scale(220),
+    paddingBottom: scale(16),
   },
 
   contentSection: {
-    marginBottom: scale(20),
+    marginBottom: scale(16),
   },
   sectionHeader: {
     flexDirection: "row",
@@ -1127,84 +933,5 @@ const s = StyleSheet.create({
     paddingRight: scale(36),
     paddingVertical: scale(8),
     gap: CARD_GAP,
-  },
-
-  // ── Tendencia Suave y Fluida ──
-  trendCard: {
-    width: TREND_W,
-    height: TREND_H,
-    borderRadius: scale(10),
-    overflow: "hidden",
-    backgroundColor: C.bgCard,
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  trendCardActiveBorder: {
-    borderColor: "#ffffff",
-    shadowColor: "#ffffff",
-    shadowOpacity: 0.4,
-    shadowRadius: scale(8),
-    elevation: 8,
-  },
-  trendBannerGrad: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: scale(12),
-    paddingVertical: scale(8),
-  },
-  trendBannerTitle: {
-    color: "#ffffff",
-    fontSize: scale(11.5),
-    fontWeight: "900",
-    letterSpacing: 0.4,
-  },
-  trendBannerSub: {
-    color: C.accent,
-    fontSize: scale(10),
-    fontWeight: "700",
-    marginTop: scale(2),
-  },
-
-  // ── Continuar Viendo ──
-  continueCard: {
-    width: CONT_CARD_W,
-    height: CONT_CARD_H,
-    borderRadius: scale(10),
-    overflow: "hidden",
-    backgroundColor: C.bgCard,
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  continueCardFocused: {
-    borderColor: "#ffffff",
-    elevation: 6,
-  },
-  continueCardImgWrap: {
-    width: "100%",
-    height: scale(88),
-    backgroundColor: "#111",
-  },
-  continueFallback: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  progressBarTrack: {
-    height: scale(3),
-    backgroundColor: "rgba(255,255,255,0.15)",
-  },
-  progressBarFill: {
-    height: "100%",
-    backgroundColor: C.accentOrange,
-  },
-  continueInfo: {
-    padding: scale(6),
-  },
-  continueTitle: {
-    color: C.textPrimary,
-    fontSize: scale(11),
-    fontWeight: "700",
   },
 });

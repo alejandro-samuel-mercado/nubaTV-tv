@@ -7,6 +7,7 @@ import { scale } from "../../lib/scale";
 
 interface Props {
   onPress: () => void;
+  onFocus?: () => void;
   accentColor?: string;
   title?: string;
   subtitle?: string; // Compatibilidad retroactiva: se ignora para no saturar con texto
@@ -18,6 +19,7 @@ interface Props {
 
 function HeroGridSeeAllCard({
   onPress,
+  onFocus,
   accentColor = "#ffb703",
   title = "Ver todo",
   trapFocusRight = true,
@@ -26,8 +28,9 @@ function HeroGridSeeAllCard({
   return (
     <Focusable
       onPress={onPress}
+      onFocus={onFocus}
       trapFocusRight={trapFocusRight}
-      scaleFocused={1.04}
+      scaleFocused={1.02}
       style={[
         s.card,
         {
@@ -98,7 +101,6 @@ const s = StyleSheet.create({
     width: "48.5%",
     height: "48.5%",
     borderRadius: scale(14),
-    overflow: "hidden",
     backgroundColor: "rgba(18, 12, 32, 0.85)",
     borderWidth: 2,
     position: "relative",
@@ -111,6 +113,8 @@ const s = StyleSheet.create({
   },
   inner: {
     flex: 1,
+    borderRadius: scale(12),
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
     padding: scale(10),
